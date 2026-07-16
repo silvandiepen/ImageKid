@@ -6,7 +6,7 @@ struct FloatingToolPanel<Content: View>: View {
     let width: CGFloat
     @Binding var offset: CGSize
     let onClose: () -> Void
-    @ViewBuilder let content: Content
+    let content: Content
 
     @GestureState private var dragTranslation: CGSize = .zero
 
