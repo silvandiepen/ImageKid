@@ -148,8 +148,17 @@ struct AppCommands: Commands {
     }
 }
 
+final class ImageKidApplicationDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        if let icon = ImageKidIconRenderer.makeNSImage() {
+            NSApplication.shared.applicationIconImage = icon
+        }
+    }
+}
+
 @main
 struct ImageKidApp: App {
+    @NSApplicationDelegateAdaptor(ImageKidApplicationDelegate.self) private var applicationDelegate
     @StateObject private var appModel = AppModel()
 
     var body: some Scene {
@@ -158,6 +167,7 @@ struct ImageKidApp: App {
                 .environmentObject(appModel)
                 .frame(minWidth: 720, minHeight: 480)
         }
+        .defaultSize(width: 940, height: 720)
         .windowStyle(.hiddenTitleBar)
         .commands {
             AppCommands(appModel: appModel)
