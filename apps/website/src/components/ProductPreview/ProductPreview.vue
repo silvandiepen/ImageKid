@@ -2,41 +2,64 @@
   <figure :class="bemm('', compact ? 'compact' : '')" aria-label="Illustrated representation of the ImageKid interface">
     <div :class="bemm('window')">
       <div :class="bemm('titlebar')">
-        <span :class="bemm('traffic')" />
-        <span :class="bemm('filename')">coast.heic</span>
-        <span :class="bemm('zoom')">72%</span>
+        <span :class="bemm('traffic')" aria-hidden="true"><i /><i /><i /></span>
+        <span :class="bemm('app-name')">ImageKid</span>
+        <span :class="bemm('document')">coast.heic</span>
       </div>
       <div :class="bemm('canvas')">
-        <div :class="bemm('image')">
+        <div :class="bemm('image')" aria-hidden="true">
           <div :class="bemm('sun')" />
-          <div :class="bemm('ridge')" />
-          <span v-for="corner in corners" :key="corner" :class="bemm('handle', corner)" />
+          <div :class="bemm('ridge', 'far')" />
+          <div :class="bemm('ridge', 'near')" />
         </div>
-        <div :class="bemm('readout')">
-          <span :class="bemm('swatch')" />
-          <span :class="bemm('colour-value')">#315FDB</span>
-          <span :class="bemm('coordinates')">49, 86</span>
+
+        <aside :class="bemm('palette')">
+          <div :class="bemm('palette-heading')">
+            <strong>Picked Colours</strong>
+            <span>2 saved</span>
+          </div>
+          <div :class="bemm('colour-row')">
+            <span :class="bemm('swatch', 'primary')" />
+            <span><strong>#315FDB</strong><small>49, 95, 219</small></span>
+          </div>
+          <div :class="bemm('colour-row')">
+            <span :class="bemm('swatch', 'ink')" />
+            <span><strong>#151820</strong><small>21, 24, 32</small></span>
+          </div>
+        </aside>
+
+        <div :class="bemm('picker')">
+          <span :class="bemm('picker-swatch')" />
+          <span><strong>#315FDB</strong><small>RGB 49 95 219</small></span>
         </div>
-        <div :class="bemm('toolbar')">
-          <span :class="bemm('tool')">View</span>
-          <strong :class="bemm('tool', 'active')">Pick</strong>
-          <span :class="bemm('tool')">Crop</span>
-          <span :class="bemm('tool', 'optional')">Draw</span>
-          <span :class="bemm('tool', 'optional')">Text</span>
-          <span :class="bemm('tool', 'optional')">Export</span>
+
+        <div :class="bemm('toolbar')" aria-label="ImageKid tools">
+          <span
+            v-for="tool in tools"
+            :key="tool.label"
+            :class="bemm('tool', tool.active ? 'active' : '')"
+          >
+            <Icon :name="tool.icon" size="small" aria-hidden="true" />
+            <span>{{ tool.label }}</span>
+          </span>
         </div>
       </div>
     </div>
-    <figcaption :class="bemm('caption')">Interface representation based on the current native build.</figcaption>
+    <figcaption :class="bemm('caption')">
+      <strong :class="bemm('caption-label')">Current source build</strong>
+      <span>Interface representation of the current source build. Shown with the Pick Colour tool active.</span>
+    </figcaption>
   </figure>
 </template>
 
 <script setup lang="ts">
+import { Icon } from "@sil/ui";
 import { useBemm } from "bemm";
 
 import type { ProductPreviewProps } from "./ProductPreview.model";
+import { productPreviewTools } from "./ProductPreview.model";
 
 withDefaults(defineProps<ProductPreviewProps>(), { compact: false });
 const bemm = useBemm("product-preview", { includeBaseClass: true });
-const corners = ["top-left", "top-right", "bottom-left", "bottom-right"];
+const tools = productPreviewTools;
 </script>

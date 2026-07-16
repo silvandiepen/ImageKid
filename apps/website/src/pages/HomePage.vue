@@ -4,12 +4,13 @@
       <div :class="bemm('hero-copy')">
         <p :class="bemm('eyebrow')">Native image tools for Mac</p>
         <h1 :class="bemm('title')">Inspect, edit, and export images on your Mac.</h1>
-        <p :class="bemm('lead')">Open an image, inspect exact colours, make a focused edit, and export a full-resolution result. Basic local video playback is available separately. Your files stay on your Mac.</p>
+        <p :class="bemm('lead')">Open an image, inspect exact colours, make a focused edit, and export a full-resolution result — without sending the file anywhere.</p>
+        <p :class="bemm('video-note')">Video support is currently limited to local playback.</p>
         <div :class="bemm('actions')">
           <Button to="/docs/getting-started" variant="primary">Build from source</Button>
-          <Button to="/features" variant="outline">See current features</Button>
+          <Button to="/features" variant="outline">Explore current features</Button>
         </div>
-        <p :class="bemm('status')">Early-stage source build for macOS 14+. No packaged download is available yet.</p>
+        <p :class="bemm('status')"><span>Source build</span><span>macOS 14+</span><span>No packaged release</span></p>
       </div>
       <ProductPreview />
     </section>
@@ -18,24 +19,14 @@
       <div :class="bemm('section-intro')">
         <p :class="bemm('eyebrow')">One focused image workflow</p>
         <h2 :class="bemm('heading')">From local image to useful output.</h2>
+        <p :class="bemm('section-copy')">The tools appear when they matter and stay out of the way when they do not.</p>
       </div>
       <ol :class="bemm('steps')">
-        <li :class="bemm('step')">
+        <li v-for="(step, index) in steps" :key="step.title" :class="bemm('step')">
+          <span :class="bemm('step-number')">0{{ index + 1 }}</span>
           <div :class="bemm('step-copy')">
-            <strong :class="bemm('step-title')">Open directly.</strong>
-            <span :class="bemm('step-description')">Drop an image, paste one, or use File › Open.</span>
-          </div>
-        </li>
-        <li :class="bemm('step')">
-          <div :class="bemm('step-copy')">
-            <strong :class="bemm('step-title')">Edit the image.</strong>
-            <span :class="bemm('step-description')">Fit, pan, zoom, sample pixels, crop, resize, or annotate without a permanent editor sidebar.</span>
-          </div>
-        </li>
-        <li :class="bemm('step')">
-          <div :class="bemm('step-copy')">
-            <strong :class="bemm('step-title')">Export deliberately.</strong>
-            <span :class="bemm('step-description')">Choose an image format and render from the original image plus your edit state.</span>
+            <strong :class="bemm('step-title')">{{ step.title }}</strong>
+            <span :class="bemm('step-description')">{{ step.description }}</span>
           </div>
         </li>
       </ol>
@@ -47,24 +38,16 @@
         <h2 :class="bemm('heading')">Small image tasks, together.</h2>
       </div>
       <div :class="bemm('capability-list')">
-        <div :class="bemm('capability')">
-          <h3 :class="bemm('capability-title')">View and inspect</h3>
-          <p :class="bemm('capability-copy')">Fitted viewing, mouse and trackpad pan, pinch zoom, pixel colour sampling, saved colour values, and palette file export.</p>
-        </div>
-        <div :class="bemm('capability')">
-          <h3 :class="bemm('capability-title')">Crop and resize</h3>
-          <p :class="bemm('capability-copy')">Free crop, ratio choices, handles, pixel dimensions, exact sizing, percentages, and scale presets.</p>
-        </div>
-        <div :class="bemm('capability')">
-          <h3 :class="bemm('capability-title')">Annotate</h3>
-          <p :class="bemm('capability-copy')">Editable rectangles, ellipses, lines, arrows, freehand strokes, and text with contextual controls.</p>
-        </div>
-        <div :class="bemm('capability')">
-          <h3 :class="bemm('capability-title')">Export images</h3>
-          <p :class="bemm('capability-copy')">PNG, JPEG, HEIC, TIFF, BMP, and GIF output with format controls. Exports are rendered at full resolution.</p>
-        </div>
+        <article v-for="capability in capabilities" :key="capability.title" :class="bemm('capability')">
+          <span :class="bemm('capability-marker')" aria-hidden="true" />
+          <h3 :class="bemm('capability-title')">{{ capability.title }}</h3>
+          <p :class="bemm('capability-copy')">{{ capability.copy }}</p>
+        </article>
       </div>
-      <p :class="bemm('limitation')">Video support is currently basic local playback only. Video editing and export are planned, not implemented.</p>
+      <aside :class="bemm('limitation')">
+        <strong>Playback only</strong>
+        <span>Video editing and export are planned, not implemented.</span>
+      </aside>
     </section>
 
     <section :class="bemm('privacy')">
@@ -78,10 +61,10 @@
     <section :class="bemm('cta')">
       <div :class="bemm('panel-copy')">
         <p :class="bemm('eyebrow')">Current status</p>
-        <h2 :class="bemm('heading')">Build the native foundation.</h2>
-        <p :class="bemm('cta-description')">The source package builds on macOS with Xcode 16 and Swift 5.10. Signing, sandboxing, notarisation, and App Store packaging remain future release work.</p>
+        <h2 :class="bemm('heading')">Run the current native build.</h2>
+        <p :class="bemm('cta-description')">Build the Swift package on macOS with Xcode 16 and Swift 5.10. It is not signed, sandboxed, notarised, or packaged for distribution.</p>
       </div>
-      <Button to="/docs/getting-started" variant="primary">Read build guide</Button>
+      <Button to="/docs/getting-started" variant="primary">Read the build guide</Button>
     </section>
   </div>
 </template>
@@ -92,4 +75,15 @@ import { useBemm } from "bemm";
 import ProductPreview from "../components/ProductPreview";
 
 const bemm = useBemm("home-page", { includeBaseClass: true });
+const steps = [
+  { title: "Open directly.", description: "Drop an image, paste one, or use File › Open." },
+  { title: "Edit the image.", description: "Pan, zoom, sample pixels, crop, resize, or annotate without a permanent editor sidebar." },
+  { title: "Export deliberately.", description: "Choose an image format and render from the original image plus your edit state." }
+];
+const capabilities = [
+  { title: "View and inspect", copy: "Fitted viewing, pan, pinch zoom, pixel colour sampling, saved colour values, and palette export." },
+  { title: "Crop and resize", copy: "Free crop, ratio choices, handles, pixel dimensions, exact sizing, percentages, and scale presets." },
+  { title: "Annotate", copy: "Editable rectangles, ellipses, lines, arrows, freehand strokes, and text with contextual controls." },
+  { title: "Export images", copy: "PNG, JPEG, HEIC, TIFF, BMP, and GIF output rendered from the full-resolution image." }
+];
 </script>
