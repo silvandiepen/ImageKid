@@ -1,0 +1,43 @@
+name: Deploy website
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [development, main]
+    paths:
+      - "apps/website/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/website-deploy.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - name: Select Pages project
+        id: project
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+            echo "name=imagekid" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=imagekid-dev" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.88.0"
+          workingDirectory: apps/website
+          command: pages deploy dist --project-name=${{ steps.project.outputs.name }} --branch=${{ github.ref_name }}

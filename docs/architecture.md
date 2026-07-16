@@ -21,27 +21,29 @@ No third-party runtime dependency is currently required.
 
 ```text
 ImageKid/
-├── Package.swift
-├── Sources/ImageKid/
-│   ├── App.swift
-│   ├── Domain.swift
-│   ├── Services.swift
-│   ├── ContentView.swift
-│   ├── EmptyStateView.swift
-│   ├── ImageWorkspaceView.swift
-│   ├── VideoWorkspaceView.swift
-│   ├── FloatingToolbar.swift
-│   ├── CropOverlay.swift
-│   ├── ColorStrip.swift
-│   └── ResizeSheet.swift
-└── Tests/ImageKidTests/
+├── apps/
+│   ├── native-macos/
+│   │   ├── Package.swift
+│   │   ├── Sources/ImageKid/
+│   │   └── Tests/ImageKidTests/
+│   └── website/
+│       ├── src/
+│       │   ├── components/
+│       │   ├── composables/
+│       │   ├── pages/
+│       │   └── styles/
+│       └── public/
+├── docs/
+├── packages/
+├── package.json
+└── package-lock.json
 ```
 
-The current structure is intentionally compact. Split services and domain types further only when their responsibilities become substantial.
+The monorepo keeps native product behavior and the static website in separate app boundaries. Native services and domain types should be split further only when their responsibilities become substantial; reusable cross-app code belongs in `packages`.
 
 ## Session ownership
 
-A window owns one active `MediaItem`, either an `ImageSession` or `VideoSession`. The source remains immutable. The session stores view state and non-destructive edit intent.
+Each window instantiates and owns its own `AppModel`, which contains one active `MediaItem`, either an `ImageSession` or `VideoSession`. Focused scene commands resolve the model for the active window. The source remains immutable. The session stores view state and non-destructive edit intent.
 
 Observable UI state may contain lightweight values such as zoom, pan, crop geometry, output dimensions, annotations, and sampled colours. Large pixel buffers and decoded video frames must remain service-owned rather than observable state.
 

@@ -1,85 +1,79 @@
 # ImageKid
 
-ImageKid is a small, native macOS utility for opening, viewing, inspecting, resizing, cropping, and annotating images and basic video.
+ImageKid is a native macOS utility for opening, viewing, inspecting, resizing, cropping, annotating, and exporting local images. It also provides basic local video playback. The repository includes the static product website at [imagekid.hakobs.com](https://imagekid.hakobs.com).
 
-The media is the interface. Drop, paste, or open a local file and it appears immediately in a quiet Preview-like window. Moving the pointer reveals a compact action bar; the same commands are available from the macOS menu bar and keyboard.
+The app is offline by design: no account, cloud processing, analytics, ads, paid API, remote activation, or runtime download.
 
-ImageKid is offline by design. It has no account, cloud processing, analytics, paid API, or runtime download.
+## Monorepo
 
-## Current foundation build
+- `apps/native-macos` — Swift Package Manager executable, native app source, and tests.
+- `apps/website` — Vue 3, Vite, and strict TypeScript product site and public docs.
+- `packages` — reserved for code shared by apps; apps never depend on one another.
+- `docs` — product, requirements, architecture, implementation, release, and contributor documentation.
 
-The repository now contains a buildable Swift package and native macOS application entry point.
+Node 22 or newer is required for workspace commands. Native development requires macOS 14+, Xcode 16+, and Swift 5.10+.
 
-Implemented in the current scaffold:
+## Current native capabilities
 
-- native SwiftUI application and window lifecycle;
-- drag and drop, File > Open, Command-O, and pasteboard input;
-- image and common AVFoundation video loading;
-- fitted image viewing, panning, pinch zoom, and reset;
-- native video playback through `AVPlayer`;
-- click-to-sample image colours and copy HEX values;
-- session colour strip;
-- non-destructive crop selection state;
-- exact or percentage resize state;
-- rectangle and text annotation foundations;
-- full-resolution PNG, JPEG, and TIFF image export;
-- geometry unit tests;
-- macOS GitHub Actions build and test workflow.
+- File panel, drag and drop, URL paste, and image paste.
+- Fitted image viewing, mouse and trackpad pan, pinch zoom, and reset.
+- Pixel colour sampling, saved colour values, copy formats, and palette file export.
+- Crop handles, guides, free crop, ratios, and editable dimensions.
+- Exact and percentage resize controls.
+- Editable rectangle, ellipse, line, arrow, freehand, and text annotations.
+- Full-resolution PNG, JPEG, HEIC, TIFF, BMP, and GIF image export.
+- Basic local video loading and playback through AVFoundation.
 
-Still to implement before a first useful release:
+The colour picker does not yet have a pixel-grid loupe or dominant-palette extraction. Undo, close protection, blur/pixelation, metadata preservation, and production packaging remain incomplete. Video editing and export are not implemented.
 
-- colour loupe and palette extraction;
-- crop handles and ratio presets;
-- editable annotation selection, arrows, drawing, blur, and pixelation;
-- undo and dirty-close protection;
-- video colour sampling, crop, annotations, and export;
-- richer metadata and colour-profile handling;
-- accessibility and performance hardening.
+## Development
 
-AI upscaling is deliberately deferred. It is not part of the current build, architecture, release scope, or dependency graph.
-
-## Build
-
-Requirements:
-
-- macOS 14 or newer;
-- Xcode 16 or newer with the macOS SDK;
-- Swift 5.10 or newer.
-
-Open `Package.swift` in Xcode, select the `ImageKid` scheme, and run it on My Mac.
-
-From Terminal:
+Install the website workspace from the repository root:
 
 ```bash
+npm install
+npm run site:dev
+```
+
+Run all website checks:
+
+```bash
+npm run check
+```
+
+Native commands from the root:
+
+```bash
+npm run native:build
+npm run native:test
+npm run native:run
+```
+
+Or work directly in `apps/native-macos`:
+
+```bash
+cd apps/native-macos
 swift build
 swift test
 swift run ImageKid
 ```
 
-The current package is intended for development and validation. Before App Store or notarised distribution, create or generate a signed macOS application target with the correct bundle identifier, sandbox entitlements, assets, and archive settings.
+Open `apps/native-macos/Package.swift` in Xcode to run the `ImageKid` scheme on My Mac. Swift build and test require macOS frameworks and cannot run on Linux.
 
-## Product principles
+## Website deployment
 
-- Media-first rather than editor-first.
-- No permanent sidebar or layer panel.
-- Tools appear only when needed.
-- One image or video per window.
-- Source files are never overwritten implicitly.
-- Every feature works without an internet connection.
-- Native menus, keyboard commands, drag and drop, pasteboard, and file panels.
+The website builds to `apps/website/dist` as a static SPA. Cloudflare Pages uses `imagekid-dev` for the `development` branch and `imagekid` for `main`. Pull requests run the website check workflow; branch deployments run only through the deploy workflow and repository secrets.
+
+See [docs/website.md](docs/website.md) for routes, domains, content ownership, and deployment details.
+
+## Release status
+
+The repository is a development foundation. A successful Swift package build is not a signed, sandboxed, notarised, or App Store-ready application. There is currently no packaged download. See [docs/release-boundary.md](docs/release-boundary.md).
 
 ## Documentation
 
-- [Documentation index](docs/README.md)
-- [Product definition](docs/product.md)
-- [Requirements](docs/requirements.md)
-- [User experience](docs/ux.md)
-- [Architecture](docs/architecture.md)
-- [Implementation status](docs/implementation.md)
-- [Decisions](docs/decisions.md)
-- [Testing](docs/testing.md)
-- [Roadmap](docs/roadmap.md)
+Start with the [documentation index](docs/README.md), [product definition](docs/product.md), [implementation status](docs/implementation.md), [requirements](docs/requirements.md), and [architecture](docs/architecture.md).
 
 ## Licence
 
-No project licence has been selected yet. Add a licence before accepting outside contributions or distributing source under open-source terms.
+No open-source licence has been selected. Source availability is not permission to copy, modify, redistribute, or reuse the code or assets.
