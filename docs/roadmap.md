@@ -1,136 +1,113 @@
 # Roadmap
 
-The roadmap is ordered to reduce technical risk before broad UI polish. Each milestone should leave a demonstrable, testable application.
+The roadmap is ordered so every milestone leaves a demonstrable, testable application. AI upscaling is intentionally excluded.
 
-## Milestone 0 — Model and platform feasibility
+## Milestone 0 — Buildable foundation
 
-Before scaffolding the complete product:
+Status: implemented in the current scaffold.
 
-- convert one candidate Real-ESRGAN-compatible checkpoint to Core ML;
-- run it from a minimal Swift macOS harness;
-- verify output against the reference implementation;
-- prototype overlapping tiles;
-- measure speed and memory on representative Apple Silicon Macs;
-- test screenshots, photos, text, faces, illustrations, and alpha handling;
-- verify code and model-weight redistribution terms;
-- prototype `AVAssetReader` → model → `AVAssetWriter` on a short clip;
-- measure temporal shimmer and audio synchronisation.
-
-Exit criteria: one legally usable model can be bundled and produces acceptable local image output; frame-based video processing is proven end to end.
-
-## Milestone 1 — Native media viewer
-
-- SwiftUI app and window lifecycle.
+- Swift package and native macOS application lifecycle.
 - Empty drop state.
-- Open, paste, Open With, recent files.
-- One media item per window.
-- Image decode and metadata.
-- Video playback, scrub, pause, frame step, mute, and metadata.
-- AppKit zoomable/pannable canvas.
-- Fit, actual size, menus, and shortcuts.
-- Error handling for unsupported media.
+- Open, paste, drag and drop.
+- Image loading and basic video playback.
+- Initial menus and keyboard commands.
+- Geometry tests and macOS CI.
 
-Exit criteria: ImageKid is already useful as a clean image and basic video viewer.
+Exit criteria: the repository builds and tests on macOS through SwiftPM and runs from Xcode.
+
+## Milestone 1 — Complete native viewer
+
+- One media item per window and multiple-window opening.
+- Recent files and Finder Open With.
+- AppKit-backed precision canvas if SwiftUI interaction proves insufficient.
+- Fit, actual size, anchored zoom, pan, and background selection.
+- Image and video metadata.
+- Video mute, frame stepping, exact time display, and paused-frame ownership.
+- Unsupported media and protected-content errors.
+
+Exit criteria: ImageKid is useful as a clean image and basic video viewer.
 
 ## Milestone 2 — Colour inspection
 
-- Exact pixel sampler.
-- Video current-frame sampler.
-- Magnified loupe.
-- Session colour strip.
-- Copy formats.
-- Dominant image/current-frame palette extraction.
+- Exact orientation-aware pixel sampler.
+- Magnified live loupe.
+- Current-frame video sampler.
+- Session colour strip management.
+- All copy formats.
+- Dominant image, region, and current-frame palette extraction.
 - Colour-profile handling and tests.
 
-Exit criteria: values remain identical at every zoom and across supported orientation cases.
+Exit criteria: sampled values remain identical across zoom levels, view sizes, and orientation cases.
 
 ## Milestone 3 — Crop and standard resize
 
-- Non-destructive crop state.
-- Ratio presets and keyboard controls.
-- Resize sheet with Exact, Fit, Fill, percent, and aspect lock.
-- Full-resolution image export.
-- Streaming standard video crop/resize export.
-- Undo and close protection.
+- Cropped working preview.
+- Drag handles and ratio presets.
+- Exact, percentage, Fit, Fill, and Prevent Upscaling resize modes.
+- Full-resolution image export through Image I/O.
+- Format, quality, alpha, metadata, and colour-profile controls.
+- Undo and dirty-close protection.
 
-Exit criteria: output dimensions, timing, orientation, and audio match requirements.
+Exit criteria: exported image dimensions, geometry, colour, and transparency match the preview and selected settings.
 
-## Milestone 4 — Image annotation
+## Milestone 4 — Complete image annotation
 
-- Select, Arrow, Line, Rectangle, Ellipse, Freehand, Text, Marker, Blur, Pixelate.
+- Select, Arrow, Line, Rectangle, Ellipse, Freehand, Text, Marker, Blur, and Pixelate.
 - Contextual properties.
-- Object hit testing, handles, ordering, duplication, and deletion.
+- Hit testing, handles, ordering, duplication, deletion, and keyboard movement.
 - Native text editing.
-- Source-space rendering.
-- Copy processed image.
-- Accessibility representation for annotations.
+- Source-space rendering and processed-image copy.
+- Accessibility representation for annotation objects.
 
-Exit criteria: annotations remain editable and export accurately at multiple scales.
+Exit criteria: annotations remain editable and export accurately at multiple output scales.
 
-## Milestone 5 — Video annotation
+## Milestone 5 — Basic video processing
 
-- Reuse source-space annotations on frames.
+- Stable current-frame provider.
+- Colour picking from paused frames.
+- Complete-clip crop and resize.
+- Streaming `AVAssetReader` and `AVAssetWriter` pipeline.
+- H.264 and HEVC output.
+- Audio passthrough or local re-encode.
+- Atomic export, progress, and cancellation.
+
+Exit criteria: representative clips preserve orientation, duration, timestamps, frame rate, and audio synchronisation.
+
+## Milestone 6 — Video annotation
+
+- Reuse source-space annotation types on video frames.
 - Full-clip visibility by default.
-- Start/end time ranges.
-- Scrubber range indication.
-- Frame-accurate compositing during preview and export.
-- Copy current processed frame.
+- Start and end time ranges.
+- Scrubber range indication without a full timeline.
+- Frame-accurate preview and export compositing.
+- Copy processed current frame.
 
-Exit criteria: annotation boundaries are correct and export preserves synchronisation.
+Exit criteria: annotation boundaries are frame-correct and exports remain synchronised.
 
-## Milestone 6 — Bundled image AI upscale
-
-- Core ML model registry and manifest.
-- General model bundled in the signed app.
-- Adaptive tiling and seam-safe blending.
-- 2x, 3x, and 4x output.
-- Alpha reconstruction path.
-- Before/after region preview.
-- Progress, cancellation, memory handling, and notices.
-- Optional illustration model only after licence verification.
-
-Exit criteria: the app works with networking disabled and beats standard resize on the approved benchmark set without unacceptable distortion.
-
-## Milestone 7 — Frame-based video AI upscale
-
-- Streaming reader/inference/writer pipeline.
-- Backpressure and bounded memory.
-- Audio passthrough/re-encode path.
-- Annotation compositing.
-- Representative-frame preview.
-- Clear temporal-flicker warning.
-- Long-job progress, cancellation, atomic output, and sleep activity handling.
-
-Exit criteria: short and medium clips export reliably with correct duration and audio sync.
-
-## Milestone 8 — Product hardening
+## Milestone 7 — Product hardening
 
 - Crash recovery where justified.
 - Accessibility audit.
-- Performance matrix and minimum hardware decision.
-- Memory-pressure handling.
-- Third-party notices and model information UI.
-- Sandboxing, signing, notarisation, and App Store feasibility review.
+- Performance and memory matrix.
+- Very large image preview strategy.
+- Sandboxing and security-scoped file access.
+- Signed application target, icon, versioning, archive, and notarisation.
 - Complete offline release test.
+- Final project licence and contribution policy.
 
-## Future research
+## Future research, not commitments
 
-These are not commitments:
-
-- Temporal video super-resolution using BasicVSR++, BasicVSR, RealBasicVSR, or a newer redistributable model.
-- Scene-cut-aware temporal windows.
-- Local denoise and deblur models.
-- Batch queue.
+- Batch processing.
 - Trim and simple clip extraction.
 - Screenshot and screen-recording capture.
-- Pixel-art-specific integer upscaling.
-- Local face restoration, only with conservative defaults and strong disclosure.
+- Pixel-art-specific scaling.
 - HDR image and video preservation.
-- A recoverable `.imagekid` session format.
+- Recoverable `.imagekid` sessions.
+- Local AI upscaling only after the complete core product is stable.
 
 ## Permanently out of direction unless explicitly reconsidered
 
-- Cloud inference.
+- Cloud processing.
 - Paid APIs or SDKs.
 - Accounts or subscriptions required for core operation.
 - Runtime model downloads.

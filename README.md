@@ -1,52 +1,72 @@
 # ImageKid
 
-ImageKid is a small, native macOS utility for viewing, inspecting, resizing, upscaling, cropping, and annotating images and basic video.
+ImageKid is a small, native macOS utility for opening, viewing, inspecting, resizing, cropping, and annotating images and basic video.
 
-The product is intentionally image- and video-first. Drop, paste, or open a file and it appears immediately. The media fills the window like Quick Look or Preview. Moving the pointer reveals a compact floating action bar; the same commands are available through the macOS menu bar and keyboard shortcuts.
+The media is the interface. Drop, paste, or open a local file and it appears immediately in a quiet Preview-like window. Moving the pointer reveals a compact action bar; the same commands are available from the macOS menu bar and keyboard.
 
-ImageKid is not a timeline editor, photo suite, or Photoshop replacement. It handles the common media tasks that should not require opening a large application.
+ImageKid is offline by design. It has no account, cloud processing, analytics, paid API, or runtime download.
 
-## Core capabilities
+## Current foundation build
 
-- View images and videos in a clean native window.
-- Zoom, pan, play, pause, scrub, and inspect individual video frames.
-- Pick exact colours from an image or the current video frame.
-- Collect sampled colours and extract dominant palettes.
-- Crop and resize images or complete video clips.
-- Upscale images and video locally using bundled open-source models.
-- Add text, arrows, lines, shapes, freehand strokes, numbered markers, blur, and pixelation.
-- Give video annotations an optional start and end time without introducing a full editing timeline.
-- Copy images or video frames and export the processed result.
+The repository now contains a buildable Swift package and native macOS application entry point.
 
-## Offline by design
+Implemented in the current scaffold:
 
-ImageKid must work without an internet connection.
+- native SwiftUI application and window lifecycle;
+- drag and drop, File > Open, Command-O, and pasteboard input;
+- image and common AVFoundation video loading;
+- fitted image viewing, panning, pinch zoom, and reset;
+- native video playback through `AVPlayer`;
+- click-to-sample image colours and copy HEX values;
+- session colour strip;
+- non-destructive crop selection state;
+- exact or percentage resize state;
+- rectangle and text annotation foundations;
+- full-resolution PNG, JPEG, and TIFF image export;
+- geometry unit tests;
+- macOS GitHub Actions build and test workflow.
 
-- No account.
-- No cloud processing.
-- No paid API or SDK.
-- No model downloads after installation.
-- No third-party analytics.
-- Media never leaves the Mac.
-- Open-source model weights required by the product are included in the application bundle.
+Still to implement before a first useful release:
 
-AI upscaling is implemented through an internal provider interface, but the first and default provider is entirely local. The intended runtime is Core ML so inference can use the CPU, GPU, and Neural Engine available on the Mac.
+- colour loupe and palette extraction;
+- crop handles and ratio presets;
+- editable annotation selection, arrows, drawing, blur, and pixelation;
+- undo and dirty-close protection;
+- video colour sampling, crop, annotations, and export;
+- richer metadata and colour-profile handling;
+- accessibility and performance hardening.
 
-## Initial upscaling direction
+AI upscaling is deliberately deferred. It is not part of the current build, architecture, release scope, or dependency graph.
 
-The first practical implementation should use a converted Real-ESRGAN-family model for general images and frame-based video upscaling. A smaller illustration/anime model may also be bundled. Frame-by-frame processing is predictable and shippable, but may produce temporal flicker in difficult video.
+## Build
 
-A true temporal video super-resolution model such as BasicVSR++ is a later quality tier. It should only be bundled after conversion, memory use, licensing, and Apple Silicon performance have been validated. It must never require Python, PyTorch, a server, or an internet connection at runtime.
+Requirements:
 
-## Proposed native stack
+- macOS 14 or newer;
+- Xcode 16 or newer with the macOS SDK;
+- Swift 5.10 or newer.
 
-- Swift 6
-- SwiftUI for the application shell, menus, sheets, and floating controls
-- AppKit for the precision media canvas and pointer interaction
-- Core Graphics and Core Image for rendering and effects
-- Core ML for bundled upscaling models
-- AVFoundation and VideoToolbox for video decoding, timing, audio handling, and hardware-assisted export
-- Image I/O for image metadata and encoding
+Open `Package.swift` in Xcode, select the `ImageKid` scheme, and run it on My Mac.
+
+From Terminal:
+
+```bash
+swift build
+swift test
+swift run ImageKid
+```
+
+The current package is intended for development and validation. Before App Store or notarised distribution, create or generate a signed macOS application target with the correct bundle identifier, sandbox entitlements, assets, and archive settings.
+
+## Product principles
+
+- Media-first rather than editor-first.
+- No permanent sidebar or layer panel.
+- Tools appear only when needed.
+- One image or video per window.
+- Source files are never overwritten implicitly.
+- Every feature works without an internet connection.
+- Native menus, keyboard commands, drag and drop, pasteboard, and file panels.
 
 ## Documentation
 
@@ -55,16 +75,11 @@ A true temporal video super-resolution model such as BasicVSR++ is a later quali
 - [Requirements](docs/requirements.md)
 - [User experience](docs/ux.md)
 - [Architecture](docs/architecture.md)
-- [Offline AI upscaling](docs/upscaling.md)
+- [Implementation status](docs/implementation.md)
 - [Decisions](docs/decisions.md)
 - [Testing](docs/testing.md)
 - [Roadmap](docs/roadmap.md)
-- [Third-party notices policy](THIRD_PARTY_NOTICES.md)
 
-## Repository state
+## Licence
 
-The repository currently contains the product and technical foundation. Application source code has not yet been scaffolded.
-
-## License
-
-No license has been selected for ImageKid itself. Model, framework, and third-party notices must be completed before a distributable build is produced.
+No project licence has been selected yet. Add a licence before accepting outside contributions or distributing source under open-source terms.
