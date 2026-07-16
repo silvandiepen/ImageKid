@@ -13,26 +13,29 @@ The package form keeps the initial repository small, reviewable, and directly te
 - Open panel, drag and drop, URL paste, and image paste.
 - Image loading with `NSImage`.
 - Video loading and playback with AVFoundation and AVKit.
-- Image fit, pan, pinch zoom, and view reset.
-- Click-based image pixel sampling.
-- Session colour strip and HEX copy.
-- Crop selection state and export crop application.
-- Resize sheet with exact size and 50%, 100%, and 200% presets.
-- Rectangle and text annotation creation.
-- PNG, JPEG, and TIFF image export rendered from source media and edit state.
+- Image fit, mouse pan, two-finger trackpad pan, pinch zoom, and view reset.
+- Press-and-drag image colour sampling with a large live swatch.
+- Persistent colour panel with multi-selection, removal, colour adjustment, expanded HEX/RGB/RGBA/HSL/SwiftUI values, copy formats, and file export.
+- Crop overlay with corner and edge handles, rule-of-thirds guides, ratio choices, editable pixel dimensions, reset, cancel, and apply.
+- Resize sheet with exact size and percentage presets.
+- Rectangle annotation creation.
+- Text annotations that remain editable, movable, and resizable.
+- Contextual text settings for content, font family, size, weight, alignment, and colour.
+- Image export sheet with PNG, JPEG, HEIC, TIFF, BMP, and GIF, quality, scale, transparency background, and Finder reveal controls.
+- Full-resolution image export rendered from source media and edit state.
 - Geometry mapping unit tests.
 - macOS CI build and test workflow.
 
 ## Incomplete or provisional
 
-- Pixel sampling currently uses a click instead of a magnified live loupe.
-- Colour conversion and unusual bitmap formats require broader tests.
-- Applied crop is represented in edit state; the live canvas still needs a cropped working preview and draggable crop handles.
-- Annotation tools currently cover rectangle and placeholder text only.
-- Annotation selection, movement, resizing, styling, ordering, and native text editing remain.
+- The live colour picker currently presents a colour swatch rather than a pixel-grid magnifier.
+- Palette extraction from dominant image colours remains.
+- Crop state is applied during export; the normal canvas does not yet permanently reframe itself around the applied crop.
+- Rectangle styling, arrows, lines, drawing, blur, pixelation, ordering, duplication, and rotation remain.
+- Text editing is performed through the contextual panel rather than direct inline canvas typing.
 - Undo, redo, close protection, recovery, and document lifecycle remain.
-- Video currently provides viewing and playback only. Video colour picking, crop, resize, annotations, and export are the next major technical slice.
-- Export format controls, metadata policy, colour-profile controls, and transparency warnings remain.
+- Video currently provides viewing and playback only. Video colour picking, crop, resize, annotations, and export remain a separate major technical slice.
+- Metadata preservation and advanced colour-profile controls remain. Current exports intentionally render a fresh file without source metadata.
 - The Swift package does not yet define production signing, sandboxing, or distribution settings.
 
 ## Deferred
