@@ -4,34 +4,32 @@ import SwiftUI
 struct TextInspector: View {
     @ObservedObject var session: ImageSession
     let annotationID: UUID
+    @Binding var offset: CGSize
 
     private let fontFamilies = NSFontManager.shared.availableFontFamilies.sorted()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Label("Text", systemImage: "textformat")
-                    .font(.headline)
-                Spacer()
-                Button {
-                    session.selectedAnnotationID = nil
-                } label: {
-                    Image(systemName: "xmark")
+        FloatingToolPanel(
+            title: "Text",
+            systemImage: "textformat",
+            width: 300,
+            offset: $offset,
+            onClose: { session.selectedAnnotationID = nil }
+        ) {
+            VStack(alignment: .leading, spacing: 18) {
+                field("Text") {
+                    TextEditor(text: textBinding)
+                        .font(.body)
+                        .scrollContentBackground(.hidden)
+                        .padding(8)
+                        .frame(height: 92)
+                        .background(
+                            .white.opacity(0.08),
+                            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        )
                 }
-                .buttonStyle(.plain)
-                .help("Close text settings")
-            }
 
-            TextEditor(text: textBinding)
-                .font(.body)
-                .frame(height: 72)
-                .padding(6)
-                .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
-
-            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 10) {
-                GridRow {
-                    Text("Font")
-                        .foregroundStyle(.secondary)
+                field("Font") {
                     Picker("Font", selection: fontFamilyBinding) {
                         Text("System").tag("")
                         ForEach(fontFamilies, id: \.self) { family in
@@ -39,23 +37,19 @@ struct TextInspector: View {
                         }
                     }
                     .labelsHidden()
-                    .frame(width: 175)
+                    .frame(maxWidth: .infinity)
                 }
 
-                GridRow {
-                    Text("Size")
-                        .foregroundStyle(.secondary)
-                    HStack(spacing: 8) {
+                field("Size") {
+                    HStack(spacing: 10) {
                         Slider(value: fontSizeBinding, in: 8...240, step: 1)
                         Text("\(Int(fontSizeBinding.wrappedValue))")
-                            .font(.system(.caption, design: .monospaced))
-                            .frame(width: 34, alignment: .trailing)
+                            .font(.system(.caption, design: .monospaced, weight: .semibold))
+                            .frame(width: 36, alignment: .trailing)
                     }
                 }
 
-                GridRow {
-                    Text("Weight")
-                        .foregroundStyle(.secondary)
+                field("Weight") {
                     Picker("Weight", selection: fontWeightBinding) {
                         ForEach(AnnotationFontWeight.allCases) { weight in
                             Text(weight.label).tag(weight)
@@ -65,9 +59,7 @@ struct TextInspector: View {
                     .pickerStyle(.segmented)
                 }
 
-                GridRow {
-                    Text("Align")
-                        .foregroundStyle(.secondary)
+                field("Alignment") {
                     Picker("Alignment", selection: alignmentBinding) {
                         Image(systemName: "text.alignleft").tag(AnnotationTextAlignment.leading)
                         Image(systemName: "text.aligncenter").tag(AnnotationTextAlignment.center)
@@ -77,42 +69,54 @@ struct TextInspector: View {
                     .pickerStyle(.segmented)
                 }
 
-                GridRow {
-                    Text("Colour")
-                        .foregroundStyle(.secondary)
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Colour")
+                            .font(.caption.weight(.semibold))
+                        Text("Text and export colour")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.55))
+                    }
+                    Spacer()
                     ColorPicker("Text colour", selection: colorBinding, supportsOpacity: true)
                         .labelsHidden()
                 }
-            }
 
-            Divider()
+                Rectangle()
+                    .fill(.white.opacity(0.09))
+                    .frame(height: 1)
 
-            HStack {
-                Button("Delete", role: .destructive) {
+                Button(role: .destructive) {
                     session.removeAnnotation(id: annotationID)
+                } label: {
+                    Label("Delete Text", systemImage: "trash")
+                        .frame(maxWidth: .infinity)
                 }
-                Spacer()
-                Text("Drag to move · drag corners to resize")
+                .buttonStyle(.bordered)
+
+                Text("Drag the text to move it. Drag a corner handle to resize it.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.55))
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .darkPanelControl()
         }
-        .padding(16)
-        .frame(width: 310)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(.white.opacity(0.14))
-        )
-        .shadow(color: .black.opacity(0.22), radius: 20, y: 8)
+    }
+
+    @ViewBuilder
+    private func field<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.72))
+            content()
+        }
     }
 
     private var textBinding: Binding<String> {
         Binding(
             get: { session.annotations.first(where: { $0.id == annotationID })?.textValue ?? "" },
-            set: { value in
-                session.updateAnnotation(id: annotationID) { $0.textValue = value }
-            }
+            set: { value in session.updateAnnotation(id: annotationID) { $0.textValue = value } }
         )
     }
 
