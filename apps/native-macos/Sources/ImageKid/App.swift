@@ -104,46 +104,74 @@ final class AppModel: ObservableObject {
 }
 
 struct AppCommands: Commands {
-    @ObservedObject var appModel: AppModel
+    @FocusedObject private var appModel: AppModel?
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button("Open…") { appModel.openPanel() }
+            Button("Open…") { appModel?.openPanel() }
                 .keyboardShortcut("o")
+                .disabled(appModel == nil)
         }
 
-        CommandGroup(after: .pasteboard) {
-            Button("Paste Media") { appModel.paste() }
-                .keyboardShortcut("v")
+        CommandGroup(replacing: .pasteboard) {
+            Button("Cut") {
+                _ = NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil)
+            }
+            .keyboardShortcut("x")
+            .disabled(appModel == nil)
+
+            Button("Copy") {
+                _ = NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
+            }
+            .keyboardShortcut("c")
+            .disabled(appModel == nil)
+
+            Button("Paste") {
+                let handledByResponder = NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
+                if !handledByResponder {
+                    appModel?.paste()
+                }
+            }
+            .keyboardShortcut("v")
+            .disabled(appModel == nil)
         }
 
         CommandMenu("Tools") {
-            Button("View") { appModel.activeTool = .view }
+            Button("View") { appModel?.activeTool = .view }
                 .keyboardShortcut("v", modifiers: [])
-            Button("Pick Colour") { appModel.activeTool = .pickColor }
+                .disabled(appModel == nil)
+            Button("Pick Colour") { appModel?.activeTool = .pickColor }
                 .keyboardShortcut("p", modifiers: [])
-            Button("Crop") { appModel.activeTool = .crop }
+                .disabled(appModel == nil)
+            Button("Crop") { appModel?.activeTool = .crop }
                 .keyboardShortcut("c", modifiers: [])
+                .disabled(appModel == nil)
             Divider()
-            Button("Draw") { appModel.activeTool = .draw }
+            Button("Draw") { appModel?.activeTool = .draw }
                 .keyboardShortcut("d", modifiers: [])
-            Button("Text") { appModel.activeTool = .text }
+                .disabled(appModel == nil)
+            Button("Text") { appModel?.activeTool = .text }
                 .keyboardShortcut("t", modifiers: [])
+                .disabled(appModel == nil)
             Divider()
-            Button("Resize…") { appModel.isShowingResize = true }
+            Button("Resize…") { appModel?.isShowingResize = true }
                 .keyboardShortcut("r", modifiers: [])
-            Button("Cancel Current Tool") { appModel.cancelCurrentTool() }
+                .disabled(appModel == nil)
+            Button("Cancel Current Tool") { appModel?.cancelCurrentTool() }
                 .keyboardShortcut(.cancelAction)
+                .disabled(appModel == nil)
         }
 
         CommandMenu("View") {
-            Button("Fit to Window") { appModel.resetView() }
+            Button("Fit to Window") { appModel?.resetView() }
                 .keyboardShortcut("0", modifiers: [])
+                .disabled(appModel == nil)
         }
 
         CommandGroup(replacing: .saveItem) {
-            Button("Export…") { appModel.requestExport() }
+            Button("Export…") { appModel?.requestExport() }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
+                .disabled(appModel == nil)
         }
     }
 }
@@ -156,21 +184,29 @@ final class ImageKidApplicationDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+struct AppWindowRoot: View {
+    @StateObject private var appModel = AppModel()
+
+    var body: some View {
+        ContentView()
+            .environmentObject(appModel)
+            .focusedSceneObject(appModel)
+            .frame(minWidth: 720, minHeight: 480)
+    }
+}
+
 @main
 struct ImageKidApp: App {
     @NSApplicationDelegateAdaptor(ImageKidApplicationDelegate.self) private var applicationDelegate
-    @StateObject private var appModel = AppModel()
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(appModel)
-                .frame(minWidth: 720, minHeight: 480)
+            AppWindowRoot()
         }
         .defaultSize(width: 940, height: 720)
         .windowStyle(.hiddenTitleBar)
         .commands {
-            AppCommands(appModel: appModel)
+            AppCommands()
         }
     }
 }

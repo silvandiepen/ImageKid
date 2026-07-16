@@ -1,0 +1,32 @@
+name: Website check
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "apps/website/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/website-check.yml"
+  push:
+    branches: [main, development]
+    paths:
+      - "apps/website/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/website-check.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check

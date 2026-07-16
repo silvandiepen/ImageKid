@@ -10,5 +10,7 @@ ImageKid is currently an offline native macOS image utility with basic video vie
 - [Decisions](decisions.md) — product and technical decisions, including deferred upscaling.
 - [Testing](testing.md) — validation strategy and release gates.
 - [Roadmap](roadmap.md) — implementation order for images, then basic video processing.
+- [Build](build.md) — native and website development commands.
+- [Website](website.md) — routes, content ownership, domains, and Cloudflare Pages deployment.
 
 `upscaling.md` remains historical research only. It is not part of the current release plan, codebase, dependencies, or build requirements.
