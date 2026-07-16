@@ -5,9 +5,12 @@
 Every pull request must pass on a supported macOS runner:
 
 ```bash
+cd apps/native-macos
 swift build
 swift test
 ```
+
+From the repository root, use `npm run native:build` and `npm run native:test`.
 
 Warnings should be reviewed, especially AVFoundation deprecations and concurrency diagnostics introduced during Swift 6 migration.
 

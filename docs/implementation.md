@@ -2,7 +2,7 @@
 
 ## Build foundation
 
-The repository is a Swift Package Manager executable targeting macOS 14. Open `Package.swift` in Xcode 16 and run the `ImageKid` scheme on My Mac, or use `swift build`, `swift test`, and `swift run ImageKid` from Terminal.
+The native app is a Swift Package Manager executable in `apps/native-macos` targeting macOS 14. Open `apps/native-macos/Package.swift` in Xcode 16 and run the `ImageKid` scheme on My Mac, or run `swift build`, `swift test`, and `swift run ImageKid` from `apps/native-macos`. Root helpers are available as `npm run native:build`, `npm run native:test`, and `npm run native:run`.
 
 The package form keeps the initial repository small, reviewable, and directly testable. Distribution work will require a signed application target, bundle metadata, assets, sandbox entitlements, archive configuration, and notarisation or App Store configuration.
 
