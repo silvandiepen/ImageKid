@@ -5,7 +5,7 @@ struct FloatingToolbar: View {
     let canExport: Bool
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 7) {
             toolButton(.view)
             toolButton(.pickColor)
             toolButton(.crop)
@@ -14,33 +14,41 @@ struct FloatingToolbar: View {
                 Button("Rectangle") { appModel.activeTool = .rectangle }
                 Button("Text") { appModel.activeTool = .text }
             } label: {
-                Label("Annotate", systemImage: "pencil.and.outline")
+                toolbarIcon(
+                    "pencil.and.outline",
+                    selected: appModel.activeTool == .rectangle || appModel.activeTool == .text
+                )
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
+            .help("Annotate")
 
-            Divider().frame(height: 20)
+            Divider().frame(height: 28)
 
             Button {
                 appModel.isShowingResize = true
             } label: {
-                Label("Resize", systemImage: "arrow.up.left.and.arrow.down.right")
+                toolbarIcon("arrow.up.left.and.arrow.down.right", selected: false)
             }
+            .help("Resize")
 
             Button {
-                appModel.exportImage()
+                appModel.requestExport()
             } label: {
-                Label("Export", systemImage: "square.and.arrow.up")
+                toolbarIcon("square.and.arrow.up", selected: false)
             }
             .disabled(!canExport)
+            .help("Export")
         }
-        .labelStyle(.iconOnly)
-        .buttonStyle(.borderless)
-        .padding(.horizontal, 12)
+        .buttonStyle(.plain)
+        .padding(.horizontal, 11)
         .padding(.vertical, 9)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
-        .shadow(radius: 12, y: 4)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 17, style: .continuous)
+                .strokeBorder(.white.opacity(0.14))
+        )
+        .shadow(color: .black.opacity(0.24), radius: 22, y: 9)
         .help("ImageKid tools")
     }
 
@@ -48,13 +56,21 @@ struct FloatingToolbar: View {
         Button {
             appModel.activeTool = tool
         } label: {
-            Image(systemName: tool.symbolName)
-                .frame(width: 28, height: 28)
-                .background(
-                    appModel.activeTool == tool ? Color.accentColor.opacity(0.16) : .clear,
-                    in: RoundedRectangle(cornerRadius: 8)
-                )
+            toolbarIcon(tool.symbolName, selected: appModel.activeTool == tool)
         }
         .help(tool.label)
+    }
+
+    private func toolbarIcon(_ symbol: String, selected: Bool) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 18, weight: selected ? .semibold : .medium))
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(selected ? Color.white : .primary)
+            .frame(width: 39, height: 39)
+            .background(
+                selected ? Color.accentColor : Color.primary.opacity(0.055),
+                in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
     }
 }
