@@ -35,9 +35,47 @@ public enum Tool: String, CaseIterable, Identifiable {
     }
 }
 
+enum CropAspectRatio: String, CaseIterable, Identifiable {
+    case free
+    case original
+    case square
+    case fourThree
+    case threeTwo
+    case sixteenNine
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .free: "Free"
+        case .original: "Original"
+        case .square: "1:1"
+        case .fourThree: "4:3"
+        case .threeTwo: "3:2"
+        case .sixteenNine: "16:9"
+        }
+    }
+
+    func ratio(for imageSize: CGSize) -> CGFloat? {
+        switch self {
+        case .free: nil
+        case .original: imageSize.width / max(imageSize.height, 1)
+        case .square: 1
+        case .fourThree: 4 / 3
+        case .threeTwo: 3 / 2
+        case .sixteenNine: 16 / 9
+        }
+    }
+}
+
 struct SampledColor: Identifiable {
-    let id = UUID()
-    let color: NSColor
+    let id: UUID
+    var color: NSColor
+
+    init(id: UUID = UUID(), color: NSColor) {
+        self.id = id
+        self.color = color
+    }
 
     var sRGB: NSColor {
         color.usingColorSpace(.sRGB) ?? color
@@ -45,8 +83,20 @@ struct SampledColor: Identifiable {
 
     var hex: String {
         let value = sRGB
+        let includeAlpha = value.alphaComponent < 0.999
         return String(
-            format: "#%02X%02X%02X",
+            format: includeAlpha ? "#%02X%02X%02X%02X" : "#%02X%02X%02X",
+            Int((value.redComponent * 255).rounded()),
+            Int((value.greenComponent * 255).rounded()),
+            Int((value.blueComponent * 255).rounded()),
+            Int((value.alphaComponent * 255).rounded())
+        )
+    }
+
+    var rgb: String {
+        let value = sRGB
+        return String(
+            format: "rgb(%d, %d, %d)",
             Int((value.redComponent * 255).rounded()),
             Int((value.greenComponent * 255).rounded()),
             Int((value.blueComponent * 255).rounded())
@@ -63,6 +113,98 @@ struct SampledColor: Identifiable {
             value.alphaComponent
         )
     }
+
+    var hsl: String {
+        let value = sRGB
+        let r = value.redComponent
+        let g = value.greenComponent
+        let b = value.blueComponent
+        let maximum = max(r, g, b)
+        let minimum = min(r, g, b)
+        let delta = maximum - minimum
+        let lightness = (maximum + minimum) / 2
+        let saturation = delta == 0 ? 0 : delta / (1 - abs(2 * lightness - 1))
+        var hue: CGFloat = 0
+        if delta != 0 {
+            if maximum == r {
+                hue = 60 * ((g - b) / delta).truncatingRemainder(dividingBy: 6)
+            } else if maximum == g {
+                hue = 60 * (((b - r) / delta) + 2)
+            } else {
+                hue = 60 * (((r - g) / delta) + 4)
+            }
+        }
+        if hue < 0 { hue += 360 }
+        return String(format: "hsl(%.0f, %.0f%%, %.0f%%)", hue, saturation * 100, lightness * 100)
+    }
+
+    var cssVariable: String {
+        "--color: \(hex);"
+    }
+
+    var swiftUIColor: String {
+        let value = sRGB
+        return String(
+            format: "Color(red: %.3f, green: %.3f, blue: %.3f, opacity: %.3f)",
+            value.redComponent,
+            value.greenComponent,
+            value.blueComponent,
+            value.alphaComponent
+        )
+    }
+}
+
+enum AnnotationFontWeight: String, CaseIterable, Identifiable {
+    case regular
+    case medium
+    case semibold
+    case bold
+
+    var id: String { rawValue }
+    var label: String { rawValue.capitalized }
+
+    var swiftUIWeight: Font.Weight {
+        switch self {
+        case .regular: .regular
+        case .medium: .medium
+        case .semibold: .semibold
+        case .bold: .bold
+        }
+    }
+
+    var appKitWeight: NSFont.Weight {
+        switch self {
+        case .regular: .regular
+        case .medium: .medium
+        case .semibold: .semibold
+        case .bold: .bold
+        }
+    }
+}
+
+enum AnnotationTextAlignment: String, CaseIterable, Identifiable {
+    case leading
+    case center
+    case trailing
+
+    var id: String { rawValue }
+    var label: String { rawValue.capitalized }
+
+    var swiftUIAlignment: Alignment {
+        switch self {
+        case .leading: .leading
+        case .center: .center
+        case .trailing: .trailing
+        }
+    }
+
+    var paragraphAlignment: NSTextAlignment {
+        switch self {
+        case .leading: .left
+        case .center: .center
+        case .trailing: .right
+        }
+    }
 }
 
 struct Annotation: Identifiable {
@@ -77,6 +219,10 @@ struct Annotation: Identifiable {
     var strokeColor: NSColor
     var fillColor: NSColor?
     var lineWidth: CGFloat
+    var fontFamily: String
+    var fontSize: CGFloat
+    var fontWeight: AnnotationFontWeight
+    var textAlignment: AnnotationTextAlignment
 
     init(
         id: UUID = UUID(),
@@ -84,7 +230,11 @@ struct Annotation: Identifiable {
         frame: CGRect,
         strokeColor: NSColor = .systemRed,
         fillColor: NSColor? = nil,
-        lineWidth: CGFloat = 3
+        lineWidth: CGFloat = 3,
+        fontFamily: String = "",
+        fontSize: CGFloat = 48,
+        fontWeight: AnnotationFontWeight = .semibold,
+        textAlignment: AnnotationTextAlignment = .leading
     ) {
         self.id = id
         self.kind = kind
@@ -92,6 +242,26 @@ struct Annotation: Identifiable {
         self.strokeColor = strokeColor
         self.fillColor = fillColor
         self.lineWidth = lineWidth
+        self.fontFamily = fontFamily
+        self.fontSize = fontSize
+        self.fontWeight = fontWeight
+        self.textAlignment = textAlignment
+    }
+
+    var textValue: String? {
+        get {
+            guard case .text(let value) = kind else { return nil }
+            return value
+        }
+        set {
+            guard case .text = kind, let newValue else { return }
+            kind = .text(newValue)
+        }
+    }
+
+    var isText: Bool {
+        if case .text = kind { return true }
+        return false
     }
 }
 
@@ -104,9 +274,14 @@ final class ImageSession: ObservableObject {
     @Published var pan: CGSize = .zero
     @Published var cropRect = CGRect(x: 0, y: 0, width: 1, height: 1)
     @Published var draftCropRect: CGRect?
+    @Published var cropAspectRatio: CropAspectRatio = .free
     @Published var outputSize: CGSize?
     @Published var annotations: [Annotation] = []
+    @Published var selectedAnnotationID: UUID?
     @Published var sampledColors: [SampledColor] = []
+    @Published var selectedColorIDs: Set<UUID> = []
+    @Published var liveSampleColor: NSColor?
+    @Published var liveSampleLocation: CGPoint?
     @Published var isDirty = false
 
     init(sourceURL: URL?, sourceImage: NSImage) {
@@ -129,13 +304,42 @@ final class ImageSession: ObservableObject {
         )
     }
 
+    var selectedAnnotation: Annotation? {
+        guard let selectedAnnotationID else { return nil }
+        return annotations.first(where: { $0.id == selectedAnnotationID })
+    }
+
     func addSample(_ color: NSColor) {
-        sampledColors.append(SampledColor(color: color))
+        let sample = SampledColor(color: color)
+        sampledColors.append(sample)
+        selectedColorIDs = [sample.id]
+    }
+
+    func removeSamples(_ ids: Set<UUID>) {
+        sampledColors.removeAll(where: { ids.contains($0.id) })
+        selectedColorIDs.subtract(ids)
+    }
+
+    func updateSample(id: UUID, color: NSColor) {
+        guard let index = sampledColors.firstIndex(where: { $0.id == id }) else { return }
+        sampledColors[index].color = color
+    }
+
+    func updateAnnotation(id: UUID, _ update: (inout Annotation) -> Void) {
+        guard let index = annotations.firstIndex(where: { $0.id == id }) else { return }
+        update(&annotations[index])
+        isDirty = true
+    }
+
+    func removeAnnotation(id: UUID) {
+        annotations.removeAll(where: { $0.id == id })
+        if selectedAnnotationID == id { selectedAnnotationID = nil }
+        isDirty = true
     }
 
     func applyDraftCrop() {
         guard let draftCropRect, draftCropRect.width > 0.01, draftCropRect.height > 0.01 else { return }
-        cropRect = draftCropRect
+        cropRect = GeometryMapper.clampedNormalizedRect(draftCropRect)
         self.draftCropRect = nil
         isDirty = true
     }
@@ -203,12 +407,12 @@ public enum GeometryMapper {
         guard let a = normalizedPoint(first, in: imageRect), let b = normalizedPoint(second, in: imageRect) else {
             return nil
         }
-        return CGRect(
+        return clampedNormalizedRect(CGRect(
             x: min(a.x, b.x),
             y: min(a.y, b.y),
             width: abs(b.x - a.x),
             height: abs(b.y - a.y)
-        )
+        ))
     }
 
     public static func viewRect(from normalizedRect: CGRect, in imageRect: CGRect) -> CGRect {
@@ -218,5 +422,25 @@ public enum GeometryMapper {
             width: normalizedRect.width * imageRect.width,
             height: normalizedRect.height * imageRect.height
         )
+    }
+
+    public static func clampedNormalizedRect(_ rect: CGRect, minimumSize: CGFloat = 0.01) -> CGRect {
+        let width = min(max(rect.width, minimumSize), 1)
+        let height = min(max(rect.height, minimumSize), 1)
+        let x = min(max(rect.minX, 0), 1 - width)
+        let y = min(max(rect.minY, 0), 1 - height)
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    public static func applyingAspectRatio(_ ratio: CGFloat?, to rect: CGRect, anchor: CGPoint = .zero) -> CGRect {
+        guard let ratio, ratio > 0 else { return clampedNormalizedRect(rect) }
+        var result = rect
+        let proposedHeight = result.width / ratio
+        if proposedHeight <= 1 {
+            result.size.height = proposedHeight
+        } else {
+            result.size.width = result.height * ratio
+        }
+        return clampedNormalizedRect(result)
     }
 }

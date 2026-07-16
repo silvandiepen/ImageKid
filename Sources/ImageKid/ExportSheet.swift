@@ -1,0 +1,173 @@
+import AppKit
+import SwiftUI
+import UniformTypeIdentifiers
+
+struct ImageExportOptions {
+    var format: ImageExportFormat = .png
+    var quality: Double = 0.92
+    var scale: Double = 1
+    var backgroundColor: NSColor = .white
+    var revealAfterExport = false
+}
+
+enum ImageExportFormat: String, CaseIterable, Identifiable {
+    case png
+    case jpeg
+    case heic
+    case tiff
+    case bmp
+    case gif
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .png: "PNG"
+        case .jpeg: "JPEG"
+        case .heic: "HEIC"
+        case .tiff: "TIFF"
+        case .bmp: "BMP"
+        case .gif: "GIF"
+        }
+    }
+
+    var fileExtension: String { rawValue == "jpeg" ? "jpg" : rawValue }
+
+    var contentType: UTType {
+        switch self {
+        case .png: .png
+        case .jpeg: .jpeg
+        case .heic: .heic
+        case .tiff: .tiff
+        case .bmp: .bmp
+        case .gif: .gif
+        }
+    }
+
+    var supportsAlpha: Bool {
+        switch self {
+        case .png, .tiff, .gif: true
+        case .jpeg, .heic, .bmp: false
+        }
+    }
+
+    var supportsQuality: Bool {
+        self == .jpeg || self == .heic
+    }
+
+    var bitmapType: NSBitmapImageRep.FileType? {
+        switch self {
+        case .png: .png
+        case .jpeg: .jpeg
+        case .heic: nil
+        case .tiff: .tiff
+        case .bmp: .bmp
+        case .gif: .gif
+        }
+    }
+}
+
+struct ExportSheet: View {
+    let originalSize: CGSize
+    let onExport: (ImageExportOptions) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var options = ImageExportOptions()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Export Image")
+                        .font(.title2.weight(.semibold))
+                    Text("Choose the output format and final rendering options.")
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+
+            Form {
+                Picker("Format", selection: $options.format) {
+                    ForEach(ImageExportFormat.allCases) { format in
+                        Text(format.label).tag(format)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Picker("Scale", selection: $options.scale) {
+                    Text("50%").tag(0.5)
+                    Text("100%").tag(1.0)
+                    Text("200%").tag(2.0)
+                    Text("300%").tag(3.0)
+                }
+                .pickerStyle(.segmented)
+
+                LabeledContent("Final size") {
+                    Text("\(Int(finalSize.width)) × \(Int(finalSize.height)) px")
+                        .font(.system(.body, design: .monospaced))
+                }
+
+                if options.format.supportsQuality {
+                    LabeledContent("Quality") {
+                        HStack {
+                            Slider(value: $options.quality, in: 0.2...1, step: 0.01)
+                                .frame(width: 190)
+                            Text("\(Int(options.quality * 100))%")
+                                .font(.system(.caption, design: .monospaced))
+                                .frame(width: 40, alignment: .trailing)
+                        }
+                    }
+                }
+
+                if !options.format.supportsAlpha {
+                    LabeledContent("Background") {
+                        ColorPicker(
+                            "Background colour",
+                            selection: backgroundBinding,
+                            supportsOpacity: false
+                        )
+                        .labelsHidden()
+                    }
+
+                    Text("\(options.format.label) cannot preserve transparent pixels. Transparent areas will use this background colour.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                LabeledContent("Metadata") {
+                    Text("Removed")
+                        .foregroundStyle(.secondary)
+                }
+
+                Toggle("Reveal exported file in Finder", isOn: $options.revealAfterExport)
+            }
+            .formStyle(.grouped)
+
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button("Choose Location…") {
+                    onExport(options)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(22)
+        .frame(width: 530)
+    }
+
+    private var finalSize: CGSize {
+        CGSize(
+            width: max(1, (originalSize.width * options.scale).rounded()),
+            height: max(1, (originalSize.height * options.scale).rounded())
+        )
+    }
+
+    private var backgroundBinding: Binding<Color> {
+        Binding(
+            get: { Color(nsColor: options.backgroundColor) },
+            set: { options.backgroundColor = NSColor($0) }
+        )
+    }
+}

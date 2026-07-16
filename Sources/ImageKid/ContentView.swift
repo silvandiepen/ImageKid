@@ -23,6 +23,9 @@ struct ContentView: View {
         .sheet(isPresented: $appModel.isShowingResize) {
             resizeSheet
         }
+        .sheet(isPresented: $appModel.isShowingExport) {
+            exportSheet
+        }
         .alert(
             "ImageKid",
             isPresented: Binding(
@@ -56,6 +59,22 @@ struct ContentView: View {
             }
         case nil:
             Text("Open an image or video first.")
+                .padding(32)
+        }
+    }
+
+    @ViewBuilder
+    private var exportSheet: some View {
+        switch appModel.media {
+        case .image(let session):
+            ExportSheet(originalSize: session.effectivePixelSize) { options in
+                appModel.exportImage(options: options)
+            }
+        case .video:
+            Text("Video export is not implemented yet.")
+                .padding(32)
+        case nil:
+            Text("Open an image first.")
                 .padding(32)
         }
     }

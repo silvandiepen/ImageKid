@@ -10,7 +10,31 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          show-progress: false
+
       - name: Build
-        run: swift build
+        id: build
+        continue-on-error: true
+        run: swift build > build.log 2>&1
+
+      - name: Prepare build diagnostics
+        if: steps.build.outcome == 'failure'
+        run: grep -n -E "error:|warning:" build.log > build-errors.txt || tail -n 160 build.log > build-errors.txt
+
+      - name: Upload build diagnostics
+        if: steps.build.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-errors
+          path: build-errors.txt
+
+      - name: Fail failed build
+        if: steps.build.outcome == 'failure'
+        run: |
+          cat build-errors.txt
+          exit 1
+
       - name: Test
+        if: steps.build.outcome == 'success'
         run: swift test

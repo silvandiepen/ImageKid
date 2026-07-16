@@ -8,6 +8,7 @@ final class AppModel: ObservableObject {
     @Published var activeTool: Tool = .view
     @Published var errorMessage: String?
     @Published var isShowingResize = false
+    @Published var isShowingExport = false
 
     func openPanel() {
         let panel = NSOpenPanel()
@@ -54,30 +55,40 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func exportImage() {
+    func requestExport() {
+        guard case .image = media else {
+            errorMessage = "Video export is not implemented in the current foundation build."
+            return
+        }
+        isShowingExport = true
+    }
+
+    func exportImage(options: ImageExportOptions) {
         guard case .image(let session) = media else {
             errorMessage = "Video export is not implemented in the current foundation build."
             return
         }
 
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.png, .jpeg, .tiff]
-        panel.nameFieldStringValue = suggestedExportName(for: session)
+        panel.allowedContentTypes = [options.format.contentType]
+        panel.nameFieldStringValue = suggestedExportName(for: session, format: options.format)
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        let type = UTType(filenameExtension: url.pathExtension) ?? .png
 
         do {
-            try ImageRenderer.write(session, to: url, type: type)
+            try ImageRenderer.write(session, to: url, options: options)
             session.isDirty = false
+            if options.revealAfterExport {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    private func suggestedExportName(for session: ImageSession) -> String {
+    private func suggestedExportName(for session: ImageSession, format: ImageExportFormat) -> String {
         let sourceName = session.sourceURL?.deletingPathExtension().lastPathComponent ?? "ImageKid Export"
-        return sourceName + "-edited.png"
+        return sourceName + "-edited." + format.fileExtension
     }
 }
 
@@ -116,7 +127,7 @@ struct AppCommands: Commands {
         }
 
         CommandGroup(replacing: .saveItem) {
-            Button("Export…") { appModel.exportImage() }
+            Button("Export…") { appModel.requestExport() }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
         }
     }

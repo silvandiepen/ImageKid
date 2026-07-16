@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import UniformTypeIdentifiers
 
 @MainActor
@@ -45,7 +46,7 @@ struct PixelSampler {
 
 @MainActor
 enum ImageRenderer {
-    static func render(_ session: ImageSession) -> NSImage? {
+    static func render(_ session: ImageSession, options: ImageExportOptions = ImageExportOptions()) -> NSImage? {
         guard let source = session.sourceImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             return nil
         }
@@ -58,68 +59,117 @@ enum ImageRenderer {
         ).integral
 
         guard let cropped = source.cropping(to: pixelCrop) else { return nil }
-        let targetSize = session.effectivePixelSize
+        let baseSize = session.effectivePixelSize
+        let targetSize = CGSize(
+            width: max(1, (baseSize.width * options.scale).rounded()),
+            height: max(1, (baseSize.height * options.scale).rounded())
+        )
         let result = NSImage(size: targetSize)
 
         result.lockFocus()
         defer { result.unlockFocus() }
 
+        if !options.format.supportsAlpha {
+            options.backgroundColor.setFill()
+            NSBezierPath(rect: CGRect(origin: .zero, size: targetSize)).fill()
+        }
+
         NSGraphicsContext.current?.imageInterpolation = .high
         NSImage(cgImage: cropped, size: targetSize).draw(
             in: CGRect(origin: .zero, size: targetSize),
             from: .zero,
-            operation: .copy,
+            operation: .sourceOver,
             fraction: 1
         )
 
         for annotation in session.annotations {
-            draw(annotation, in: targetSize)
+            draw(annotation, cropRect: session.cropRect, sourceSize: session.pixelSize, targetSize: targetSize)
         }
 
         return result
     }
 
-    static func write(_ session: ImageSession, to url: URL, type: UTType) throws {
+    static func write(_ session: ImageSession, to url: URL, options: ImageExportOptions) throws {
+        guard let image = render(session, options: options) else {
+            throw ImageRenderError.renderFailed
+        }
+
+        if options.format == .heic {
+            try writeHEIC(image, to: url, quality: options.quality)
+            return
+        }
+
         guard
-            let image = render(session),
+            let bitmapType = options.format.bitmapType,
             let tiff = image.tiffRepresentation,
             let bitmap = NSBitmapImageRep(data: tiff)
         else {
             throw ImageRenderError.renderFailed
         }
 
-        let fileType: NSBitmapImageRep.FileType
-        let properties: [NSBitmapImageRep.PropertyKey: Any]
-
-        if type == .jpeg {
-            fileType = .jpeg
-            properties = [.compressionFactor: 0.92]
-        } else if type == .tiff {
-            fileType = .tiff
-            properties = [:]
-        } else {
-            fileType = .png
-            properties = [:]
+        var properties: [NSBitmapImageRep.PropertyKey: Any] = [:]
+        if options.format.supportsQuality {
+            properties[.compressionFactor] = options.quality
         }
 
-        guard let data = bitmap.representation(using: fileType, properties: properties) else {
+        guard let data = bitmap.representation(using: bitmapType, properties: properties) else {
             throw ImageRenderError.encodeFailed
         }
         try data.write(to: url, options: .atomic)
     }
 
-    private static func draw(_ annotation: Annotation, in size: CGSize) {
+    private static func writeHEIC(_ image: NSImage, to url: URL, quality: Double) throws {
+        var proposedRect = CGRect(origin: .zero, size: image.size)
+        guard
+            let cgImage = image.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil),
+            let destination = CGImageDestinationCreateWithURL(
+                url as CFURL,
+                UTType.heic.identifier as CFString,
+                1,
+                nil
+            )
+        else {
+            throw ImageRenderError.encodeFailed
+        }
+
+        let properties: CFDictionary = [
+            kCGImageDestinationLossyCompressionQuality: quality
+        ] as CFDictionary
+        CGImageDestinationAddImage(destination, cgImage, properties)
+
+        guard CGImageDestinationFinalize(destination) else {
+            throw ImageRenderError.encodeFailed
+        }
+    }
+
+    private static func draw(
+        _ annotation: Annotation,
+        cropRect: CGRect,
+        sourceSize: CGSize,
+        targetSize: CGSize
+    ) {
+        let relativeFrame = CGRect(
+            x: (annotation.frame.minX - cropRect.minX) / cropRect.width,
+            y: (annotation.frame.minY - cropRect.minY) / cropRect.height,
+            width: annotation.frame.width / cropRect.width,
+            height: annotation.frame.height / cropRect.height
+        )
+
+        guard relativeFrame.maxX > 0, relativeFrame.maxY > 0, relativeFrame.minX < 1, relativeFrame.minY < 1 else {
+            return
+        }
+
         let rect = CGRect(
-            x: annotation.frame.minX * size.width,
-            y: (1 - annotation.frame.maxY) * size.height,
-            width: annotation.frame.width * size.width,
-            height: annotation.frame.height * size.height
+            x: relativeFrame.minX * targetSize.width,
+            y: (1 - relativeFrame.maxY) * targetSize.height,
+            width: relativeFrame.width * targetSize.width,
+            height: relativeFrame.height * targetSize.height
         )
 
         switch annotation.kind {
         case .rectangle:
             let path = NSBezierPath(rect: rect)
-            path.lineWidth = annotation.lineWidth
+            path.lineWidth = annotation.lineWidth * max(1, targetSize.width / max(sourceSize.width, 1))
             if let fill = annotation.fillColor {
                 fill.setFill()
                 path.fill()
@@ -128,9 +178,21 @@ enum ImageRenderer {
             path.stroke()
 
         case .text(let value):
+            let scale = targetSize.width / max(sourceSize.width * cropRect.width, 1)
+            let size = max(8, annotation.fontSize * scale)
+            let font: NSFont
+            if annotation.fontFamily.isEmpty {
+                font = NSFont.systemFont(ofSize: size, weight: annotation.fontWeight.appKitWeight)
+            } else {
+                font = NSFont(name: annotation.fontFamily, size: size)
+                    ?? NSFont.systemFont(ofSize: size, weight: annotation.fontWeight.appKitWeight)
+            }
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = annotation.textAlignment.paragraphAlignment
             let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: max(14, rect.height * 0.4), weight: .semibold),
-                .foregroundColor: annotation.strokeColor
+                .font: font,
+                .foregroundColor: annotation.strokeColor,
+                .paragraphStyle: paragraph
             ]
             value.draw(in: rect, withAttributes: attributes)
         }
