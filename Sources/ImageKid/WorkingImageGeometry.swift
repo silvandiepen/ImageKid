@@ -81,12 +81,20 @@ enum WorkingImagePreview {
             return image
         }
 
+        let sourceBounds = CGRect(
+            x: 0,
+            y: 0,
+            width: CGFloat(source.width),
+            height: CGFloat(source.height)
+        )
         let pixelRect = CGRect(
             x: cropRect.minX * CGFloat(source.width),
             y: cropRect.minY * CGFloat(source.height),
             width: cropRect.width * CGFloat(source.width),
             height: cropRect.height * CGFloat(source.height)
-        ).integral.intersection(CGRect(x: 0, y: 0, width: source.width, height: source.height))
+        )
+        .integral
+        .intersection(sourceBounds)
 
         guard pixelRect.width > 0,
               pixelRect.height > 0,
@@ -96,7 +104,7 @@ enum WorkingImagePreview {
 
         return NSImage(
             cgImage: cropped,
-            size: CGSize(width: cropped.width, height: cropped.height)
+            size: CGSize(width: CGFloat(cropped.width), height: CGFloat(cropped.height))
         )
     }
 }
