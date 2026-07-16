@@ -55,6 +55,17 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func cancelCurrentTool() {
+        if case .image(let session) = media {
+            if activeTool == .crop {
+                session.cancelCrop()
+            }
+            session.liveSampleColor = nil
+            session.liveSampleLocation = nil
+        }
+        activeTool = .view
+    }
+
     func requestExport() {
         guard case .image = media else {
             errorMessage = "Video export is not implemented in the current foundation build."
@@ -114,11 +125,15 @@ struct AppCommands: Commands {
             Button("Crop") { appModel.activeTool = .crop }
                 .keyboardShortcut("c", modifiers: [])
             Divider()
-            Button("Rectangle Annotation") { appModel.activeTool = .rectangle }
-            Button("Text Annotation") { appModel.activeTool = .text }
+            Button("Draw") { appModel.activeTool = .draw }
+                .keyboardShortcut("d", modifiers: [])
+            Button("Text") { appModel.activeTool = .text }
+                .keyboardShortcut("t", modifiers: [])
             Divider()
             Button("Resize…") { appModel.isShowingResize = true }
                 .keyboardShortcut("r", modifiers: [])
+            Button("Cancel Current Tool") { appModel.cancelCurrentTool() }
+                .keyboardShortcut(.cancelAction)
         }
 
         CommandMenu("View") {
