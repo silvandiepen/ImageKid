@@ -229,11 +229,11 @@ struct ColorPalettePanel: View {
     private func output(for format: OutputFormat) -> String {
         switch format {
         case .hex:
-            selectedSamples.map(\.hex).joined(separator: "\n")
+            return selectedSamples.map(\.hex).joined(separator: "\n")
         case .rgb:
-            selectedSamples.map(\.rgb).joined(separator: "\n")
+            return selectedSamples.map(\.rgb).joined(separator: "\n")
         case .css:
-            selectedSamples.enumerated().map { index, color in
+            return selectedSamples.enumerated().map { index, color in
                 "--color-\(index + 1): \(color.hex);"
             }.joined(separator: "\n")
         case .json:
