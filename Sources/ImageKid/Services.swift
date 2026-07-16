@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import UniformTypeIdentifiers
 
 @MainActor
@@ -89,8 +90,17 @@ enum ImageRenderer {
     }
 
     static func write(_ session: ImageSession, to url: URL, options: ImageExportOptions) throws {
+        guard let image = render(session, options: options) else {
+            throw ImageRenderError.renderFailed
+        }
+
+        if options.format == .heic {
+            try writeHEIC(image, to: url, quality: options.quality)
+            return
+        }
+
         guard
-            let image = render(session, options: options),
+            let bitmapType = options.format.bitmapType,
             let tiff = image.tiffRepresentation,
             let bitmap = NSBitmapImageRep(data: tiff)
         else {
@@ -102,10 +112,34 @@ enum ImageRenderer {
             properties[.compressionFactor] = options.quality
         }
 
-        guard let data = bitmap.representation(using: options.format.bitmapType, properties: properties) else {
+        guard let data = bitmap.representation(using: bitmapType, properties: properties) else {
             throw ImageRenderError.encodeFailed
         }
         try data.write(to: url, options: .atomic)
+    }
+
+    private static func writeHEIC(_ image: NSImage, to url: URL, quality: Double) throws {
+        var proposedRect = CGRect(origin: .zero, size: image.size)
+        guard
+            let cgImage = image.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil),
+            let destination = CGImageDestinationCreateWithURL(
+                url as CFURL,
+                UTType.heic.identifier as CFString,
+                1,
+                nil
+            )
+        else {
+            throw ImageRenderError.encodeFailed
+        }
+
+        let properties: CFDictionary = [
+            kCGImageDestinationLossyCompressionQuality: quality
+        ] as CFDictionary
+        CGImageDestinationAddImage(destination, cgImage, properties)
+
+        guard CGImageDestinationFinalize(destination) else {
+            throw ImageRenderError.encodeFailed
+        }
     }
 
     private static func draw(
