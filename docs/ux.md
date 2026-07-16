@@ -28,32 +28,15 @@ The empty window contains a quiet drop target, “Drop an image or video,” an 
 
 ## Viewer
 
-On open:
-
-- media is centred and fitted;
-- surrounding chrome is minimal;
-- pointer movement reveals actions;
-- pinch zooms around the pointer;
-- dragging pans when zoomed;
-- Command-0 fits;
-- Command-1 shows actual size;
-- double-click toggles Fit and Actual Size;
-- a temporary zoom percentage appears during zooming.
+On open, media is centred and fitted. Pointer movement reveals actions. Pinch zooms around the pointer, dragging pans, Command-0 fits, Command-1 shows actual size, and double-click toggles Fit and Actual Size.
 
 Transparent images use a user-selectable checkerboard, light, or dark viewing background.
 
 ## Video viewer
 
-The video playback strip appears near the bottom and contains:
+The playback strip contains play/pause, current time, duration, a compact scrubber, frame stepping while paused, volume, and mute.
 
-- play/pause;
-- current time and duration;
-- compact scrubber;
-- frame backward and forward when paused;
-- volume and mute;
-- optional playback speed in More.
-
-Pausing enables precise frame inspection. Activating colour picker, crop, or annotation pauses playback. The scrubber remains a single clip strip; it must not visually imply multitrack editing.
+Activating colour picker, crop, or annotation pauses playback. The scrubber remains a single clip strip and must not imply multitrack editing.
 
 ## Floating action bar
 
@@ -62,76 +45,30 @@ Default order:
 1. Pick Colour
 2. Crop
 3. Annotate
-4. Resize / Upscale
+4. Resize
 5. Copy
 6. Export
 7. More
 
 The bar floats above the lower centre of the canvas using native material with an opaque accessibility fallback. It appears on pointer movement or keyboard focus, stays visible while a tool is active, and fades during idle viewing.
 
-The bar changes context instead of growing. Crop mode replaces it with crop controls. Annotation mode replaces it with annotation tools. Upscale opens a focused sheet.
+The bar changes context instead of growing. Crop mode replaces it with crop controls. Annotation mode replaces it with annotation tools. Resize opens a compact sheet.
 
 ## Menus
 
-### File
-
-- New Window
-- Open…
-- Open Recent
-- Close
-- Export…
-- Share
-
-### Edit
-
-- Undo / Redo
-- Copy
-- Copy Processed Image
-- Copy Current Video Frame
-- Paste
-- Duplicate Annotation
-- Delete Annotation
-- Select All Annotations
-
-### View
-
-- Fit to Window
-- Actual Size
-- Zoom In / Out
-- Reset View
-- Canvas Background
-- Show Media Information
-- Video playback commands when applicable
-
-### Tools
-
-- Pick Colour
-- Extract Palette
-- Crop
-- Annotate
-- Resize
-- AI Upscale
-
-### Arrange
-
-- Bring Forward
-- Bring to Front
-- Send Backward
-- Send to Back
+File contains New Window, Open, Open Recent, Close, Export, and Share. Edit contains Undo, Redo, contextual copy, paste, and annotation commands. View contains fit, actual size, zoom, background, information, and video playback commands. Tools contains colour picking, palette extraction, crop, annotation, and resize. Arrange contains annotation ordering commands.
 
 ## Colour picker
 
 1. Choose Pick Colour or press P.
 2. Video pauses on the current frame.
-3. The pointer becomes a loupe showing a nearest-neighbour pixel grid, centre marker, swatch, and current value.
+3. The pointer becomes a nearest-neighbour loupe with a centre marker, swatch, and current value.
 4. Click stores the colour.
 5. Stored colours appear in a compact strip attached to the floating bar.
 6. Clicking a swatch copies the preferred representation.
 7. A context menu offers formats, rename, duplicate, and remove.
-8. Extract Palette opens a small popover for 5, 8, or 12 colours.
+8. Extract Palette offers 5, 8, or 12 colours.
 9. Escape exits while retaining the session palette.
-
-The loupe flips near window edges and must remain aligned with the true sampled pixel.
 
 ## Crop
 
@@ -140,87 +77,25 @@ The loupe flips near window edges and must remain aligned with the true sampled 
 - Handles resize and move the crop region.
 - Controls show Free, Original, 1:1, 4:3, 3:2, 16:9, dimensions, Reset, Cancel, and Apply.
 - Return applies; Escape cancels.
-- For video, the chosen crop applies to the complete clip and can be previewed at several scrub positions.
+- For video, the crop applies to the complete clip.
 
-## Resize and upscale sheet
+## Resize sheet
 
-The sheet begins with two clearly separated methods:
+The sheet contains width, height, pixels or percentage, Exact/Fit/Fill, aspect lock, Prevent Upscaling, high-quality interpolation, and resulting dimensions.
 
-### Standard
-
-- width and height;
-- pixels or percentage;
-- Exact, Fit, or Fill;
-- lock aspect ratio;
-- prevent upscaling;
-- high-quality interpolation.
-
-### AI Upscale
-
-- model: General or Illustration when available;
-- output: 2x, 3x, or 4x;
-- detail strength or denoise only when the bundled model supports it predictably;
-- expected dimensions;
-- local-processing note;
-- warning that generated detail may differ from the original.
-
-For images, a draggable before/after divider previews a representative region or downsampled result.
-
-For video, the sheet previews several representative frames: current frame, an earlier frame, and a later frame. It also states that the first video mode processes frames independently and can shimmer. The final job begins only after Export or Apply to Session is confirmed.
+The current scaffold exposes exact dimensions and 50%, 100%, and 200% presets. The complete control set belongs to the crop and resize milestone.
 
 ## Annotation mode
 
-Action bar:
+The contextual bar contains Select, Arrow, Rectangle, Ellipse, Draw, Text, Marker, Blur, Line, Pixelate, and Done. Selection shows restrained handles and a contextual property popover rather than a permanent inspector.
 
-- Select
-- Arrow
-- Rectangle
-- Ellipse
-- Draw
-- Text
-- Marker
-- Blur
-- More: Line and Pixelate
-- Done
-
-Selection shows restrained handles and a contextual property popover. There is no permanent inspector.
-
-Relevant properties include stroke, fill, opacity, width, arrowhead, font, size, weight, alignment, marker number, blur strength, and pixel size.
-
-### Video timing
-
-Every new annotation defaults to the full clip. A compact timing control in the contextual popover provides:
-
-- Entire Clip;
-- From Current Time;
-- Until Current Time;
-- Custom Start and End.
-
-A thin indicator on the scrubber may show the selected annotation’s visible range. There are no keyframes, tracks, or animated positions.
-
-## Copy
-
-Copy Processed Image is a primary action for screenshots and images. Video provides Copy Current Frame. A brief non-modal confirmation appears after copying.
+For video, every annotation defaults to the complete clip. A compact timing control supports Entire Clip, From Current Time, Until Current Time, and Custom Start and End. There are no keyframes, tracks, or animated positions.
 
 ## Export
 
-### Images
+Image controls adapt to PNG, JPEG, HEIC, or TIFF and show dimensions, alpha behaviour, quality, metadata, and colour profile.
 
-Format controls adapt to PNG, JPEG, HEIC, or TIFF and show final dimensions, alpha behaviour, quality, metadata, and colour profile.
-
-### Video
-
-Controls show container, codec, quality, dimensions, frame rate behaviour, audio handling, estimated size, and whether AI upscaling is active.
-
-Long jobs display:
-
-- current stage;
-- progress bar;
-- processed frames and total when known;
-- elapsed time;
-- Cancel.
-
-Do not promise an exact completion time when processing speed varies. Completion and errors are non-destructive.
+Video controls show container, codec, quality, dimensions, frame-rate behaviour, audio handling, and estimated size. Long jobs show current stage, progress, processed frames when known, elapsed time, and Cancel.
 
 ## Visual style
 
@@ -228,11 +103,11 @@ Do not promise an exact completion time when processing speed varies. Completion
 - Neutral backgrounds.
 - Minimal borders.
 - No decorative gradients.
-- Rounded floating controls at macOS utility scale, not oversized mobile pills.
+- Rounded floating controls at macOS utility scale.
 - SF Symbols where appropriate.
 - Strong focus and selected-tool states.
 - Brief functional animation respecting Reduce Motion.
-- Opaque controls when Reduce Transparency or Increased Contrast requires them.
+- Opaque controls when accessibility settings require them.
 
 ## Keyboard defaults
 
@@ -244,12 +119,12 @@ Do not promise an exact completion time when processing speed varies. Completion
 - Command-Plus / Command-Minus: Zoom
 - Command-0: Fit
 - Command-1: Actual Size
-- Space: Temporary pan or play/pause in video viewer depending focus and active tool
+- Space: temporary pan or video play/pause depending focus and tool
 - P: Pick Colour
 - C: Crop
 - A: Annotate
-- R: Resize / Upscale
-- Left / Right: Frame step while paused when the canvas has focus
-- Escape: Cancel or leave current tool
+- R: Resize
+- Left / Right: frame step while paused
+- Escape: cancel or leave current tool
 
 Single-letter shortcuts never fire while editing text or numeric fields.
