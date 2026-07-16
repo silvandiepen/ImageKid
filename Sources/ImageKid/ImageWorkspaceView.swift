@@ -7,12 +7,17 @@ struct ImageWorkspaceView: View {
 
     @State private var hoverControls = false
     @State private var dragMode: DragMode?
-    @State private var draftAnnotationRect: CGRect?
+    @State private var draftAnnotation: Annotation?
+    @State private var draftFreehandPoints: [CGPoint] = []
+    @State private var panelOffset: CGSize = .zero
 
     var body: some View {
         GeometryReader { proxy in
             let bounds = CGRect(origin: .zero, size: proxy.size)
-            let fitted = GeometryMapper.aspectFitRect(contentSize: session.pixelSize, in: bounds.insetBy(dx: 32, dy: 32))
+            let fitted = GeometryMapper.aspectFitRect(
+                contentSize: session.pixelSize,
+                in: bounds.insetBy(dx: 32, dy: 32)
+            )
             let imageRect = transformedRect(fitted)
 
             ZStack {
@@ -27,13 +32,7 @@ struct ImageWorkspaceView: View {
                     .position(x: imageRect.midX, y: imageRect.midY)
 
                 annotations(in: imageRect)
-
-                if let draftAnnotationRect {
-                    Rectangle()
-                        .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
-                        .frame(width: draftAnnotationRect.width, height: draftAnnotationRect.height)
-                        .position(x: draftAnnotationRect.midX, y: draftAnnotationRect.midY)
-                }
+                draftDrawing(in: imageRect)
 
                 if appModel.activeTool == .crop {
                     CropOverlay(
@@ -84,6 +83,9 @@ struct ImageWorkspaceView: View {
                     session.selectedAnnotationID = nil
                 }
             }
+            .onExitCommand {
+                cancelCurrentTool()
+            }
         }
     }
 
@@ -94,12 +96,37 @@ struct ImageWorkspaceView: View {
                 Spacer()
 
                 if appModel.activeTool == .pickColor {
-                    ColorPalettePanel(session: session)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                } else if let selected = session.selectedAnnotation,
-                          selected.isText {
-                    TextInspector(session: session, annotationID: selected.id)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                    ColorPalettePanel(
+                        session: session,
+                        offset: $panelOffset,
+                        onClose: { appModel.activeTool = .view }
+                    )
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                } else if appModel.activeTool == .crop {
+                    CropControls(
+                        session: session,
+                        offset: $panelOffset,
+                        onCancel: cancelCrop,
+                        onApply: applyCrop
+                    )
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                } else if appModel.activeTool == .draw || session.selectedAnnotation?.isDrawable == true {
+                    DrawingInspector(
+                        session: session,
+                        offset: $panelOffset,
+                        onClose: {
+                            session.selectedAnnotationID = nil
+                            appModel.activeTool = .view
+                        }
+                    )
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                } else if let selected = session.selectedAnnotation, selected.isText {
+                    TextInspector(
+                        session: session,
+                        annotationID: selected.id,
+                        offset: $panelOffset
+                    )
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
             Spacer()
@@ -114,22 +141,18 @@ struct ImageWorkspaceView: View {
         VStack(spacing: 10) {
             Spacer()
 
-            if appModel.activeTool == .crop {
-                CropControls(
-                    session: session,
-                    onCancel: {
-                        session.draftCropRect = nil
-                        appModel.activeTool = .view
-                    },
-                    onApply: {
-                        session.applyDraftCrop()
-                        appModel.activeTool = .view
-                    }
-                )
-            } else {
+            if appModel.activeTool != .crop {
                 FloatingToolbar(canExport: true)
-                    .opacity(hoverControls || appModel.activeTool != .view || session.selectedAnnotationID != nil ? 1 : 0)
-                    .offset(y: hoverControls || appModel.activeTool != .view || session.selectedAnnotationID != nil ? 0 : 8)
+                    .opacity(
+                        hoverControls
+                        || appModel.activeTool != .view
+                        || session.selectedAnnotationID != nil ? 1 : 0
+                    )
+                    .offset(
+                        y: hoverControls
+                        || appModel.activeTool != .view
+                        || session.selectedAnnotationID != nil ? 0 : 8
+                    )
             }
         }
         .padding(.bottom, 20)
@@ -148,7 +171,12 @@ struct ImageWorkspaceView: View {
                     for row in 0...Int(size.height / cell) {
                         for column in 0...Int(size.width / cell) where (row + column).isMultiple(of: 2) {
                             context.fill(
-                                Path(CGRect(x: CGFloat(column) * cell, y: CGFloat(row) * cell, width: cell, height: cell)),
+                                Path(CGRect(
+                                    x: CGFloat(column) * cell,
+                                    y: CGFloat(row) * cell,
+                                    width: cell,
+                                    height: cell
+                                )),
                                 with: .color(.gray.opacity(0.18))
                             )
                         }
@@ -164,31 +192,64 @@ struct ImageWorkspaceView: View {
         ForEach(session.annotations) { annotation in
             let rect = GeometryMapper.viewRect(from: annotation.frame, in: imageRect)
 
-            Group {
-                switch annotation.kind {
-                case .rectangle:
-                    Rectangle()
-                        .stroke(Color(nsColor: annotation.strokeColor), lineWidth: annotation.lineWidth)
-                        .background(
-                            Rectangle().fill(
-                                annotation.fillColor.map { Color(nsColor: $0) } ?? .clear
-                            )
-                        )
-
-                case .text(let value):
-                    Text(value)
-                        .font(annotationFont(annotation, imageRect: imageRect))
-                        .foregroundStyle(Color(nsColor: annotation.strokeColor))
-                        .multilineTextAlignment(textAlignment(annotation.textAlignment))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: annotation.textAlignment.swiftUIAlignment)
-                }
-            }
-            .frame(width: rect.width, height: rect.height)
-            .position(x: rect.midX, y: rect.midY)
+            annotationContent(annotation)
+                .frame(width: rect.width, height: rect.height)
+                .position(x: rect.midX, y: rect.midY)
+                .opacity(annotation.opacity)
 
             if session.selectedAnnotationID == annotation.id {
                 selectionOverlay(for: rect)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func annotationContent(_ annotation: Annotation) -> some View {
+        switch annotation.kind {
+        case .text(let value):
+            Text(value)
+                .font(annotationFont(annotation))
+                .foregroundStyle(Color(nsColor: annotation.strokeColor))
+                .multilineTextAlignment(textAlignment(annotation.textAlignment))
+                .frame(
+                    maxWidth: .infinity,
+                    maxHeight: .infinity,
+                    alignment: annotation.textAlignment.swiftUIAlignment
+                )
+
+        case .rectangle, .ellipse, .line, .arrow, .freehand:
+            Canvas { context, size in
+                context.opacity = annotation.opacity
+                drawAnnotation(annotation, context: &context, size: size)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func draftDrawing(in imageRect: CGRect) -> some View {
+        if let draftAnnotation {
+            let rect = GeometryMapper.viewRect(from: draftAnnotation.frame, in: imageRect)
+            annotationContent(draftAnnotation)
+                .frame(width: rect.width, height: rect.height)
+                .position(x: rect.midX, y: rect.midY)
+                .opacity(0.82)
+        }
+
+        if session.drawingMode == .freehand, draftFreehandPoints.count > 1 {
+            Path { path in
+                path.move(to: draftFreehandPoints[0])
+                for point in draftFreehandPoints.dropFirst() {
+                    path.addLine(to: point)
+                }
+            }
+            .stroke(
+                Color(nsColor: session.drawingStrokeColor).opacity(session.drawingOpacity),
+                style: StrokeStyle(
+                    lineWidth: session.drawingLineWidth,
+                    lineCap: .round,
+                    lineJoin: .round
+                )
+            )
         }
     }
 
@@ -199,7 +260,7 @@ struct ImageWorkspaceView: View {
             .frame(width: rect.width, height: rect.height)
             .position(x: rect.midX, y: rect.midY)
 
-        ForEach(cornerPoints(for: rect), id: \.self) { point in
+        ForEach(Array(cornerPoints(for: rect).enumerated()), id: \.offset) { _, point in
             RoundedRectangle(cornerRadius: 3, style: .continuous)
                 .fill(Color.white)
                 .frame(width: 12, height: 12)
@@ -217,7 +278,7 @@ struct ImageWorkspaceView: View {
         return VStack(spacing: 7) {
             Circle()
                 .fill(Color(nsColor: sample.sRGB))
-                .frame(width: 70, height: 70)
+                .frame(width: 76, height: 76)
                 .overlay(Circle().stroke(.white, lineWidth: 4))
                 .overlay(Circle().stroke(.black.opacity(0.2), lineWidth: 1))
                 .shadow(color: .black.opacity(0.25), radius: 12, y: 5)
@@ -226,7 +287,8 @@ struct ImageWorkspaceView: View {
                 .font(.system(.caption, design: .monospaced, weight: .semibold))
                 .padding(.horizontal, 9)
                 .padding(.vertical, 5)
-                .background(.regularMaterial, in: Capsule())
+                .background(Color.black.opacity(0.80), in: Capsule())
+                .foregroundStyle(.white)
         }
         .position(x: x, y: y)
         .allowsHitTesting(false)
@@ -254,7 +316,8 @@ struct ImageWorkspaceView: View {
             .onEnded { value in
                 finishDrag(value, imageRect: imageRect)
                 dragMode = nil
-                draftAnnotationRect = nil
+                draftAnnotation = nil
+                draftFreehandPoints = []
             }
     }
 
@@ -288,8 +351,8 @@ struct ImageWorkspaceView: View {
             }
             return .crop(handle: .new, start: normalized)
 
-        case .rectangle:
-            return .drawRectangle
+        case .draw:
+            return .draw
 
         case .text:
             return .placeText
@@ -309,8 +372,8 @@ struct ImageWorkspaceView: View {
         case .pick:
             updateLiveSample(at: value.location, imageRect: imageRect)
 
-        case .drawRectangle:
-            draftAnnotationRect = rect(from: value.startLocation, to: value.location)
+        case .draw:
+            updateDraftDrawing(value, imageRect: imageRect)
 
         case .placeText:
             break
@@ -357,37 +420,149 @@ struct ImageWorkspaceView: View {
             session.liveSampleColor = nil
             session.liveSampleLocation = nil
 
-        case .drawRectangle:
-            guard let normalizedRect = GeometryMapper.normalizedRect(
-                from: value.startLocation,
-                to: value.location,
-                in: imageRect
-            ), normalizedRect.width > 0.005, normalizedRect.height > 0.005 else { return }
-            let annotation = Annotation(kind: .rectangle, frame: normalizedRect)
-            session.annotations.append(annotation)
-            session.selectedAnnotationID = annotation.id
-            session.isDirty = true
-            appModel.activeTool = .view
+        case .draw:
+            finishDrawing(value, imageRect: imageRect)
 
         case .placeText:
-            guard let normalized = GeometryMapper.normalizedPoint(value.location, in: imageRect) else { return }
-            let frame = GeometryMapper.clampedNormalizedRect(
-                CGRect(
-                    x: min(normalized.x, 0.68),
-                    y: min(normalized.y, 0.86),
-                    width: 0.3,
-                    height: 0.12
-                )
-            )
-            let annotation = Annotation(kind: .text("Text"), frame: frame)
-            session.annotations.append(annotation)
-            session.selectedAnnotationID = annotation.id
-            session.isDirty = true
-            appModel.activeTool = .view
+            placeText(at: value.location, imageRect: imageRect)
 
         case .pan, .moveAnnotation, .resizeAnnotation, .crop:
             break
         }
+    }
+
+    private func updateDraftDrawing(_ value: DragGesture.Value, imageRect: CGRect) {
+        if session.drawingMode == .freehand {
+            guard imageRect.contains(value.location) else { return }
+            if let last = draftFreehandPoints.last,
+               hypot(last.x - value.location.x, last.y - value.location.y) < 1.5 {
+                return
+            }
+            draftFreehandPoints.append(value.location)
+            return
+        }
+
+        draftAnnotation = makeShapeAnnotation(
+            mode: session.drawingMode,
+            start: value.startLocation,
+            end: value.location,
+            imageRect: imageRect
+        )
+    }
+
+    private func finishDrawing(_ value: DragGesture.Value, imageRect: CGRect) {
+        let annotation: Annotation?
+        if session.drawingMode == .freehand {
+            annotation = makeFreehandAnnotation(points: draftFreehandPoints, imageRect: imageRect)
+        } else {
+            annotation = draftAnnotation ?? makeShapeAnnotation(
+                mode: session.drawingMode,
+                start: value.startLocation,
+                end: value.location,
+                imageRect: imageRect
+            )
+        }
+
+        guard let annotation else { return }
+        session.annotations.append(annotation)
+        session.selectedAnnotationID = annotation.id
+        session.isDirty = true
+        appModel.activeTool = .view
+    }
+
+    private func makeShapeAnnotation(
+        mode: DrawingMode,
+        start: CGPoint,
+        end: CGPoint,
+        imageRect: CGRect
+    ) -> Annotation? {
+        guard
+            let startNormalized = GeometryMapper.normalizedPoint(start, in: imageRect),
+            let endNormalized = GeometryMapper.normalizedPoint(end, in: imageRect),
+            let frame = GeometryMapper.normalizedRect(from: start, to: end, in: imageRect),
+            frame.width > 0.004,
+            frame.height > 0.004
+        else { return nil }
+
+        let localStart = CGPoint(
+            x: (startNormalized.x - frame.minX) / frame.width,
+            y: (startNormalized.y - frame.minY) / frame.height
+        )
+        let localEnd = CGPoint(
+            x: (endNormalized.x - frame.minX) / frame.width,
+            y: (endNormalized.y - frame.minY) / frame.height
+        )
+
+        let kind: Annotation.Kind
+        switch mode {
+        case .rectangle:
+            kind = .rectangle
+        case .ellipse:
+            kind = .ellipse
+        case .line:
+            kind = .line(start: localStart, end: localEnd)
+        case .arrow:
+            kind = .arrow(start: localStart, end: localEnd)
+        case .freehand:
+            return nil
+        }
+
+        return Annotation(
+            kind: kind,
+            frame: frame,
+            strokeColor: session.drawingStrokeColor,
+            fillColor: mode.supportsFill ? session.drawingFillColor : nil,
+            lineWidth: session.drawingLineWidth,
+            opacity: session.drawingOpacity
+        )
+    }
+
+    private func makeFreehandAnnotation(points: [CGPoint], imageRect: CGRect) -> Annotation? {
+        let normalized = points.compactMap { GeometryMapper.normalizedPoint($0, in: imageRect) }
+        guard normalized.count > 1 else { return nil }
+
+        let minX = normalized.map(\.x).min() ?? 0
+        let maxX = normalized.map(\.x).max() ?? 0
+        let minY = normalized.map(\.y).min() ?? 0
+        let maxY = normalized.map(\.y).max() ?? 0
+        let rawFrame = CGRect(
+            x: minX,
+            y: minY,
+            width: max(maxX - minX, 0.01),
+            height: max(maxY - minY, 0.01)
+        )
+        let frame = GeometryMapper.clampedNormalizedRect(rawFrame)
+        let localPoints = normalized.map { point in
+            CGPoint(
+                x: (point.x - frame.minX) / max(frame.width, 0.001),
+                y: (point.y - frame.minY) / max(frame.height, 0.001)
+            )
+        }
+
+        return Annotation(
+            kind: .freehand(points: localPoints),
+            frame: frame,
+            strokeColor: session.drawingStrokeColor,
+            lineWidth: session.drawingLineWidth,
+            opacity: session.drawingOpacity
+        )
+    }
+
+    private func placeText(at point: CGPoint, imageRect: CGRect) {
+        guard let normalized = GeometryMapper.normalizedPoint(point, in: imageRect) else { return }
+        let frame = GeometryMapper.clampedNormalizedRect(
+            CGRect(
+                x: min(normalized.x, 0.68),
+                y: min(normalized.y, 0.86),
+                width: 0.3,
+                height: 0.12
+            )
+        )
+        let annotation = Annotation(kind: .text("Text"), frame: frame)
+        session.annotations.append(annotation)
+        session.selectedAnnotationID = annotation.id
+        session.isDirty = true
+        appModel.activeTool = .view
     }
 
     private func updateLiveSample(at point: CGPoint, imageRect: CGRect) {
@@ -402,7 +577,7 @@ struct ImageWorkspaceView: View {
     private func hitAnnotation(at point: CGPoint, imageRect: CGRect) -> Annotation? {
         session.annotations.reversed().first { annotation in
             GeometryMapper.viewRect(from: annotation.frame, in: imageRect)
-                .insetBy(dx: -5, dy: -5)
+                .insetBy(dx: -6, dy: -6)
                 .contains(point)
         }
     }
@@ -544,8 +719,11 @@ struct ImageWorkspaceView: View {
         ]
     }
 
-    private func annotationFont(_ annotation: Annotation, imageRect: CGRect) -> Font {
-        let displayedSize = max(8, annotation.fontSize * imageRect.width / max(session.pixelSize.width, 1))
+    private func annotationFont(_ annotation: Annotation) -> Font {
+        let displayedSize = max(
+            8,
+            annotation.fontSize * session.zoom * 0.72
+        )
         if annotation.fontFamily.isEmpty {
             return .system(size: displayedSize, weight: annotation.fontWeight.swiftUIWeight)
         }
@@ -561,19 +739,117 @@ struct ImageWorkspaceView: View {
         }
     }
 
-    private func rect(from first: CGPoint, to second: CGPoint) -> CGRect {
-        CGRect(
-            x: min(first.x, second.x),
-            y: min(first.y, second.y),
-            width: abs(second.x - first.x),
-            height: abs(second.y - first.y)
+    private func drawAnnotation(
+        _ annotation: Annotation,
+        context: inout GraphicsContext,
+        size: CGSize
+    ) {
+        let stroke = GraphicsContext.Shading.color(Color(nsColor: annotation.strokeColor))
+        let style = StrokeStyle(
+            lineWidth: annotation.lineWidth,
+            lineCap: .round,
+            lineJoin: .round
         )
+
+        switch annotation.kind {
+        case .rectangle:
+            let path = Path(CGRect(origin: .zero, size: size))
+            if let fill = annotation.fillColor {
+                context.fill(path, with: .color(Color(nsColor: fill)))
+            }
+            context.stroke(path, with: stroke, style: style)
+
+        case .ellipse:
+            var path = Path()
+            path.addEllipse(in: CGRect(origin: .zero, size: size))
+            if let fill = annotation.fillColor {
+                context.fill(path, with: .color(Color(nsColor: fill)))
+            }
+            context.stroke(path, with: stroke, style: style)
+
+        case .line(let start, let end):
+            var path = Path()
+            path.move(to: localPoint(start, size: size))
+            path.addLine(to: localPoint(end, size: size))
+            context.stroke(path, with: stroke, style: style)
+
+        case .arrow(let start, let end):
+            drawArrow(
+                from: localPoint(start, size: size),
+                to: localPoint(end, size: size),
+                context: &context,
+                stroke: stroke,
+                style: style
+            )
+
+        case .freehand(let points):
+            guard let first = points.first else { return }
+            var path = Path()
+            path.move(to: localPoint(first, size: size))
+            for point in points.dropFirst() {
+                path.addLine(to: localPoint(point, size: size))
+            }
+            context.stroke(path, with: stroke, style: style)
+
+        case .text:
+            break
+        }
+    }
+
+    private func drawArrow(
+        from start: CGPoint,
+        to end: CGPoint,
+        context: inout GraphicsContext,
+        stroke: GraphicsContext.Shading,
+        style: StrokeStyle
+    ) {
+        var shaft = Path()
+        shaft.move(to: start)
+        shaft.addLine(to: end)
+        context.stroke(shaft, with: stroke, style: style)
+
+        let angle = atan2(end.y - start.y, end.x - start.x)
+        let headLength = max(10, style.lineWidth * 4)
+        let spread: CGFloat = .pi / 7
+        let left = CGPoint(
+            x: end.x - cos(angle - spread) * headLength,
+            y: end.y - sin(angle - spread) * headLength
+        )
+        let right = CGPoint(
+            x: end.x - cos(angle + spread) * headLength,
+            y: end.y - sin(angle + spread) * headLength
+        )
+        var head = Path()
+        head.move(to: left)
+        head.addLine(to: end)
+        head.addLine(to: right)
+        context.stroke(head, with: stroke, style: style)
+    }
+
+    private func localPoint(_ point: CGPoint, size: CGSize) -> CGPoint {
+        CGPoint(x: point.x * size.width, y: point.y * size.height)
+    }
+
+    private func cancelCrop() {
+        session.cancelCrop()
+        appModel.activeTool = .view
+    }
+
+    private func applyCrop() {
+        session.applyDraftCrop()
+        appModel.activeTool = .view
+    }
+
+    private func cancelCurrentTool() {
+        draftAnnotation = nil
+        draftFreehandPoints = []
+        appModel.cancelCurrentTool()
     }
 
     private enum DragMode {
         case pan(start: CGSize)
         case pick
-        case drawRectangle
+        case draw
         case placeText
         case moveAnnotation(id: UUID, start: CGRect)
         case resizeAnnotation(id: UUID, corner: AnnotationCorner, start: CGRect)
