@@ -4,87 +4,93 @@ import UniformTypeIdentifiers
 
 struct ColorPalettePanel: View {
     @ObservedObject var session: ImageSession
+    @Binding var offset: CGSize
+    let onClose: () -> Void
+
     @State private var expandedColorIDs: Set<UUID> = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label("Picked Colours", systemImage: "paintpalette")
-                    .font(.headline)
-                Spacer()
-                Text("\(session.sampledColors.count)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
+        FloatingToolPanel(
+            title: "Picked Colours",
+            systemImage: "paintpalette",
+            width: 320,
+            offset: $offset,
+            onClose: onClose
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Text("\(session.sampledColors.count) saved")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.58))
+                    Spacer()
+                    Button(session.selectedColorIDs.count == session.sampledColors.count ? "None" : "All") {
+                        toggleAll()
+                    }
+                    .buttonStyle(.borderless)
+                }
 
-            if session.sampledColors.isEmpty {
-                ContentUnavailableView(
-                    "No colours yet",
-                    systemImage: "eyedropper",
-                    description: Text("Press and drag over the image, then release to save a colour.")
-                )
-                .frame(height: 150)
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 6) {
-                        ForEach(session.sampledColors) { sample in
-                            colorRow(sample)
+                if session.sampledColors.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "eyedropper")
+                            .font(.system(size: 30, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.55))
+                        Text("Press and drag over the image. Release to save the current colour.")
+                            .font(.caption)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.white.opacity(0.58))
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 150)
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 8) {
+                            ForEach(session.sampledColors) { sample in
+                                colorRow(sample)
+                            }
                         }
                     }
+                    .frame(maxHeight: 390)
                 }
-                .frame(maxHeight: 320)
-            }
 
-            Divider()
+                Rectangle()
+                    .fill(.white.opacity(0.09))
+                    .frame(height: 1)
 
-            HStack(spacing: 8) {
-                Button(session.selectedColorIDs.count == session.sampledColors.count ? "None" : "All") {
-                    if session.selectedColorIDs.count == session.sampledColors.count {
-                        session.selectedColorIDs.removeAll()
-                    } else {
-                        session.selectedColorIDs = Set(session.sampledColors.map(\.id))
+                VStack(spacing: 9) {
+                    Menu {
+                        Button("HEX list") { copySelected(format: .hex) }
+                        Button("RGB list") { copySelected(format: .rgb) }
+                        Button("CSS variables") { copySelected(format: .css) }
+                        Button("JSON") { copySelected(format: .json) }
+                    } label: {
+                        Label("Copy Selected", systemImage: "doc.on.doc")
+                            .frame(maxWidth: .infinity)
                     }
-                }
+                    .menuStyle(.button)
+                    .disabled(selectedSamples.isEmpty)
 
-                Spacer()
+                    Menu {
+                        Button("Plain text…") { exportSelected(format: .hex) }
+                        Button("CSS…") { exportSelected(format: .css) }
+                        Button("JSON…") { exportSelected(format: .json) }
+                    } label: {
+                        Label("Export Selected", systemImage: "square.and.arrow.up")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .menuStyle(.button)
+                    .disabled(selectedSamples.isEmpty)
 
-                Menu {
-                    Button("HEX list") { copySelected(format: .hex) }
-                    Button("RGB list") { copySelected(format: .rgb) }
-                    Button("CSS variables") { copySelected(format: .css) }
-                    Button("JSON") { copySelected(format: .json) }
-                } label: {
-                    Label("Copy", systemImage: "doc.on.doc")
+                    Button(role: .destructive) {
+                        session.removeSamples(session.selectedColorIDs)
+                    } label: {
+                        Label("Remove Selected", systemImage: "trash")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(selectedSamples.isEmpty)
                 }
-                .disabled(selectedSamples.isEmpty)
-
-                Menu {
-                    Button("Plain text…") { exportSelected(format: .hex) }
-                    Button("CSS…") { exportSelected(format: .css) }
-                    Button("JSON…") { exportSelected(format: .json) }
-                } label: {
-                    Label("Export", systemImage: "square.and.arrow.up")
-                }
-                .disabled(selectedSamples.isEmpty)
-
-                Button(role: .destructive) {
-                    session.removeSamples(session.selectedColorIDs)
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .disabled(selectedSamples.isEmpty)
-                .help("Remove selected colours")
             }
-            .controlSize(.small)
+            .darkPanelControl()
         }
-        .padding(16)
-        .frame(width: 330)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(.white.opacity(0.14))
-        )
-        .shadow(color: .black.opacity(0.22), radius: 20, y: 8)
     }
 
     @ViewBuilder
@@ -95,46 +101,44 @@ struct ColorPalettePanel: View {
                     toggleSelection(sample.id)
                 } label: {
                     Image(systemName: session.selectedColorIDs.contains(sample.id) ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(session.selectedColorIDs.contains(sample.id) ? Color.accentColor : .secondary)
+                        .foregroundStyle(session.selectedColorIDs.contains(sample.id) ? Color.accentColor : .white.opacity(0.48))
                 }
                 .buttonStyle(.plain)
 
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
                     .fill(Color(nsColor: sample.sRGB))
-                    .frame(width: 42, height: 32)
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(.primary.opacity(0.14)))
+                    .frame(width: 50, height: 38)
+                    .overlay(RoundedRectangle(cornerRadius: 11).stroke(.white.opacity(0.16)))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(sample.hex)
-                        .font(.system(.body, design: .monospaced, weight: .medium))
+                        .font(.system(.body, design: .monospaced, weight: .semibold))
                     Text(sample.rgb)
                         .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.white.opacity(0.52))
                 }
 
                 Spacer()
 
                 Button {
                     withAnimation(.easeInOut(duration: 0.15)) {
-                        if expandedColorIDs.contains(sample.id) {
-                            expandedColorIDs.remove(sample.id)
-                        } else {
-                            expandedColorIDs.insert(sample.id)
-                        }
+                        toggleExpanded(sample.id)
                     }
                 } label: {
                     Image(systemName: expandedColorIDs.contains(sample.id) ? "chevron.up" : "chevron.down")
+                        .frame(width: 26, height: 26)
+                        .background(.white.opacity(0.08), in: Circle())
                 }
                 .buttonStyle(.plain)
             }
-            .padding(8)
-            .contentShape(Rectangle())
+            .padding(10)
 
             if expandedColorIDs.contains(sample.id) {
-                VStack(alignment: .leading, spacing: 9) {
+                VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Text("Adjust")
-                            .foregroundStyle(.secondary)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.62))
                         Spacer()
                         ColorPicker(
                             "Adjust colour",
@@ -150,18 +154,18 @@ struct ColorPalettePanel: View {
                     valueRow("HSL", sample.hsl)
                     valueRow("SwiftUI", sample.swiftUIColor)
                 }
-                .padding(.horizontal, 10)
-                .padding(.bottom, 10)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
             }
         }
-        .background(.quaternary.opacity(0.28), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func valueRow(_ label: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.52))
                 .frame(width: 48, alignment: .leading)
             Text(value)
                 .font(.caption.monospaced())
@@ -169,8 +173,7 @@ struct ColorPalettePanel: View {
                 .lineLimit(2)
             Spacer(minLength: 0)
             Button {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(value, forType: .string)
+                copy(value)
             } label: {
                 Image(systemName: "doc.on.doc")
             }
@@ -182,11 +185,27 @@ struct ColorPalettePanel: View {
         session.sampledColors.filter { session.selectedColorIDs.contains($0.id) }
     }
 
+    private func toggleAll() {
+        if session.selectedColorIDs.count == session.sampledColors.count {
+            session.selectedColorIDs.removeAll()
+        } else {
+            session.selectedColorIDs = Set(session.sampledColors.map(\.id))
+        }
+    }
+
     private func toggleSelection(_ id: UUID) {
         if session.selectedColorIDs.contains(id) {
             session.selectedColorIDs.remove(id)
         } else {
             session.selectedColorIDs.insert(id)
+        }
+    }
+
+    private func toggleExpanded(_ id: UUID) {
+        if expandedColorIDs.contains(id) {
+            expandedColorIDs.remove(id)
+        } else {
+            expandedColorIDs.insert(id)
         }
     }
 
@@ -210,11 +229,11 @@ struct ColorPalettePanel: View {
     private func output(for format: OutputFormat) -> String {
         switch format {
         case .hex:
-            return selectedSamples.map(\.hex).joined(separator: "\n")
+            selectedSamples.map(\.hex).joined(separator: "\n")
         case .rgb:
-            return selectedSamples.map(\.rgb).joined(separator: "\n")
+            selectedSamples.map(\.rgb).joined(separator: "\n")
         case .css:
-            return selectedSamples.enumerated().map { index, color in
+            selectedSamples.enumerated().map { index, color in
                 "--color-\(index + 1): \(color.hex);"
             }.joined(separator: "\n")
         case .json:
@@ -226,8 +245,12 @@ struct ColorPalettePanel: View {
     }
 
     private func copySelected(format: OutputFormat) {
+        copy(output(for: format))
+    }
+
+    private func copy(_ value: String) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(output(for: format), forType: .string)
+        NSPasteboard.general.setString(value, forType: .string)
     }
 
     private func exportSelected(format: OutputFormat) {
