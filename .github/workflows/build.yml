@@ -10,7 +10,18 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+
       - name: Build
-        run: swift build
+        id: build
+        continue-on-error: true
+        run: swift build > build.log 2>&1
+
+      - name: Build diagnostics
+        if: steps.build.outcome == 'failure'
+        run: |
+          grep -n -E "error:|warning:" build.log | tail -n 120 || tail -n 120 build.log
+          exit 1
+
       - name: Test
+        if: steps.build.outcome == 'success'
         run: swift test
