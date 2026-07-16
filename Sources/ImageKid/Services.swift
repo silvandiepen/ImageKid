@@ -38,9 +38,18 @@ struct PixelSampler {
         }
 
         let bitmap = NSBitmapImageRep(cgImage: cgImage)
-        let x = min(max(Int(normalizedPoint.x * CGFloat(cgImage.width)), 0), cgImage.width - 1)
-        let y = min(max(Int((1 - normalizedPoint.y) * CGFloat(cgImage.height)), 0), cgImage.height - 1)
-        return bitmap.colorAt(x: x, y: y)
+        let coordinates = pixelCoordinates(
+            normalizedPoint: normalizedPoint,
+            width: cgImage.width,
+            height: cgImage.height
+        )
+        return bitmap.colorAt(x: coordinates.x, y: coordinates.y)
+    }
+
+    static func pixelCoordinates(normalizedPoint: CGPoint, width: Int, height: Int) -> (x: Int, y: Int) {
+        let x = min(max(Int(normalizedPoint.x * CGFloat(width)), 0), max(width - 1, 0))
+        let y = min(max(Int(normalizedPoint.y * CGFloat(height)), 0), max(height - 1, 0))
+        return (x, y)
     }
 }
 
@@ -166,16 +175,44 @@ enum ImageRenderer {
             height: relativeFrame.height * targetSize.height
         )
 
+        let lineScale = max(1, targetSize.width / max(sourceSize.width * cropRect.width, 1))
+        let lineWidth = annotation.lineWidth * lineScale
+
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current?.cgContext.setAlpha(annotation.opacity)
+
         switch annotation.kind {
         case .rectangle:
-            let path = NSBezierPath(rect: rect)
-            path.lineWidth = annotation.lineWidth * max(1, targetSize.width / max(sourceSize.width, 1))
-            if let fill = annotation.fillColor {
-                fill.setFill()
-                path.fill()
+            drawClosedPath(NSBezierPath(rect: rect), annotation: annotation, lineWidth: lineWidth)
+
+        case .ellipse:
+            drawClosedPath(NSBezierPath(ovalIn: rect), annotation: annotation, lineWidth: lineWidth)
+
+        case .line(let start, let end):
+            let path = NSBezierPath()
+            path.move(to: outputPoint(start, in: rect))
+            path.line(to: outputPoint(end, in: rect))
+            stroke(path, color: annotation.strokeColor, lineWidth: lineWidth)
+
+        case .arrow(let start, let end):
+            drawArrow(
+                from: outputPoint(start, in: rect),
+                to: outputPoint(end, in: rect),
+                color: annotation.strokeColor,
+                lineWidth: lineWidth
+            )
+
+        case .freehand(let points):
+            guard let first = points.first else { return }
+            let path = NSBezierPath()
+            path.move(to: outputPoint(first, in: rect))
+            for point in points.dropFirst() {
+                path.line(to: outputPoint(point, in: rect))
             }
-            annotation.strokeColor.setStroke()
-            path.stroke()
+            path.lineJoinStyle = .round
+            path.lineCapStyle = .round
+            stroke(path, color: annotation.strokeColor, lineWidth: lineWidth)
 
         case .text(let value):
             let scale = targetSize.width / max(sourceSize.width * cropRect.width, 1)
@@ -196,6 +233,55 @@ enum ImageRenderer {
             ]
             value.draw(in: rect, withAttributes: attributes)
         }
+    }
+
+    private static func drawClosedPath(_ path: NSBezierPath, annotation: Annotation, lineWidth: CGFloat) {
+        path.lineWidth = lineWidth
+        if let fill = annotation.fillColor {
+            fill.setFill()
+            path.fill()
+        }
+        annotation.strokeColor.setStroke()
+        path.stroke()
+    }
+
+    private static func stroke(_ path: NSBezierPath, color: NSColor, lineWidth: CGFloat) {
+        path.lineWidth = lineWidth
+        color.setStroke()
+        path.stroke()
+    }
+
+    private static func outputPoint(_ point: CGPoint, in rect: CGRect) -> CGPoint {
+        CGPoint(
+            x: rect.minX + point.x * rect.width,
+            y: rect.maxY - point.y * rect.height
+        )
+    }
+
+    private static func drawArrow(from start: CGPoint, to end: CGPoint, color: NSColor, lineWidth: CGFloat) {
+        let path = NSBezierPath()
+        path.move(to: start)
+        path.line(to: end)
+        stroke(path, color: color, lineWidth: lineWidth)
+
+        let angle = atan2(end.y - start.y, end.x - start.x)
+        let headLength = max(10, lineWidth * 4)
+        let spread: CGFloat = .pi / 7
+        let left = CGPoint(
+            x: end.x - cos(angle - spread) * headLength,
+            y: end.y - sin(angle - spread) * headLength
+        )
+        let right = CGPoint(
+            x: end.x - cos(angle + spread) * headLength,
+            y: end.y - sin(angle + spread) * headLength
+        )
+        let head = NSBezierPath()
+        head.move(to: left)
+        head.line(to: end)
+        head.line(to: right)
+        head.lineCapStyle = .round
+        head.lineJoinStyle = .round
+        stroke(head, color: color, lineWidth: lineWidth)
     }
 }
 

@@ -2,59 +2,85 @@ import SwiftUI
 
 struct CropControls: View {
     @ObservedObject var session: ImageSession
+    @Binding var offset: CGSize
     let onCancel: () -> Void
     let onApply: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            Picker("Ratio", selection: $session.cropAspectRatio) {
-                ForEach(CropAspectRatio.allCases) { ratio in
-                    Text(ratio.label).tag(ratio)
+        FloatingToolPanel(
+            title: "Crop",
+            systemImage: "crop",
+            width: 290,
+            offset: $offset,
+            onClose: onCancel
+        ) {
+            VStack(alignment: .leading, spacing: 18) {
+                field("Ratio") {
+                    Picker("Ratio", selection: $session.cropAspectRatio) {
+                        ForEach(CropAspectRatio.allCases) { ratio in
+                            Text(ratio.label).tag(ratio)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: .infinity)
+                    .onChange(of: session.cropAspectRatio) { _, value in
+                        applyRatio(value)
+                    }
+                }
+
+                field("Size") {
+                    HStack(spacing: 8) {
+                        TextField("Width", value: widthBinding, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                        Text("×")
+                            .foregroundStyle(.white.opacity(0.55))
+                        TextField("Height", value: heightBinding, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    Text("Pixels")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.48))
+                }
+
+                Text("Drag corners or edges to resize. Drag inside the crop to move it.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.55))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Rectangle()
+                    .fill(.white.opacity(0.09))
+                    .frame(height: 1)
+
+                Button {
+                    session.draftCropRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+                    session.cropAspectRatio = .free
+                } label: {
+                    Label("Reset Crop", systemImage: "arrow.counterclockwise")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+
+                HStack(spacing: 10) {
+                    Button("Cancel", action: onCancel)
+                        .frame(maxWidth: .infinity)
+                    Button("Apply", action: onApply)
+                        .buttonStyle(.borderedProminent)
+                        .frame(maxWidth: .infinity)
                 }
             }
-            .pickerStyle(.menu)
-            .frame(width: 112)
-            .onChange(of: session.cropAspectRatio) { _, value in
-                applyRatio(value)
-            }
-
-            Divider().frame(height: 24)
-
-            HStack(spacing: 6) {
-                TextField("Width", value: widthBinding, format: .number)
-                    .frame(width: 74)
-                    .textFieldStyle(.roundedBorder)
-                Text("×")
-                    .foregroundStyle(.secondary)
-                TextField("Height", value: heightBinding, format: .number)
-                    .frame(width: 74)
-                    .textFieldStyle(.roundedBorder)
-                Text("px")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Divider().frame(height: 24)
-
-            Button("Reset") {
-                session.draftCropRect = CGRect(x: 0, y: 0, width: 1, height: 1)
-                session.cropAspectRatio = .free
-            }
-
-            Button("Cancel", action: onCancel)
-
-            Button("Apply", action: onApply)
-                .buttonStyle(.borderedProminent)
+            .darkPanelControl()
         }
-        .controlSize(.regular)
-        .padding(.horizontal, 13)
-        .padding(.vertical, 10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .strokeBorder(.white.opacity(0.14))
-        )
-        .shadow(color: .black.opacity(0.2), radius: 18, y: 7)
+    }
+
+    @ViewBuilder
+    private func field<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.72))
+            content()
+        }
     }
 
     private var currentRect: CGRect {

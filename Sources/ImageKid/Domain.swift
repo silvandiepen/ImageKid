@@ -9,7 +9,7 @@ public enum Tool: String, CaseIterable, Identifiable {
     case view
     case pickColor
     case crop
-    case rectangle
+    case draw
     case text
 
     public var id: String { rawValue }
@@ -19,7 +19,7 @@ public enum Tool: String, CaseIterable, Identifiable {
         case .view: "View"
         case .pickColor: "Pick"
         case .crop: "Crop"
-        case .rectangle: "Rectangle"
+        case .draw: "Draw"
         case .text: "Text"
         }
     }
@@ -29,7 +29,7 @@ public enum Tool: String, CaseIterable, Identifiable {
         case .view: "hand.draw"
         case .pickColor: "eyedropper"
         case .crop: "crop"
-        case .rectangle: "rectangle"
+        case .draw: "pencil.tip.crop.circle"
         case .text: "textformat"
         }
     }
@@ -65,6 +65,40 @@ enum CropAspectRatio: String, CaseIterable, Identifiable {
         case .threeTwo: 3 / 2
         case .sixteenNine: 16 / 9
         }
+    }
+}
+
+enum DrawingMode: String, CaseIterable, Identifiable {
+    case rectangle
+    case ellipse
+    case line
+    case arrow
+    case freehand
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .rectangle: "Rectangle"
+        case .ellipse: "Ellipse"
+        case .line: "Line"
+        case .arrow: "Arrow"
+        case .freehand: "Freehand"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .rectangle: "rectangle"
+        case .ellipse: "circle"
+        case .line: "line.diagonal"
+        case .arrow: "arrow.up.right"
+        case .freehand: "pencil.tip"
+        }
+    }
+
+    var supportsFill: Bool {
+        self == .rectangle || self == .ellipse
     }
 }
 
@@ -138,9 +172,7 @@ struct SampledColor: Identifiable {
         return String(format: "hsl(%.0f, %.0f%%, %.0f%%)", hue, saturation * 100, lightness * 100)
     }
 
-    var cssVariable: String {
-        "--color: \(hex);"
-    }
+    var cssVariable: String { "--color: \(hex);" }
 
     var swiftUIColor: String {
         let value = sRGB
@@ -210,6 +242,10 @@ enum AnnotationTextAlignment: String, CaseIterable, Identifiable {
 struct Annotation: Identifiable {
     enum Kind {
         case rectangle
+        case ellipse
+        case line(start: CGPoint, end: CGPoint)
+        case arrow(start: CGPoint, end: CGPoint)
+        case freehand(points: [CGPoint])
         case text(String)
     }
 
@@ -219,6 +255,7 @@ struct Annotation: Identifiable {
     var strokeColor: NSColor
     var fillColor: NSColor?
     var lineWidth: CGFloat
+    var opacity: Double
     var fontFamily: String
     var fontSize: CGFloat
     var fontWeight: AnnotationFontWeight
@@ -231,6 +268,7 @@ struct Annotation: Identifiable {
         strokeColor: NSColor = .systemRed,
         fillColor: NSColor? = nil,
         lineWidth: CGFloat = 3,
+        opacity: Double = 1,
         fontFamily: String = "",
         fontSize: CGFloat = 48,
         fontWeight: AnnotationFontWeight = .semibold,
@@ -242,6 +280,7 @@ struct Annotation: Identifiable {
         self.strokeColor = strokeColor
         self.fillColor = fillColor
         self.lineWidth = lineWidth
+        self.opacity = opacity
         self.fontFamily = fontFamily
         self.fontSize = fontSize
         self.fontWeight = fontWeight
@@ -263,6 +302,34 @@ struct Annotation: Identifiable {
         if case .text = kind { return true }
         return false
     }
+
+    var isDrawable: Bool { !isText }
+
+    var drawingMode: DrawingMode? {
+        switch kind {
+        case .rectangle: .rectangle
+        case .ellipse: .ellipse
+        case .line: .line
+        case .arrow: .arrow
+        case .freehand: .freehand
+        case .text: nil
+        }
+    }
+
+    mutating func changeDrawingMode(_ mode: DrawingMode) {
+        switch mode {
+        case .rectangle:
+            kind = .rectangle
+        case .ellipse:
+            kind = .ellipse
+        case .line:
+            kind = .line(start: .zero, end: CGPoint(x: 1, y: 1))
+        case .arrow:
+            kind = .arrow(start: .zero, end: CGPoint(x: 1, y: 1))
+        case .freehand:
+            kind = .freehand(points: [.zero, CGPoint(x: 1, y: 1)])
+        }
+    }
 }
 
 @MainActor
@@ -282,6 +349,11 @@ final class ImageSession: ObservableObject {
     @Published var selectedColorIDs: Set<UUID> = []
     @Published var liveSampleColor: NSColor?
     @Published var liveSampleLocation: CGPoint?
+    @Published var drawingMode: DrawingMode = .rectangle
+    @Published var drawingStrokeColor: NSColor = .systemRed
+    @Published var drawingFillColor: NSColor?
+    @Published var drawingLineWidth: CGFloat = 4
+    @Published var drawingOpacity: Double = 1
     @Published var isDirty = false
 
     init(sourceURL: URL?, sourceImage: NSImage) {
@@ -344,6 +416,10 @@ final class ImageSession: ObservableObject {
         isDirty = true
     }
 
+    func cancelCrop() {
+        draftCropRect = nil
+    }
+
     func resetView() {
         zoom = 1
         pan = .zero
@@ -362,20 +438,29 @@ final class VideoSession: ObservableObject {
     @Published var outputSize: CGSize?
     @Published var annotations: [Annotation] = []
     @Published var sampledColors: [SampledColor] = []
+    @Published private(set) var naturalSize = CGSize(width: 16, height: 9)
 
     init(sourceURL: URL) {
         self.sourceURL = sourceURL
         let asset = AVURLAsset(url: sourceURL)
         self.asset = asset
         self.player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+
+        Task { [weak self] in
+            await self?.loadNaturalSize()
+        }
     }
 
-    var naturalSize: CGSize {
-        guard let track = asset.tracks(withMediaType: .video).first else {
-            return CGSize(width: 16, height: 9)
+    private func loadNaturalSize() async {
+        do {
+            guard let track = try await asset.loadTracks(withMediaType: .video).first else { return }
+            let size = try await track.load(.naturalSize)
+            let transform = try await track.load(.preferredTransform)
+            let transformed = size.applying(transform)
+            naturalSize = CGSize(width: abs(transformed.width), height: abs(transformed.height))
+        } catch {
+            naturalSize = CGSize(width: 16, height: 9)
         }
-        let transformed = track.naturalSize.applying(track.preferredTransform)
-        return CGSize(width: abs(transformed.width), height: abs(transformed.height))
     }
 }
 
