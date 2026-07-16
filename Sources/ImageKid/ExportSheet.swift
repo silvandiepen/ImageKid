@@ -55,11 +55,11 @@ enum ImageExportFormat: String, CaseIterable, Identifiable {
         self == .jpeg || self == .heic
     }
 
-    var bitmapType: NSBitmapImageRep.FileType {
+    var bitmapType: NSBitmapImageRep.FileType? {
         switch self {
         case .png: .png
         case .jpeg: .jpeg
-        case .heic: .heic
+        case .heic: nil
         case .tiff: .tiff
         case .bmp: .bmp
         case .gif: .gif
