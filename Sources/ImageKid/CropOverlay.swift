@@ -6,6 +6,7 @@ struct CropOverlay: View {
 
     var body: some View {
         let crop = GeometryMapper.viewRect(from: normalizedRect, in: imageRect)
+        let handles = Array(handlePoints(for: crop).enumerated())
 
         ZStack(alignment: .topLeading) {
             Color.black.opacity(0.48)
@@ -31,7 +32,7 @@ struct CropOverlay: View {
 
             ruleOfThirds(in: crop)
 
-            ForEach(handlePoints(for: crop), id: \.self) { point in
+            ForEach(handles, id: \.offset) { _, point in
                 RoundedRectangle(cornerRadius: 2.5, style: .continuous)
                     .fill(Color.white)
                     .frame(width: 11, height: 11)
