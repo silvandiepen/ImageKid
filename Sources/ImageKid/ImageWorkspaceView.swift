@@ -14,18 +14,26 @@ struct ImageWorkspaceView: View {
     var body: some View {
         GeometryReader { proxy in
             let bounds = CGRect(origin: .zero, size: proxy.size)
+            let workingSize = WorkingImageGeometry.croppedPixelSize(
+                sourceSize: session.pixelSize,
+                cropRect: session.cropRect
+            )
             let fitted = GeometryMapper.aspectFitRect(
-                contentSize: session.pixelSize,
+                contentSize: workingSize,
                 in: bounds.insetBy(dx: 32, dy: 32)
             )
             let imageRect = transformedRect(fitted)
+            let workingImage = WorkingImagePreview.croppedImage(
+                from: session.sourceImage,
+                cropRect: session.cropRect
+            )
 
             ZStack {
                 Color(nsColor: .underPageBackgroundColor)
 
                 checkerboard(in: imageRect)
 
-                Image(nsImage: session.sourceImage)
+                Image(nsImage: workingImage)
                     .resizable()
                     .interpolation(.high)
                     .frame(width: imageRect.width, height: imageRect.height)
@@ -34,10 +42,11 @@ struct ImageWorkspaceView: View {
                 annotations(in: imageRect)
                 draftDrawing(in: imageRect)
 
-                if appModel.activeTool == .crop {
+                if appModel.activeTool == .crop,
+                   let displayedCrop = displayedCropRect(session.draftCropRect ?? session.cropRect) {
                     CropOverlay(
                         imageRect: imageRect,
-                        normalizedRect: session.draftCropRect ?? session.cropRect
+                        normalizedRect: displayedCrop
                     )
                 }
 
@@ -190,15 +199,17 @@ struct ImageWorkspaceView: View {
     @ViewBuilder
     private func annotations(in imageRect: CGRect) -> some View {
         ForEach(session.annotations) { annotation in
-            let rect = GeometryMapper.viewRect(from: annotation.frame, in: imageRect)
+            if let displayedFrame = displayedAnnotationFrame(annotation.frame) {
+                let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
 
-            annotationContent(annotation)
-                .frame(width: rect.width, height: rect.height)
-                .position(x: rect.midX, y: rect.midY)
-                .opacity(annotation.opacity)
+                annotationContent(annotation)
+                    .frame(width: rect.width, height: rect.height)
+                    .position(x: rect.midX, y: rect.midY)
+                    .opacity(annotation.opacity)
 
-            if session.selectedAnnotationID == annotation.id {
-                selectionOverlay(for: rect)
+                if session.selectedAnnotationID == annotation.id {
+                    selectionOverlay(for: rect)
+                }
             }
         }
     }
@@ -219,7 +230,6 @@ struct ImageWorkspaceView: View {
 
         case .rectangle, .ellipse, .line, .arrow, .freehand:
             Canvas { context, size in
-                context.opacity = annotation.opacity
                 drawAnnotation(annotation, context: &context, size: size)
             }
         }
@@ -227,8 +237,9 @@ struct ImageWorkspaceView: View {
 
     @ViewBuilder
     private func draftDrawing(in imageRect: CGRect) -> some View {
-        if let draftAnnotation {
-            let rect = GeometryMapper.viewRect(from: draftAnnotation.frame, in: imageRect)
+        if let draftAnnotation,
+           let displayedFrame = displayedAnnotationFrame(draftAnnotation.frame) {
+            let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
             annotationContent(draftAnnotation)
                 .frame(width: rect.width, height: rect.height)
                 .position(x: rect.midX, y: rect.midY)
@@ -325,8 +336,9 @@ struct ImageWorkspaceView: View {
         switch appModel.activeTool {
         case .view:
             if let selectedID = session.selectedAnnotationID,
-               let selected = session.annotations.first(where: { $0.id == selectedID }) {
-                let rect = GeometryMapper.viewRect(from: selected.frame, in: imageRect)
+               let selected = session.annotations.first(where: { $0.id == selectedID }),
+               let displayed = displayedAnnotationFrame(selected.frame) {
+                let rect = GeometryMapper.viewRect(from: displayed, in: imageRect)
                 if let corner = cornerHandle(at: point, rect: rect) {
                     return .resizeAnnotation(id: selectedID, corner: corner, start: selected.frame)
                 }
@@ -344,12 +356,14 @@ struct ImageWorkspaceView: View {
             return .pick
 
         case .crop:
-            let normalized = session.draftCropRect ?? session.cropRect
-            let rect = GeometryMapper.viewRect(from: normalized, in: imageRect)
+            let sourceDraft = session.draftCropRect ?? session.cropRect
+            let displayedDraft = displayedCropRect(sourceDraft)
+                ?? CGRect(x: 0, y: 0, width: 1, height: 1)
+            let rect = GeometryMapper.viewRect(from: displayedDraft, in: imageRect)
             if let handle = boxHandle(at: point, rect: rect) {
-                return .crop(handle: handle, start: normalized)
+                return .crop(handle: handle, start: displayedDraft)
             }
-            return .crop(handle: .new, start: normalized)
+            return .crop(handle: .new, start: displayedDraft)
 
         case .draw:
             return .draw
@@ -379,32 +393,38 @@ struct ImageWorkspaceView: View {
             break
 
         case .moveAnnotation(let id, let start):
-            let delta = normalizedTranslation(value.translation, imageRect: imageRect)
+            let delta = sourceTranslation(value.translation, imageRect: imageRect)
             session.updateAnnotation(id: id) { annotation in
                 annotation.frame = movedRect(start, by: delta)
             }
 
         case .resizeAnnotation(let id, let corner, let start):
-            let delta = normalizedTranslation(value.translation, imageRect: imageRect)
+            let delta = sourceTranslation(value.translation, imageRect: imageRect)
             session.updateAnnotation(id: id) { annotation in
                 annotation.frame = resizedRect(start, handle: corner.boxHandle, delta: delta)
             }
 
         case .crop(let handle, let start):
+            let displayedRect: CGRect
             if handle == .new {
                 guard let newRect = GeometryMapper.normalizedRect(
                     from: value.startLocation,
                     to: value.location,
                     in: imageRect
                 ) else { return }
-                session.draftCropRect = cropRectApplyingRatio(newRect, handle: .bottomRight)
+                displayedRect = cropRectApplyingRatio(newRect, handle: .bottomRight)
             } else {
-                let delta = normalizedTranslation(value.translation, imageRect: imageRect)
+                let delta = normalizedDisplayTranslation(value.translation, imageRect: imageRect)
                 let changed = handle == .inside
                     ? movedRect(start, by: delta)
                     : resizedRect(start, handle: handle, delta: delta)
-                session.draftCropRect = cropRectApplyingRatio(changed, handle: handle)
+                displayedRect = cropRectApplyingRatio(changed, handle: handle)
             }
+
+            session.draftCropRect = WorkingImageGeometry.sourceRect(
+                fromDisplayNormalized: displayedRect,
+                cropRect: session.cropRect
+            )
         }
     }
 
@@ -433,12 +453,12 @@ struct ImageWorkspaceView: View {
 
     private func updateDraftDrawing(_ value: DragGesture.Value, imageRect: CGRect) {
         if session.drawingMode == .freehand {
-            guard imageRect.contains(value.location) else { return }
-            if let last = draftFreehandPoints.last,
-               hypot(last.x - value.location.x, last.y - value.location.y) < 1.5 {
-                return
-            }
-            draftFreehandPoints.append(value.location)
+            draftFreehandPoints = FreehandStrokeBuilder.append(
+                points: draftFreehandPoints,
+                start: value.startLocation,
+                location: value.location,
+                inside: imageRect
+            )
             return
         }
 
@@ -453,7 +473,14 @@ struct ImageWorkspaceView: View {
     private func finishDrawing(_ value: DragGesture.Value, imageRect: CGRect) {
         let annotation: Annotation?
         if session.drawingMode == .freehand {
-            annotation = makeFreehandAnnotation(points: draftFreehandPoints, imageRect: imageRect)
+            let completedPoints = FreehandStrokeBuilder.append(
+                points: draftFreehandPoints,
+                start: value.startLocation,
+                location: value.location,
+                inside: imageRect,
+                minimumDistance: 0
+            )
+            annotation = makeFreehandAnnotation(points: completedPoints, imageRect: imageRect)
         } else {
             annotation = draftAnnotation ?? makeShapeAnnotation(
                 mode: session.drawingMode,
@@ -465,9 +492,8 @@ struct ImageWorkspaceView: View {
 
         guard let annotation else { return }
         session.annotations.append(annotation)
-        session.selectedAnnotationID = annotation.id
+        session.selectedAnnotationID = nil
         session.isDirty = true
-        appModel.activeTool = .view
     }
 
     private func makeShapeAnnotation(
@@ -477,20 +503,20 @@ struct ImageWorkspaceView: View {
         imageRect: CGRect
     ) -> Annotation? {
         guard
-            let startNormalized = GeometryMapper.normalizedPoint(start, in: imageRect),
-            let endNormalized = GeometryMapper.normalizedPoint(end, in: imageRect),
-            let frame = GeometryMapper.normalizedRect(from: start, to: end, in: imageRect),
-            frame.width > 0.004,
-            frame.height > 0.004
+            let startDisplay = GeometryMapper.normalizedPoint(start, in: imageRect),
+            let endDisplay = GeometryMapper.normalizedPoint(end, in: imageRect),
+            let displayFrame = GeometryMapper.normalizedRect(from: start, to: end, in: imageRect),
+            displayFrame.width > 0.004,
+            displayFrame.height > 0.004
         else { return nil }
 
         let localStart = CGPoint(
-            x: (startNormalized.x - frame.minX) / frame.width,
-            y: (startNormalized.y - frame.minY) / frame.height
+            x: (startDisplay.x - displayFrame.minX) / displayFrame.width,
+            y: (startDisplay.y - displayFrame.minY) / displayFrame.height
         )
         let localEnd = CGPoint(
-            x: (endNormalized.x - frame.minX) / frame.width,
-            y: (endNormalized.y - frame.minY) / frame.height
+            x: (endDisplay.x - displayFrame.minX) / displayFrame.width,
+            y: (endDisplay.y - displayFrame.minY) / displayFrame.height
         )
 
         let kind: Annotation.Kind
@@ -509,7 +535,10 @@ struct ImageWorkspaceView: View {
 
         return Annotation(
             kind: kind,
-            frame: frame,
+            frame: WorkingImageGeometry.sourceRect(
+                fromDisplayNormalized: displayFrame,
+                cropRect: session.cropRect
+            ),
             strokeColor: session.drawingStrokeColor,
             fillColor: mode.supportsFill ? session.drawingFillColor : nil,
             lineWidth: session.drawingLineWidth,
@@ -518,30 +547,35 @@ struct ImageWorkspaceView: View {
     }
 
     private func makeFreehandAnnotation(points: [CGPoint], imageRect: CGRect) -> Annotation? {
-        let normalized = points.compactMap { GeometryMapper.normalizedPoint($0, in: imageRect) }
-        guard normalized.count > 1 else { return nil }
+        let displayPoints = points.compactMap { GeometryMapper.normalizedPoint($0, in: imageRect) }
+        guard displayPoints.count > 1 else { return nil }
 
-        let minX = normalized.map(\.x).min() ?? 0
-        let maxX = normalized.map(\.x).max() ?? 0
-        let minY = normalized.map(\.y).min() ?? 0
-        let maxY = normalized.map(\.y).max() ?? 0
-        let rawFrame = CGRect(
-            x: minX,
-            y: minY,
-            width: max(maxX - minX, 0.01),
-            height: max(maxY - minY, 0.01)
+        let minX = displayPoints.map(\.x).min() ?? 0
+        let maxX = displayPoints.map(\.x).max() ?? 0
+        let minY = displayPoints.map(\.y).min() ?? 0
+        let maxY = displayPoints.map(\.y).max() ?? 0
+        let displayFrame = GeometryMapper.clampedNormalizedRect(
+            CGRect(
+                x: minX,
+                y: minY,
+                width: max(maxX - minX, 0.002),
+                height: max(maxY - minY, 0.002)
+            ),
+            minimumSize: 0.002
         )
-        let frame = GeometryMapper.clampedNormalizedRect(rawFrame)
-        let localPoints = normalized.map { point in
+        let localPoints = displayPoints.map { point in
             CGPoint(
-                x: (point.x - frame.minX) / max(frame.width, 0.001),
-                y: (point.y - frame.minY) / max(frame.height, 0.001)
+                x: (point.x - displayFrame.minX) / max(displayFrame.width, 0.001),
+                y: (point.y - displayFrame.minY) / max(displayFrame.height, 0.001)
             )
         }
 
         return Annotation(
             kind: .freehand(points: localPoints),
-            frame: frame,
+            frame: WorkingImageGeometry.sourceRect(
+                fromDisplayNormalized: displayFrame,
+                cropRect: session.cropRect
+            ),
             strokeColor: session.drawingStrokeColor,
             lineWidth: session.drawingLineWidth,
             opacity: session.drawingOpacity
@@ -549,16 +583,22 @@ struct ImageWorkspaceView: View {
     }
 
     private func placeText(at point: CGPoint, imageRect: CGRect) {
-        guard let normalized = GeometryMapper.normalizedPoint(point, in: imageRect) else { return }
-        let frame = GeometryMapper.clampedNormalizedRect(
+        guard let displayPoint = GeometryMapper.normalizedPoint(point, in: imageRect) else { return }
+        let displayFrame = GeometryMapper.clampedNormalizedRect(
             CGRect(
-                x: min(normalized.x, 0.68),
-                y: min(normalized.y, 0.86),
+                x: min(displayPoint.x, 0.68),
+                y: min(displayPoint.y, 0.86),
                 width: 0.3,
                 height: 0.12
             )
         )
-        let annotation = Annotation(kind: .text("Text"), frame: frame)
+        let annotation = Annotation(
+            kind: .text("Text"),
+            frame: WorkingImageGeometry.sourceRect(
+                fromDisplayNormalized: displayFrame,
+                cropRect: session.cropRect
+            )
+        )
         session.annotations.append(annotation)
         session.selectedAnnotationID = annotation.id
         session.isDirty = true
@@ -566,20 +606,37 @@ struct ImageWorkspaceView: View {
     }
 
     private func updateLiveSample(at point: CGPoint, imageRect: CGRect) {
-        guard let normalized = GeometryMapper.normalizedPoint(point, in: imageRect),
-              let color = PixelSampler.color(in: session.sourceImage, at: normalized) else {
-            return
-        }
+        guard let displayPoint = GeometryMapper.normalizedPoint(point, in: imageRect) else { return }
+        let sourcePoint = WorkingImageGeometry.sourcePoint(
+            fromDisplayNormalized: displayPoint,
+            cropRect: session.cropRect
+        )
+        guard let color = PixelSampler.color(in: session.sourceImage, at: sourcePoint) else { return }
         session.liveSampleColor = color
         session.liveSampleLocation = point
     }
 
     private func hitAnnotation(at point: CGPoint, imageRect: CGRect) -> Annotation? {
         session.annotations.reversed().first { annotation in
-            GeometryMapper.viewRect(from: annotation.frame, in: imageRect)
+            guard let displayed = displayedAnnotationFrame(annotation.frame) else { return false }
+            return GeometryMapper.viewRect(from: displayed, in: imageRect)
                 .insetBy(dx: -6, dy: -6)
                 .contains(point)
         }
+    }
+
+    private func displayedAnnotationFrame(_ sourceFrame: CGRect) -> CGRect? {
+        WorkingImageGeometry.displayRect(
+            fromSourceNormalized: sourceFrame,
+            cropRect: session.cropRect
+        )
+    }
+
+    private func displayedCropRect(_ sourceFrame: CGRect) -> CGRect? {
+        WorkingImageGeometry.displayRect(
+            fromSourceNormalized: sourceFrame,
+            cropRect: session.cropRect
+        )
     }
 
     private func cornerHandle(at point: CGPoint, rect: CGRect) -> AnnotationCorner? {
@@ -611,10 +668,17 @@ struct ImageWorkspaceView: View {
         return rect.contains(point) ? .inside : nil
     }
 
-    private func normalizedTranslation(_ translation: CGSize, imageRect: CGRect) -> CGSize {
+    private func normalizedDisplayTranslation(_ translation: CGSize, imageRect: CGRect) -> CGSize {
         CGSize(
             width: translation.width / max(imageRect.width, 1),
             height: translation.height / max(imageRect.height, 1)
+        )
+    }
+
+    private func sourceTranslation(_ translation: CGSize, imageRect: CGRect) -> CGSize {
+        WorkingImageGeometry.sourceTranslation(
+            fromDisplayNormalized: normalizedDisplayTranslation(translation, imageRect: imageRect),
+            cropRect: session.cropRect
         )
     }
 
@@ -666,15 +730,19 @@ struct ImageWorkspaceView: View {
             width: abs(right - left),
             height: abs(bottom - top)
         )
-        return GeometryMapper.clampedNormalizedRect(normalized, minimumSize: 0.025)
+        return GeometryMapper.clampedNormalizedRect(normalized, minimumSize: 0.002)
     }
 
     private func cropRectApplyingRatio(_ rect: CGRect, handle: BoxHandle) -> CGRect {
-        guard let pixelRatio = session.cropAspectRatio.ratio(for: session.pixelSize) else {
+        let workingSize = WorkingImageGeometry.croppedPixelSize(
+            sourceSize: session.pixelSize,
+            cropRect: session.cropRect
+        )
+        guard let pixelRatio = session.cropAspectRatio.ratio(for: workingSize) else {
             return GeometryMapper.clampedNormalizedRect(rect)
         }
 
-        let normalizedRatio = pixelRatio * session.pixelSize.height / max(session.pixelSize.width, 1)
+        let normalizedRatio = pixelRatio * workingSize.height / max(workingSize.width, 1)
         var width = rect.width
         var height = rect.height
 
@@ -706,7 +774,7 @@ struct ImageWorkspaceView: View {
 
         return GeometryMapper.clampedNormalizedRect(
             CGRect(x: x, y: y, width: width, height: height),
-            minimumSize: 0.025
+            minimumSize: 0.002
         )
     }
 
@@ -720,10 +788,7 @@ struct ImageWorkspaceView: View {
     }
 
     private func annotationFont(_ annotation: Annotation) -> Font {
-        let displayedSize = max(
-            8,
-            annotation.fontSize * session.zoom * 0.72
-        )
+        let displayedSize = max(8, annotation.fontSize * session.zoom * 0.72)
         if annotation.fontFamily.isEmpty {
             return .system(size: displayedSize, weight: annotation.fontWeight.swiftUIWeight)
         }
@@ -837,6 +902,7 @@ struct ImageWorkspaceView: View {
 
     private func applyCrop() {
         session.applyDraftCrop()
+        session.resetView()
         appModel.activeTool = .view
     }
 
