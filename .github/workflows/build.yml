@@ -3,20 +3,56 @@ name: Native macOS
 on:
   workflow_dispatch:
   pull_request:
-    paths:
-      - "apps/native-macos/**"
-      - ".github/workflows/build.yml"
   push:
     branches: [main, development]
-    paths:
-      - "apps/native-macos/**"
-      - ".github/workflows/build.yml"
 
 permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      native: ${{ steps.filter.outputs.native }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          show-progress: false
+      - name: Detect native app changes
+        id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "native=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            compare_from="$BASE_SHA"
+          else
+            compare_from="$BEFORE_SHA"
+          fi
+
+          if [[ -z "$compare_from" ]] || [[ "$compare_from" =~ ^0+$ ]] || ! git cat-file -e "$compare_from^{commit}"; then
+            echo "native=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git diff --name-only "$compare_from" "$GITHUB_SHA" > "$RUNNER_TEMP/changed-files.txt"
+
+          if grep -Eq '^(apps/(native-macos|native-ios|ios)/|\.github/workflows/build\.yml$)' "$RUNNER_TEMP/changed-files.txt"; then
+            echo "native=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "native=false" >> "$GITHUB_OUTPUT"
+          fi
+
   macos:
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
     runs-on: macos-15
     defaults:
       run:

@@ -3,24 +3,56 @@ name: Website check
 on:
   workflow_dispatch:
   pull_request:
-    paths:
-      - "apps/website/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/website-check.yml"
   push:
     branches: [main, development]
-    paths:
-      - "apps/website/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/website-check.yml"
 
 permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      website: ${{ steps.filter.outputs.website }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          show-progress: false
+      - name: Detect website changes
+        id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "website=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            compare_from="$BASE_SHA"
+          else
+            compare_from="$BEFORE_SHA"
+          fi
+
+          if [[ -z "$compare_from" ]] || [[ "$compare_from" =~ ^0+$ ]] || ! git cat-file -e "$compare_from^{commit}"; then
+            echo "website=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git diff --name-only "$compare_from" "$GITHUB_SHA" > "$RUNNER_TEMP/changed-files.txt"
+
+          if grep -Eq '^(apps/website/|package(-lock)?\.json$|\.github/workflows/website-check\.yml$)' "$RUNNER_TEMP/changed-files.txt"; then
+            echo "website=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "website=false" >> "$GITHUB_OUTPUT"
+          fi
+
   check:
+    needs: changes
+    if: needs.changes.outputs.website == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
