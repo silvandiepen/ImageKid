@@ -9,21 +9,10 @@ struct FloatingToolbar: View {
             toolButton(.view)
             toolButton(.pickColor)
             toolButton(.crop)
+            toolButton(.draw)
+            toolButton(.text)
 
-            Menu {
-                Button("Rectangle") { appModel.activeTool = .rectangle }
-                Button("Text") { appModel.activeTool = .text }
-            } label: {
-                toolbarIcon(
-                    "pencil.and.outline",
-                    selected: appModel.activeTool == .rectangle || appModel.activeTool == .text
-                )
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help("Annotate")
-
-            Divider().frame(height: 28)
+            Divider().frame(height: 30)
 
             Button {
                 appModel.isShowingResize = true
@@ -41,14 +30,14 @@ struct FloatingToolbar: View {
             .help("Export")
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 11)
-        .padding(.vertical, 9)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 17, style: .continuous)
+            RoundedRectangle(cornerRadius: 19, style: .continuous)
                 .strokeBorder(.white.opacity(0.14))
         )
-        .shadow(color: .black.opacity(0.24), radius: 22, y: 9)
+        .shadow(color: .black.opacity(0.26), radius: 24, y: 10)
         .help("ImageKid tools")
     }
 
@@ -63,14 +52,14 @@ struct FloatingToolbar: View {
 
     private func toolbarIcon(_ symbol: String, selected: Bool) -> some View {
         Image(systemName: symbol)
-            .font(.system(size: 18, weight: selected ? .semibold : .medium))
+            .font(.system(size: 19, weight: selected ? .semibold : .medium))
             .symbolRenderingMode(.hierarchical)
             .foregroundStyle(selected ? Color.white : .primary)
-            .frame(width: 39, height: 39)
+            .frame(width: 42, height: 42)
             .background(
                 selected ? Color.accentColor : Color.primary.opacity(0.055),
-                in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
             )
-            .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
