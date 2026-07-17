@@ -18,10 +18,7 @@ struct TextInspector: View {
         ) {
             VStack(alignment: .leading, spacing: 18) {
                 field("Text") {
-                    TextEditor(text: textBinding)
-                        .font(.body)
-                        .scrollContentBackground(.hidden)
-                        .padding(8)
+                    PlainTextEditor(text: textBinding)
                         .frame(height: 92)
                         .background(
                             .white.opacity(0.08),
@@ -46,6 +43,15 @@ struct TextInspector: View {
                         Text("\(Int(fontSizeBinding.wrappedValue))")
                             .font(.system(.caption, design: .monospaced, weight: .semibold))
                             .frame(width: 36, alignment: .trailing)
+                    }
+                }
+
+                field("Line height") {
+                    HStack(spacing: 10) {
+                        Slider(value: lineHeightBinding, in: 0.8...2.4, step: 0.05)
+                        Text(String(format: "%.2f", lineHeightBinding.wrappedValue))
+                            .font(.system(.caption, design: .monospaced, weight: .semibold))
+                            .frame(width: 44, alignment: .trailing)
                     }
                 }
 
@@ -138,6 +144,13 @@ struct TextInspector: View {
         Binding(
             get: { session.annotations.first(where: { $0.id == annotationID })?.fontWeight ?? .semibold },
             set: { value in session.updateAnnotation(id: annotationID) { $0.fontWeight = value } }
+        )
+    }
+
+    private var lineHeightBinding: Binding<Double> {
+        Binding(
+            get: { Double(session.annotations.first(where: { $0.id == annotationID })?.lineHeight ?? 1.1) },
+            set: { value in session.updateAnnotation(id: annotationID) { $0.lineHeight = CGFloat(value) } }
         )
     }
 

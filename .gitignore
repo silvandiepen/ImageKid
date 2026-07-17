@@ -2,6 +2,7 @@
 node_modules/
 dist/
 coverage/
+artifacts/
 .wrangler/
 deploy/
 .env
@@ -9,6 +10,7 @@ deploy/
 !.env.example
 apps/native-macos/.build/
 apps/native-macos/.swiftpm/
+apps/native-macos/ImageKid.xcodeproj/
 .build/
 .swiftpm/
 *.xcodeproj/xcuserdata/

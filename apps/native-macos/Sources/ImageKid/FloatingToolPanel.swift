@@ -77,6 +77,8 @@ struct FloatingToolPanel<Content: View>: View {
                     .background(.white.opacity(0.10), in: Circle())
             }
             .buttonStyle(.plain)
+            .help("Close \(title)")
+            .accessibilityLabel("Close \(title)")
         }
         .padding(.leading, 16)
         .padding(.trailing, 12)

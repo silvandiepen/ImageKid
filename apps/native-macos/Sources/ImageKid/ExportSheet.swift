@@ -5,9 +5,12 @@ import UniformTypeIdentifiers
 struct ImageExportOptions {
     var format: ImageExportFormat = .png
     var quality: Double = 0.92
-    var scale: Double = 1
+    var pngCompression: Double = 0.82
+    var removesMetadata = true
     var backgroundColor: NSColor = .white
     var revealAfterExport = false
+    var upscaleEngine: UpscaleEngine = .standard
+    var upscaleContentMode: UpscaleContentMode = .automatic
 }
 
 enum ImageExportFormat: String, CaseIterable, Identifiable {
@@ -55,6 +58,10 @@ enum ImageExportFormat: String, CaseIterable, Identifiable {
         self == .jpeg || self == .heic
     }
 
+    var supportsCompression: Bool {
+        self == .png
+    }
+
     var bitmapType: NSBitmapImageRep.FileType? {
         switch self {
         case .png: .png
@@ -65,22 +72,49 @@ enum ImageExportFormat: String, CaseIterable, Identifiable {
         case .gif: .gif
         }
     }
+
+    init?(url: URL) {
+        switch url.pathExtension.lowercased() {
+        case "png": self = .png
+        case "jpg", "jpeg": self = .jpeg
+        case "heic", "heif": self = .heic
+        case "tif", "tiff": self = .tiff
+        case "bmp": self = .bmp
+        case "gif": self = .gif
+        default: return nil
+        }
+    }
 }
 
 struct ExportSheet: View {
-    let originalSize: CGSize
+    let imageSize: CGSize
+    let initialFormat: ImageExportFormat
+    let itemCount: Int
     let onExport: (ImageExportOptions) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var options = ImageExportOptions()
+    @State private var options: ImageExportOptions
+
+    init(
+        imageSize: CGSize,
+        initialFormat: ImageExportFormat,
+        itemCount: Int = 1,
+        onExport: @escaping (ImageExportOptions) -> Void
+    ) {
+        self.imageSize = imageSize
+        self.initialFormat = initialFormat
+        self.itemCount = itemCount
+        self.onExport = onExport
+        _options = State(initialValue: ImageExportOptions(format: initialFormat))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Export Image")
+                    Text(itemCount > 1 ? "Export Images" : "Export Image")
                         .font(.title2.weight(.semibold))
-                    Text("Choose the output format and final rendering options.")
+                    Text(itemCount > 1 ? "Give the whole batch a clean send-off." : "Make the file small, sharp, and ready to go.")
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -94,16 +128,8 @@ struct ExportSheet: View {
                 }
                 .pickerStyle(.segmented)
 
-                Picker("Scale", selection: $options.scale) {
-                    Text("50%").tag(0.5)
-                    Text("100%").tag(1.0)
-                    Text("200%").tag(2.0)
-                    Text("300%").tag(3.0)
-                }
-                .pickerStyle(.segmented)
-
-                LabeledContent("Final size") {
-                    Text("\(Int(finalSize.width)) × \(Int(finalSize.height)) px")
+                LabeledContent("Size") {
+                    Text("\(Int(imageSize.width)) × \(Int(imageSize.height)) px")
                         .font(.system(.body, design: .monospaced))
                 }
 
@@ -117,6 +143,22 @@ struct ExportSheet: View {
                                 .frame(width: 40, alignment: .trailing)
                         }
                     }
+                }
+
+                if options.format.supportsCompression {
+                    LabeledContent("PNG compression") {
+                        HStack {
+                            Slider(value: $options.pngCompression, in: 0...1, step: 0.01)
+                                .frame(width: 190)
+                            Text("\(Int(options.pngCompression * 100))%")
+                                .font(.system(.caption, design: .monospaced))
+                                .frame(width: 40, alignment: .trailing)
+                        }
+                    }
+
+                    Text("PNG stays lossless. Higher compression may take a little longer, but keeps the pixels intact.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 if !options.format.supportsAlpha {
@@ -134,10 +176,7 @@ struct ExportSheet: View {
                         .foregroundStyle(.secondary)
                 }
 
-                LabeledContent("Metadata") {
-                    Text("Removed")
-                        .foregroundStyle(.secondary)
-                }
+                Toggle("Remove metadata", isOn: $options.removesMetadata)
 
                 Toggle("Reveal exported file in Finder", isOn: $options.revealAfterExport)
             }
@@ -155,13 +194,6 @@ struct ExportSheet: View {
         }
         .padding(22)
         .frame(width: 530)
-    }
-
-    private var finalSize: CGSize {
-        CGSize(
-            width: max(1, (originalSize.width * options.scale).rounded()),
-            height: max(1, (originalSize.height * options.scale).rounded())
-        )
     }
 
     private var backgroundBinding: Binding<Color> {

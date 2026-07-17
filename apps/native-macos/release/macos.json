@@ -1,0 +1,157 @@
+{
+  "app": "imagekid",
+  "name": "ImageKid",
+  "platform": "macos",
+  "scheme": "ImageKid",
+  "project": "apps/native-macos/ImageKid.xcodeproj",
+  "iosDir": "apps/native-macos",
+  "productName": "ImageKid",
+  "bundleId": "app.imagekid.mac",
+  "releaseVersion": "0.1.0",
+  "validation": {
+    "command": "npm run native:build && npm run native:test"
+  },
+  "screenshots": {
+    "outputDir": "artifacts/screenshots/imagekid",
+    "configuration": "Debug",
+    "quietBuild": true,
+    "defaultWaitSeconds": 2,
+    "windowAppearTimeoutSeconds": 30,
+    "macosOutputSize": { "width": 2560, "height": 1600 },
+    "normalizeMacosScreenshots": true,
+    "rejectBlankScreenshots": true,
+    "devices": [
+      {
+        "name": "mac",
+        "displayType": "mac"
+      }
+    ],
+    "locales": [
+      {
+        "id": "en-US",
+        "appLanguage": "en"
+      }
+    ],
+    "colorModes": [
+      {
+        "id": "light",
+        "env": {
+          "IMAGEKID_SCREENSHOT_COLOR_MODE": "light"
+        }
+      },
+      {
+        "id": "dark",
+        "env": {
+          "IMAGEKID_SCREENSHOT_COLOR_MODE": "dark"
+        }
+      }
+    ],
+    "env": {
+      "IMAGEKID_SCREENSHOT": "1",
+      "IMAGEKID_SCREENSHOT_MEDIA": "demo",
+      "IMAGEKID_SCREENSHOT_LANGUAGE": "{appLanguage}"
+    },
+    "scenarios": [
+      {
+        "id": "empty",
+        "filename": "01-{deviceSlug}-empty-{colorMode}.png",
+        "env": {
+          "IMAGEKID_SCREENSHOT_SCENARIO": "empty"
+        }
+      },
+      {
+        "id": "workspace",
+        "filename": "02-{deviceSlug}-workspace-light.png",
+        "colorModes": ["light"],
+        "env": {
+          "IMAGEKID_SCREENSHOT_SCENARIO": "workspace"
+        }
+      },
+      {
+        "id": "color",
+        "filename": "03-{deviceSlug}-color-picker-light.png",
+        "colorModes": ["light"],
+        "env": {
+          "IMAGEKID_SCREENSHOT_SCENARIO": "color"
+        }
+      },
+      {
+        "id": "crop",
+        "filename": "04-{deviceSlug}-crop-light.png",
+        "colorModes": ["light"],
+        "env": {
+          "IMAGEKID_SCREENSHOT_SCENARIO": "crop"
+        }
+      },
+      {
+        "id": "resize",
+        "filename": "05-{deviceSlug}-resize-light.png",
+        "colorModes": ["light"],
+        "env": {
+          "IMAGEKID_SCREENSHOT_SCENARIO": "resize"
+        }
+      },
+      {
+        "id": "annotate",
+        "filename": "06-{deviceSlug}-annotate-light.png",
+        "colorModes": ["light"],
+        "env": {
+          "IMAGEKID_SCREENSHOT_SCENARIO": "annotate"
+        }
+      },
+      {
+        "id": "background",
+        "filename": "07-{deviceSlug}-background-refine-light.png",
+        "colorModes": ["light"],
+        "env": {
+          "IMAGEKID_SCREENSHOT_SCENARIO": "background"
+        }
+      },
+      {
+        "id": "magic",
+        "filename": "08-{deviceSlug}-magic-provider-warning-light.png",
+        "colorModes": ["light"],
+        "waitSeconds": 3,
+        "env": {
+          "IMAGEKID_SCREENSHOT_SCENARIO": "magic"
+        }
+      },
+      {
+        "id": "export",
+        "filename": "09-{deviceSlug}-export-light.png",
+        "colorModes": ["light"],
+        "waitSeconds": 3,
+        "env": {
+          "IMAGEKID_SCREENSHOT_SCENARIO": "export"
+        }
+      }
+    ]
+  },
+  "promoVideo": {
+    "outputDir": "artifacts/videos/imagekid",
+    "outputLayout": "default",
+    "locale": "en-US",
+    "recordings": [
+      {
+        "id": "annotate-workflow",
+        "device": {
+          "name": "mac",
+          "displayType": "mac"
+        },
+        "filename": "imagekid-annotate-workflow.mp4",
+        "width": 1920,
+        "height": 1200,
+        "durationSeconds": 10,
+        "startDelaySeconds": 1,
+        "env": {
+          "IMAGEKID_SCREENSHOT": "1",
+          "IMAGEKID_SCREENSHOT_MEDIA": "demo",
+          "IMAGEKID_SCREENSHOT_SCENARIO": "annotate"
+        },
+        "cursor": {
+          "enabled": false
+        }
+      }
+    ]
+  }
+}

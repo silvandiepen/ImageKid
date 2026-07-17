@@ -14,7 +14,7 @@ import WorkflowsPage from "./pages/WorkflowsPage.vue";
 
 export const router = createRouter({
   history: createWebHistory(),
-  scrollBehavior: () => ({ top: 0 }),
+  scrollBehavior: (to) => to.hash ? { el: to.hash } : { top: 0 },
   routes: [
     { path: "/", component: HomePage }, { path: "/features", component: FeaturesPage },
     { path: "/docs", component: DocsIndexPage }, { path: "/docs/getting-started", component: GettingStartedPage },

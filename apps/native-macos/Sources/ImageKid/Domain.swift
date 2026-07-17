@@ -7,8 +7,11 @@ import CoreGraphics
 
 public enum Tool: String, CaseIterable, Identifiable {
     case view
+    case select
     case pickColor
     case crop
+    case resize
+    case refineBackground
     case draw
     case text
 
@@ -17,8 +20,11 @@ public enum Tool: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .view: "View"
+        case .select: "Select"
         case .pickColor: "Pick"
         case .crop: "Crop"
+        case .resize: "Resize"
+        case .refineBackground: "Refine"
         case .draw: "Draw"
         case .text: "Text"
         }
@@ -27,10 +33,43 @@ public enum Tool: String, CaseIterable, Identifiable {
     var symbolName: String {
         switch self {
         case .view: "hand.draw"
+        case .select: "cursorarrow"
         case .pickColor: "eyedropper"
         case .crop: "crop"
+        case .resize: "arrow.up.left.and.arrow.down.right"
+        case .refineBackground: "paintbrush.pointed"
         case .draw: "pencil.tip.crop.circle"
         case .text: "textformat"
+        }
+    }
+}
+
+enum BackgroundRefinementMode: String, CaseIterable, Identifiable {
+    case keep
+    case remove
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .keep: "Keep"
+        case .remove: "Remove"
+        }
+    }
+}
+
+enum ViewportMode: String, CaseIterable, Identifiable {
+    case contain
+    case cover
+    case original
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .contain: "Contain"
+        case .cover: "Cover"
+        case .original: "Original"
         }
     }
 }
@@ -212,6 +251,15 @@ enum AnnotationFontWeight: String, CaseIterable, Identifiable {
         case .bold: .bold
         }
     }
+
+    var fontManagerWeight: Int {
+        switch self {
+        case .regular: 5
+        case .medium: 7
+        case .semibold: 8
+        case .bold: 9
+        }
+    }
 }
 
 enum AnnotationTextAlignment: String, CaseIterable, Identifiable {
@@ -259,6 +307,7 @@ struct Annotation: Identifiable {
     var fontFamily: String
     var fontSize: CGFloat
     var fontWeight: AnnotationFontWeight
+    var lineHeight: CGFloat
     var textAlignment: AnnotationTextAlignment
 
     init(
@@ -272,6 +321,7 @@ struct Annotation: Identifiable {
         fontFamily: String = "",
         fontSize: CGFloat = 48,
         fontWeight: AnnotationFontWeight = .semibold,
+        lineHeight: CGFloat = 1.1,
         textAlignment: AnnotationTextAlignment = .leading
     ) {
         self.id = id
@@ -284,6 +334,7 @@ struct Annotation: Identifiable {
         self.fontFamily = fontFamily
         self.fontSize = fontSize
         self.fontWeight = fontWeight
+        self.lineHeight = lineHeight
         self.textAlignment = textAlignment
     }
 
@@ -339,12 +390,16 @@ final class ImageSession: ObservableObject {
 
     @Published var zoom: CGFloat = 1
     @Published var pan: CGSize = .zero
+    @Published var viewportMode: ViewportMode = .contain
     @Published var cropRect = CGRect(x: 0, y: 0, width: 1, height: 1)
     @Published var draftCropRect: CGRect?
     @Published var cropAspectRatio: CropAspectRatio = .free
     @Published var outputSize: CGSize?
+    @Published var draftOutputSize: CGSize?
+    @Published var resizePreservesAspect = true
     @Published var annotations: [Annotation] = []
     @Published var selectedAnnotationID: UUID?
+    @Published var selectionRect: CGRect?
     @Published var sampledColors: [SampledColor] = []
     @Published var selectedColorIDs: Set<UUID> = []
     @Published var liveSampleColor: NSColor?
@@ -354,6 +409,12 @@ final class ImageSession: ObservableObject {
     @Published var drawingFillColor: NSColor?
     @Published var drawingLineWidth: CGFloat = 4
     @Published var drawingOpacity: Double = 1
+    @Published var backgroundRemovedImage: NSImage?
+    @Published var backgroundRefinementUndoImage: NSImage?
+    @Published var backgroundRefinementMode: BackgroundRefinementMode = .remove
+    @Published var backgroundBrushSize: CGFloat = 36
+    @Published var backgroundBrushSoftness: CGFloat = 0.45
+    @Published var backgroundBrushStrength: CGFloat = 1
     @Published var isDirty = false
 
     init(sourceURL: URL?, sourceImage: NSImage) {
@@ -362,23 +423,61 @@ final class ImageSession: ObservableObject {
     }
 
     var pixelSize: CGSize {
+        if let cgImage = sourceImage.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            return CGSize(width: cgImage.width, height: cgImage.height)
+        }
         if let representation = sourceImage.representations.first {
             return CGSize(width: representation.pixelsWide, height: representation.pixelsHigh)
         }
         return sourceImage.size
     }
 
-    var effectivePixelSize: CGSize {
-        if let outputSize { return outputSize }
-        return CGSize(
+    var workingSourceImage: NSImage {
+        backgroundRemovedImage ?? sourceImage
+    }
+
+    var croppedPixelSize: CGSize {
+        CGSize(
             width: max(1, (pixelSize.width * cropRect.width).rounded()),
             height: max(1, (pixelSize.height * cropRect.height).rounded())
         )
     }
 
+    var resizePreviewSize: CGSize {
+        draftOutputSize ?? outputSize ?? croppedPixelSize
+    }
+
+    var containsTransparency: Bool {
+        if backgroundRemovedImage != nil { return true }
+        guard let cgImage = workingSourceImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return false
+        }
+        switch cgImage.alphaInfo {
+        case .none, .noneSkipFirst, .noneSkipLast:
+            return false
+        default:
+            return true
+        }
+    }
+
+    var effectivePixelSize: CGSize {
+        if let outputSize { return outputSize }
+        return croppedPixelSize
+    }
+
     var selectedAnnotation: Annotation? {
         guard let selectedAnnotationID else { return nil }
         return annotations.first(where: { $0.id == selectedAnnotationID })
+    }
+
+    var hasImageSelection: Bool {
+        guard let selectionRect else { return false }
+        return selectionRect.width > 0.002 && selectionRect.height > 0.002
+    }
+
+    func selectFullImage() {
+        selectionRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+        selectedAnnotationID = nil
     }
 
     func addSample(_ color: NSColor) {
@@ -413,6 +512,7 @@ final class ImageSession: ObservableObject {
         guard let draftCropRect, draftCropRect.width > 0.01, draftCropRect.height > 0.01 else { return }
         cropRect = GeometryMapper.clampedNormalizedRect(draftCropRect)
         self.draftCropRect = nil
+        selectionRect = nil
         isDirty = true
     }
 
@@ -423,6 +523,42 @@ final class ImageSession: ObservableObject {
     func resetView() {
         zoom = 1
         pan = .zero
+        viewportMode = .contain
+    }
+
+    func restoreBackground() {
+        backgroundRemovedImage = nil
+        backgroundRefinementUndoImage = nil
+        isDirty = true
+    }
+
+    func undoLastBackgroundRefinement() {
+        guard let backgroundRefinementUndoImage else { return }
+        backgroundRemovedImage = backgroundRefinementUndoImage
+        self.backgroundRefinementUndoImage = nil
+        isDirty = true
+    }
+
+    func beginResize() {
+        draftOutputSize = resizePreviewSize
+    }
+
+    func setDraftOutputSize(_ size: CGSize) {
+        draftOutputSize = CGSize(
+            width: max(1, size.width.rounded()),
+            height: max(1, size.height.rounded())
+        )
+    }
+
+    func applyDraftResize() {
+        guard let draftOutputSize, draftOutputSize.width > 0, draftOutputSize.height > 0 else { return }
+        outputSize = draftOutputSize
+        self.draftOutputSize = nil
+        isDirty = true
+    }
+
+    func cancelDraftResize() {
+        draftOutputSize = nil
     }
 }
 

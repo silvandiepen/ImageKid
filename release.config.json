@@ -1,0 +1,8 @@
+{
+  "apps": [
+    {
+      "slug": "imagekid",
+      "releaseConfig": "apps/native-macos/release/macos.json"
+    }
+  ]
+}

@@ -104,6 +104,8 @@ struct ColorPalettePanel: View {
                         .foregroundStyle(session.selectedColorIDs.contains(sample.id) ? Color.accentColor : .white.opacity(0.48))
                 }
                 .buttonStyle(.plain)
+                .help(session.selectedColorIDs.contains(sample.id) ? "Deselect Colour" : "Select Colour")
+                .accessibilityLabel(session.selectedColorIDs.contains(sample.id) ? "Deselect Colour" : "Select Colour")
 
                 RoundedRectangle(cornerRadius: 11, style: .continuous)
                     .fill(Color(nsColor: sample.sRGB))
@@ -130,6 +132,8 @@ struct ColorPalettePanel: View {
                         .background(.white.opacity(0.08), in: Circle())
                 }
                 .buttonStyle(.plain)
+                .help(expandedColorIDs.contains(sample.id) ? "Collapse Colour Details" : "Expand Colour Details")
+                .accessibilityLabel(expandedColorIDs.contains(sample.id) ? "Collapse Colour Details" : "Expand Colour Details")
             }
             .padding(10)
 
@@ -153,6 +157,17 @@ struct ColorPalettePanel: View {
                     valueRow("RGBA", sample.rgba)
                     valueRow("HSL", sample.hsl)
                     valueRow("SwiftUI", sample.swiftUIColor)
+
+                    Button(role: .destructive) {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            removeSample(sample.id)
+                        }
+                    } label: {
+                        Label("Remove Colour", systemImage: "trash")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .padding(.top, 2)
                 }
                 .padding(.horizontal, 12)
                 .padding(.bottom, 12)
@@ -176,8 +191,11 @@ struct ColorPalettePanel: View {
                 copy(value)
             } label: {
                 Image(systemName: "doc.on.doc")
+                    .opacity(0.5)
             }
             .buttonStyle(.plain)
+            .help("Copy \(label)")
+            .accessibilityLabel("Copy \(label)")
         }
     }
 
@@ -207,6 +225,11 @@ struct ColorPalettePanel: View {
         } else {
             expandedColorIDs.insert(id)
         }
+    }
+
+    private func removeSample(_ id: UUID) {
+        session.removeSamples([id])
+        expandedColorIDs.remove(id)
     }
 
     private func colorBinding(for id: UUID) -> Binding<Color> {

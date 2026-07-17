@@ -46,8 +46,8 @@
       </div>
     </div>
     <figcaption :class="bemm('caption')">
-      <strong :class="bemm('caption-label')">Current source build</strong>
-      <span>Interface representation of the current source build. Shown with the Pick Colour tool active.</span>
+      <strong :class="bemm('caption-label')">Local Mac workflow</strong>
+      <span>Interface representation of ImageKid with the Pick Colour tool active.</span>
     </figcaption>
   </figure>
 </template>

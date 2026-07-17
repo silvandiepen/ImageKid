@@ -3,43 +3,56 @@ import SwiftUI
 
 struct ImageWorkspaceView: View {
     @EnvironmentObject private var appModel: AppModel
+    @EnvironmentObject private var settings: AppSettings
     @ObservedObject var session: ImageSession
+    private let showsBackgroundRefinementControls = false
 
     @State private var hoverControls = false
     @State private var dragMode: DragMode?
     @State private var draftAnnotation: Annotation?
     @State private var draftFreehandPoints: [CGPoint] = []
+    @State private var backgroundBrushLocation: CGPoint?
+    @State private var lastBackgroundBrushPoint: CGPoint?
+    @State private var didCaptureBackgroundUndo = false
+    @State private var isViewportToolbarCollapsed = false
     @State private var panelOffset: CGSize = .zero
+    @State private var progressBarOffset: CGSize = .zero
 
     var body: some View {
         GeometryReader { proxy in
             let bounds = CGRect(origin: .zero, size: proxy.size)
-            let workingSize = WorkingImageGeometry.croppedPixelSize(
-                sourceSize: session.pixelSize,
-                cropRect: session.cropRect
-            )
-            let fitted = GeometryMapper.aspectFitRect(
+            let workingSize = session.effectivePixelSize
+            let viewportBounds = bounds.insetBy(dx: 32, dy: 72)
+            let fitted = fittedViewportRect(
                 contentSize: workingSize,
-                in: bounds.insetBy(dx: 32, dy: 32)
+                in: viewportBounds
             )
             let imageRect = transformedRect(fitted)
+            let displayedScale = fitted.width / max(workingSize.width, 1)
             let workingImage = WorkingImagePreview.croppedImage(
-                from: session.sourceImage,
+                from: session.workingSourceImage,
                 cropRect: session.cropRect
             )
 
             ZStack {
-                Color(nsColor: .underPageBackgroundColor)
+                canvasBackground
 
-                checkerboard(in: imageRect)
+                canvasBorder(in: imageRect)
 
                 Image(nsImage: workingImage)
                     .resizable()
                     .interpolation(.high)
                     .frame(width: imageRect.width, height: imageRect.height)
+                    .clipShape(
+                        RoundedRectangle(
+                            cornerRadius: imageCornerRadius(for: imageRect),
+                            style: .continuous
+                        )
+                    )
                     .position(x: imageRect.midX, y: imageRect.midY)
 
                 annotations(in: imageRect)
+                imageSelection(in: imageRect)
                 draftDrawing(in: imageRect)
 
                 if appModel.activeTool == .crop,
@@ -50,14 +63,34 @@ struct ImageWorkspaceView: View {
                     )
                 }
 
+                if appModel.activeTool == .resize {
+                    ResizeOverlay(
+                        imageRect: resizeDisplayRect(in: imageRect),
+                        size: session.draftOutputSize ?? session.effectivePixelSize
+                    )
+                }
+
                 Rectangle()
                     .fill(.clear)
                     .contentShape(Rectangle())
                     .gesture(interactionGesture(in: imageRect))
+                    .contextMenu {
+                        if appModel.activeTool == .select {
+                            Button("Copy Image") { appModel.copyImageSelectionToClipboard() }
+                                .disabled(!appModel.canCopyImageSelection)
+                            Button("Select All") { appModel.selectAllImage() }
+                            Divider()
+                            Button("Crop Selection") { appModel.cropSelection() }
+                                .disabled(!appModel.canCopyImageSelection)
+                            Button("Magic") { appModel.requestPromptEdit() }
+                                .disabled(!appModel.canCopyImageSelection)
+                            Divider()
+                            Button("Export…") { appModel.requestExport() }
+                        }
+                    }
 
                 TrackpadGestureMonitor(
                     onPan: { delta in
-                        guard appModel.activeTool == .view else { return }
                         session.pan = CGSize(
                             width: session.pan.width + delta.width,
                             height: session.pan.height + delta.height
@@ -75,18 +108,31 @@ struct ImageWorkspaceView: View {
                     liveColorLoupe(color: color, at: point, in: bounds)
                 }
 
+                backgroundBrushCursor(in: imageRect)
+
                 toolPanels
+                viewportToolbar(displayedScale: displayedScale)
                 controls
+                progressOverlay
             }
             .clipped()
             .onHover { inside in
                 withAnimation(.easeOut(duration: 0.15)) {
                     hoverControls = inside
                 }
+                if !inside {
+                    backgroundBrushLocation = nil
+                }
             }
             .onChange(of: appModel.activeTool) { _, tool in
+                if tool != .select {
+                    session.selectionRect = nil
+                }
                 if tool == .crop, session.draftCropRect == nil {
                     session.draftCropRect = session.cropRect
+                }
+                if tool == .resize, session.draftOutputSize == nil {
+                    session.beginResize()
                 }
                 if tool != .view {
                     session.selectedAnnotationID = nil
@@ -95,6 +141,30 @@ struct ImageWorkspaceView: View {
             .onExitCommand {
                 cancelCurrentTool()
             }
+            .background(
+                EscapeKeyMonitor(
+                    onEscape: {
+                        cancelCurrentTool()
+                    },
+                    onDelete: {
+                        guard appModel.canDeleteSelection else { return false }
+                        appModel.deleteSelection()
+                        return true
+                    },
+                    onCommit: {
+                        if appModel.activeTool == .crop {
+                            applyCrop()
+                            return true
+                        }
+                        if appModel.activeTool == .resize {
+                            applyResize()
+                            return true
+                        }
+                        return false
+                    }
+                )
+                .frame(width: 0, height: 0)
+            )
         }
     }
 
@@ -117,6 +187,26 @@ struct ImageWorkspaceView: View {
                         offset: $panelOffset,
                         onCancel: cancelCrop,
                         onApply: applyCrop
+                    )
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                } else if appModel.activeTool == .resize {
+                    ResizeControls(
+                        session: session,
+                        offset: $panelOffset,
+                        isApplying: appModel.isApplyingResize,
+                        onCancel: cancelResize,
+                        onApply: applyResize,
+                        onApplyUpscale: applyUpscale
+                    )
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                } else if showsBackgroundRefinementControls,
+                          appModel.activeTool == .refineBackground,
+                          session.backgroundRemovedImage != nil {
+                    BackgroundRefinementControls(
+                        session: session,
+                        offset: $panelOffset,
+                        onUndo: { session.undoLastBackgroundRefinement() },
+                        onClose: { appModel.activeTool = .view }
                     )
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                 } else if appModel.activeTool == .draw || session.selectedAnnotation?.isDrawable == true {
@@ -150,7 +240,7 @@ struct ImageWorkspaceView: View {
         VStack(spacing: 10) {
             Spacer()
 
-            if appModel.activeTool != .crop {
+            if appModel.activeTool != .crop && appModel.activeTool != .resize {
                 FloatingToolbar(canExport: true)
                     .opacity(
                         hoverControls
@@ -168,32 +258,115 @@ struct ImageWorkspaceView: View {
         .animation(.easeOut(duration: 0.15), value: hoverControls)
     }
 
+    private func viewportToolbar(displayedScale: CGFloat) -> some View {
+        VStack {
+            ViewportToolbar(
+                session: session,
+                displayedScale: displayedScale,
+                isCollapsed: $isViewportToolbarCollapsed
+            )
+            .padding(.top, 10)
+            Spacer()
+        }
+    }
+
     @ViewBuilder
-    private func checkerboard(in imageRect: CGRect) -> some View {
-        Rectangle()
-            .fill(Color.white)
+    private var progressOverlay: some View {
+        if appModel.isRemovingBackground || appModel.isApplyingResize || appModel.isApplyingPromptEdit {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                OperationProgressBar(
+                    progress: appModel.operationProgress,
+                    fallbackTitle: progressFallbackTitle,
+                    currentDate: context.date,
+                    offset: $progressBarOffset
+                )
+            }
+        }
+    }
+
+    private var progressFallbackTitle: String {
+        if appModel.isApplyingResize { return "Stretching it up" }
+        if appModel.isApplyingPromptEdit { return "Prompted edit" }
+        return "Peeling off the background"
+    }
+
+    @ViewBuilder
+    private func backgroundBrushCursor(in imageRect: CGRect) -> some View {
+        if appModel.activeTool == .refineBackground,
+           let backgroundBrushLocation,
+           imageRect.contains(backgroundBrushLocation) {
+            let diameter = session.backgroundBrushSize / max(session.resizePreviewSize.width, 1) * imageRect.width
+            Circle()
+                .stroke(
+                    session.backgroundRefinementMode == .keep ? Color.green : Color.red,
+                    style: StrokeStyle(lineWidth: 2, dash: [6, 4])
+                )
+                .background(
+                    Circle()
+                        .fill((session.backgroundRefinementMode == .keep ? Color.green : Color.red).opacity(0.12))
+                )
+                .frame(width: max(8, diameter), height: max(8, diameter))
+                .position(backgroundBrushLocation)
+                .allowsHitTesting(false)
+        }
+    }
+
+    @ViewBuilder
+    private var canvasBackground: some View {
+        if settings.canvasBackground == .checkerboard {
+            CheckerboardBackground(cellSize: 18)
+                .ignoresSafeArea()
+        } else {
+            settings.canvasColor
+                .ignoresSafeArea()
+        }
+    }
+
+    private func canvasBorder(in imageRect: CGRect) -> some View {
+        RoundedRectangle(cornerRadius: imageCornerRadius(for: imageRect), style: .continuous)
+            .strokeBorder(canvasBorderColor, lineWidth: settings.canvasBackground == .checkerboard ? 1.5 : 1)
             .frame(width: imageRect.width, height: imageRect.height)
             .position(x: imageRect.midX, y: imageRect.midY)
-            .overlay {
-                Canvas { context, size in
-                    let cell: CGFloat = 12
-                    for row in 0...Int(size.height / cell) {
-                        for column in 0...Int(size.width / cell) where (row + column).isMultiple(of: 2) {
-                            context.fill(
-                                Path(CGRect(
-                                    x: CGFloat(column) * cell,
-                                    y: CGFloat(row) * cell,
-                                    width: cell,
-                                    height: cell
-                                )),
-                                with: .color(.gray.opacity(0.18))
-                            )
-                        }
-                    }
-                }
-                .frame(width: imageRect.width, height: imageRect.height)
-                .position(x: imageRect.midX, y: imageRect.midY)
-            }
+            .allowsHitTesting(false)
+    }
+
+    private func imageCornerRadius(for imageRect: CGRect) -> CGFloat {
+        min(CGFloat(settings.imageCornerRadius), min(imageRect.width, imageRect.height) / 2)
+    }
+
+    private var canvasBorderColor: Color {
+        switch settings.canvasBackground {
+        case .dark:
+            return .white.opacity(0.28)
+        case .checkerboard:
+            return .accentColor.opacity(0.82)
+        case .custom:
+            return isCustomCanvasColorDark ? .white.opacity(0.34) : .black.opacity(0.32)
+        case .light:
+            return .black.opacity(0.26)
+        }
+    }
+
+    private var isCustomCanvasColorDark: Bool {
+        let color = settings.customCanvasBackground.usingColorSpace(.sRGB) ?? settings.customCanvasBackground
+        let luminance = 0.2126 * color.redComponent + 0.7152 * color.greenComponent + 0.0722 * color.blueComponent
+        return luminance < 0.45
+    }
+
+    @ViewBuilder
+    private func checkerboard(in imageRect: CGRect) -> some View {
+        CheckerboardBackground()
+            .frame(width: imageRect.width, height: imageRect.height)
+            .position(x: imageRect.midX, y: imageRect.midY)
+    }
+
+    @ViewBuilder
+    private func imageSelection(in imageRect: CGRect) -> some View {
+        if let selectionRect = session.selectionRect {
+            let rect = GeometryMapper.viewRect(from: selectionRect, in: imageRect)
+            selectionOverlay(for: rect)
+                .allowsHitTesting(false)
+        }
     }
 
     @ViewBuilder
@@ -222,6 +395,7 @@ struct ImageWorkspaceView: View {
                 .font(annotationFont(annotation))
                 .foregroundStyle(Color(nsColor: annotation.strokeColor))
                 .multilineTextAlignment(textAlignment(annotation.textAlignment))
+                .lineSpacing(max(0, annotation.fontSize * session.zoom * 0.72 * (annotation.lineHeight - 1)))
                 .frame(
                     maxWidth: .infinity,
                     maxHeight: .infinity,
@@ -316,6 +490,35 @@ struct ImageWorkspaceView: View {
         )
     }
 
+    private func fittedViewportRect(contentSize: CGSize, in bounds: CGRect) -> CGRect {
+        guard contentSize.width > 0, contentSize.height > 0, bounds.width > 0, bounds.height > 0 else {
+            return .zero
+        }
+
+        switch session.viewportMode {
+        case .contain:
+            return GeometryMapper.aspectFitRect(contentSize: contentSize, in: bounds)
+
+        case .cover:
+            let scale = max(bounds.width / contentSize.width, bounds.height / contentSize.height)
+            let size = CGSize(width: contentSize.width * scale, height: contentSize.height * scale)
+            return CGRect(
+                x: bounds.midX - size.width / 2,
+                y: bounds.midY - size.height / 2,
+                width: size.width,
+                height: size.height
+            )
+
+        case .original:
+            return CGRect(
+                x: bounds.midX - contentSize.width / 2,
+                y: bounds.midY - contentSize.height / 2,
+                width: contentSize.width,
+                height: contentSize.height
+            )
+        }
+    }
+
     private func interactionGesture(in imageRect: CGRect) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
@@ -335,6 +538,73 @@ struct ImageWorkspaceView: View {
     private func resolveDragMode(at point: CGPoint, imageRect: CGRect) -> DragMode {
         switch appModel.activeTool {
         case .view:
+            return resolveViewDragMode(at: point, imageRect: imageRect)
+
+        case .select:
+            if let selectionRect = session.selectionRect {
+                let rect = GeometryMapper.viewRect(from: selectionRect, in: imageRect)
+                if let handle = boxHandle(at: point, rect: rect) {
+                    if handle == .inside {
+                        return .moveSelection(start: selectionRect)
+                    }
+                    return .resizeSelection(handle: handle, start: selectionRect)
+                }
+            }
+
+            if let selectedID = session.selectedAnnotationID,
+               let selected = session.annotations.first(where: { $0.id == selectedID }),
+               let displayed = displayedAnnotationFrame(selected.frame) {
+                let rect = GeometryMapper.viewRect(from: displayed, in: imageRect)
+                if let corner = cornerHandle(at: point, rect: rect) {
+                    return .resizeAnnotation(id: selectedID, corner: corner, start: selected.frame)
+                }
+            }
+
+            if let annotation = hitAnnotation(at: point, imageRect: imageRect) {
+                session.selectionRect = nil
+                session.selectedAnnotationID = annotation.id
+                return .moveAnnotation(id: annotation.id, start: annotation.frame)
+            }
+
+            session.selectedAnnotationID = nil
+            return .selectRegion
+
+        case .pickColor:
+            return .pick
+
+        case .crop:
+            let sourceDraft = session.draftCropRect ?? session.cropRect
+            let displayedDraft = displayedCropRect(sourceDraft)
+                ?? CGRect(x: 0, y: 0, width: 1, height: 1)
+            let rect = GeometryMapper.viewRect(from: displayedDraft, in: imageRect)
+            if let handle = boxHandle(at: point, rect: rect) {
+                return .crop(handle: handle, start: displayedDraft)
+            }
+            return .crop(handle: .new, start: displayedDraft)
+
+        case .resize:
+            let rect = resizeDisplayRect(in: imageRect)
+            if let handle = boxHandle(at: point, rect: rect), handle != .inside, handle != .new {
+                return .resizeCanvas(
+                    handle: handle,
+                    start: session.draftOutputSize ?? session.effectivePixelSize,
+                    rect: rect
+                )
+            }
+            return .pan(start: session.pan)
+
+        case .refineBackground:
+            return .refineBackground
+
+        case .draw:
+            return .draw
+
+        case .text:
+            return .placeText
+        }
+    }
+
+    private func resolveViewDragMode(at point: CGPoint, imageRect: CGRect) -> DragMode {
             if let selectedID = session.selectedAnnotationID,
                let selected = session.annotations.first(where: { $0.id == selectedID }),
                let displayed = displayedAnnotationFrame(selected.frame) {
@@ -351,26 +621,6 @@ struct ImageWorkspaceView: View {
 
             session.selectedAnnotationID = nil
             return .pan(start: session.pan)
-
-        case .pickColor:
-            return .pick
-
-        case .crop:
-            let sourceDraft = session.draftCropRect ?? session.cropRect
-            let displayedDraft = displayedCropRect(sourceDraft)
-                ?? CGRect(x: 0, y: 0, width: 1, height: 1)
-            let rect = GeometryMapper.viewRect(from: displayedDraft, in: imageRect)
-            if let handle = boxHandle(at: point, rect: rect) {
-                return .crop(handle: handle, start: displayedDraft)
-            }
-            return .crop(handle: .new, start: displayedDraft)
-
-        case .draw:
-            return .draw
-
-        case .text:
-            return .placeText
-        }
     }
 
     private func updateDrag(_ value: DragGesture.Value, imageRect: CGRect) {
@@ -404,6 +654,14 @@ struct ImageWorkspaceView: View {
                 annotation.frame = resizedRect(start, handle: corner.boxHandle, delta: delta)
             }
 
+        case .moveSelection(let start):
+            let delta = normalizedDisplayTranslation(value.translation, imageRect: imageRect)
+            session.selectionRect = movedRect(start, by: delta)
+
+        case .resizeSelection(let handle, let start):
+            let delta = normalizedDisplayTranslation(value.translation, imageRect: imageRect)
+            session.selectionRect = resizedRect(start, handle: handle, delta: delta)
+
         case .crop(let handle, let start):
             let displayedRect: CGRect
             if handle == .new {
@@ -425,6 +683,25 @@ struct ImageWorkspaceView: View {
                 fromDisplayNormalized: displayedRect,
                 cropRect: session.cropRect
             )
+
+        case .resizeCanvas(let handle, let start, let rect):
+            session.setDraftOutputSize(
+                resizedOutputSize(start, handle: handle, translation: value.translation, imageRect: rect)
+            )
+
+        case .selectRegion:
+            guard let selection = GeometryMapper.normalizedRect(
+                from: value.startLocation,
+                to: value.location,
+                in: imageRect
+            ) else {
+                return
+            }
+            session.selectionRect = GeometryMapper.clampedNormalizedRect(selection, minimumSize: 0.001)
+
+        case .refineBackground:
+            backgroundBrushLocation = value.location
+            applyBackgroundBrush(at: value.location, imageRect: imageRect)
         }
     }
 
@@ -446,7 +723,20 @@ struct ImageWorkspaceView: View {
         case .placeText:
             placeText(at: value.location, imageRect: imageRect)
 
-        case .pan, .moveAnnotation, .resizeAnnotation, .crop:
+        case .refineBackground:
+            backgroundBrushLocation = value.location
+            applyBackgroundBrush(at: value.location, imageRect: imageRect)
+            lastBackgroundBrushPoint = nil
+            didCaptureBackgroundUndo = false
+
+        case .selectRegion:
+            if let selectionRect = session.selectionRect,
+               selectionRect.width <= 0.003 || selectionRect.height <= 0.003 {
+                session.selectionRect = nil
+            }
+            appModel.activeTool = .select
+
+        case .pan, .moveAnnotation, .resizeAnnotation, .moveSelection, .resizeSelection, .crop, .resizeCanvas:
             break
         }
     }
@@ -611,9 +901,56 @@ struct ImageWorkspaceView: View {
             fromDisplayNormalized: displayPoint,
             cropRect: session.cropRect
         )
-        guard let color = PixelSampler.color(in: session.sourceImage, at: sourcePoint) else { return }
+        guard let color = PixelSampler.color(in: session.workingSourceImage, at: sourcePoint) else { return }
         session.liveSampleColor = color
         session.liveSampleLocation = point
+    }
+
+    private func applyBackgroundBrush(at point: CGPoint, imageRect: CGRect) {
+        guard let current = session.backgroundRemovedImage else { return }
+        if !didCaptureBackgroundUndo {
+            session.backgroundRefinementUndoImage = current
+            didCaptureBackgroundUndo = true
+        }
+
+        let points = interpolatedBrushPoints(from: lastBackgroundBrushPoint, to: point, imageRect: imageRect)
+        lastBackgroundBrushPoint = point
+
+        var image = current
+        for point in points {
+            guard let displayPoint = GeometryMapper.normalizedPoint(point, in: imageRect) else { continue }
+            let sourcePoint = WorkingImageGeometry.sourcePoint(
+                fromDisplayNormalized: displayPoint,
+                cropRect: session.cropRect
+            )
+            guard let edited = BackgroundMaskEditor.applyBrush(
+                to: image,
+                sourceImage: session.sourceImage,
+                normalizedPoint: sourcePoint,
+                diameter: session.backgroundBrushSize,
+                softness: session.backgroundBrushSoftness,
+                strength: session.backgroundBrushStrength,
+                mode: session.backgroundRefinementMode
+            ) else { continue }
+            image = edited
+        }
+        session.backgroundRemovedImage = image
+        session.isDirty = true
+    }
+
+    private func interpolatedBrushPoints(from start: CGPoint?, to end: CGPoint, imageRect: CGRect) -> [CGPoint] {
+        guard let start else { return [end] }
+        let displayDiameter = session.backgroundBrushSize / max(session.resizePreviewSize.width, 1) * imageRect.width
+        let step = max(2, displayDiameter * 0.28)
+        let distance = hypot(end.x - start.x, end.y - start.y)
+        let count = max(1, Int(ceil(distance / step)))
+        return (1...count).map { index in
+            let t = CGFloat(index) / CGFloat(count)
+            return CGPoint(
+                x: start.x + (end.x - start.x) * t,
+                y: start.y + (end.y - start.y) * t
+            )
+        }
     }
 
     private func hitAnnotation(at point: CGPoint, imageRect: CGRect) -> Annotation? {
@@ -733,6 +1070,73 @@ struct ImageWorkspaceView: View {
         return GeometryMapper.clampedNormalizedRect(normalized, minimumSize: 0.002)
     }
 
+    private func resizedOutputSize(
+        _ size: CGSize,
+        handle: BoxHandle,
+        translation: CGSize,
+        imageRect: CGRect
+    ) -> CGSize {
+        let horizontalScale = size.width / max(imageRect.width, 1)
+        let verticalScale = size.height / max(imageRect.height, 1)
+        var width = size.width
+        var height = size.height
+
+        switch handle {
+        case .topLeft:
+            width -= translation.width * horizontalScale
+            height -= translation.height * verticalScale
+        case .top:
+            height -= translation.height * verticalScale
+        case .topRight:
+            width += translation.width * horizontalScale
+            height -= translation.height * verticalScale
+        case .left:
+            width -= translation.width * horizontalScale
+        case .right:
+            width += translation.width * horizontalScale
+        case .bottomLeft:
+            width -= translation.width * horizontalScale
+            height += translation.height * verticalScale
+        case .bottom:
+            height += translation.height * verticalScale
+        case .bottomRight:
+            width += translation.width * horizontalScale
+            height += translation.height * verticalScale
+        case .inside, .new:
+            break
+        }
+
+        width = max(1, width)
+        height = max(1, height)
+
+        if session.resizePreservesAspect {
+            let ratio = session.croppedPixelSize.width / max(session.croppedPixelSize.height, 1)
+            if abs(translation.width) >= abs(translation.height) {
+                height = width / max(ratio, 0.0001)
+            } else {
+                width = height * ratio
+            }
+        }
+
+        return CGSize(width: width, height: height)
+    }
+
+    private func resizeDisplayRect(in imageRect: CGRect) -> CGRect {
+        let size = session.draftOutputSize ?? session.effectivePixelSize
+        let widthScale = size.width / max(session.effectivePixelSize.width, 1)
+        let heightScale = size.height / max(session.effectivePixelSize.height, 1)
+        let displaySize = CGSize(
+            width: imageRect.width * widthScale,
+            height: imageRect.height * heightScale
+        )
+        return CGRect(
+            x: imageRect.midX - displaySize.width / 2,
+            y: imageRect.midY - displaySize.height / 2,
+            width: displaySize.width,
+            height: displaySize.height
+        )
+    }
+
     private func cropRectApplyingRatio(_ rect: CGRect, handle: BoxHandle) -> CGRect {
         let workingSize = WorkingImageGeometry.croppedPixelSize(
             sourceSize: session.pixelSize,
@@ -792,8 +1196,15 @@ struct ImageWorkspaceView: View {
         if annotation.fontFamily.isEmpty {
             return .system(size: displayedSize, weight: annotation.fontWeight.swiftUIWeight)
         }
-        return .custom(annotation.fontFamily, size: displayedSize)
-            .weight(annotation.fontWeight.swiftUIWeight)
+        if let weightedFont = NSFontManager.shared.font(
+            withFamily: annotation.fontFamily,
+            traits: [],
+            weight: annotation.fontWeight.fontManagerWeight,
+            size: displayedSize
+        ) {
+            return Font(weightedFont)
+        }
+        return .custom(annotation.fontFamily, size: displayedSize).weight(annotation.fontWeight.swiftUIWeight)
     }
 
     private func textAlignment(_ alignment: AnnotationTextAlignment) -> TextAlignment {
@@ -902,13 +1313,45 @@ struct ImageWorkspaceView: View {
 
     private func applyCrop() {
         session.applyDraftCrop()
-        session.resetView()
         appModel.activeTool = .view
     }
 
+    private func cancelResize() {
+        session.cancelDraftResize()
+        appModel.activeTool = .view
+    }
+
+    private func applyResize() {
+        let targetSize = session.draftOutputSize ?? session.resizePreviewSize
+        appModel.applyResizeToCurrentImage(
+            targetSize: targetSize,
+            upscaleEngine: .standard,
+            upscaleContentMode: settings.upscaleContentMode
+        )
+    }
+
+    private func applyUpscale(_ scale: CGFloat) {
+        let targetSize = CGSize(
+            width: session.croppedPixelSize.width * scale,
+            height: session.croppedPixelSize.height * scale
+        )
+        appModel.applyResizeToCurrentImage(
+            targetSize: targetSize,
+            upscaleEngine: .bestQuality,
+            upscaleContentMode: settings.upscaleContentMode
+        )
+    }
+
     private func cancelCurrentTool() {
+        if session.selectionRect != nil {
+            session.selectionRect = nil
+            appModel.activeTool = .view
+            return
+        }
         draftAnnotation = nil
         draftFreehandPoints = []
+        lastBackgroundBrushPoint = nil
+        didCaptureBackgroundUndo = false
         appModel.cancelCurrentTool()
     }
 
@@ -919,7 +1362,12 @@ struct ImageWorkspaceView: View {
         case placeText
         case moveAnnotation(id: UUID, start: CGRect)
         case resizeAnnotation(id: UUID, corner: AnnotationCorner, start: CGRect)
+        case moveSelection(start: CGRect)
+        case resizeSelection(handle: BoxHandle, start: CGRect)
         case crop(handle: BoxHandle, start: CGRect)
+        case resizeCanvas(handle: BoxHandle, start: CGSize, rect: CGRect)
+        case selectRegion
+        case refineBackground
     }
 
     private enum AnnotationCorner {
