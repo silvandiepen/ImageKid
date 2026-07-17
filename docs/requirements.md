@@ -14,13 +14,14 @@
 
 ## 2. Offline and privacy
 
-1. Every feature MUST function with networking disabled.
-2. All media processing MUST execute on the Mac.
-3. The app MUST NOT require an account, licence server, API key, remote activation, subscription, runtime download, or paid third-party SDK.
-4. The app MUST NOT upload media, palettes, metadata, diagnostics, or usage information.
+1. Core viewing, inspection, editing, and export features MUST function with networking disabled.
+2. Local media processing MUST execute on the Mac.
+3. The app MUST NOT require an account, licence server, API key, remote activation, subscription, runtime download, or paid third-party SDK for core workflows.
+4. The app MUST NOT upload media, palettes, metadata, diagnostics, or usage information unless the user explicitly starts a provider-backed prompted edit.
 5. Clipboard contents MUST only be read after an explicit paste action.
 6. Temporary media MUST remain in app-owned local storage and be removed when no longer required.
 7. No analytics or advertising SDK is permitted.
+8. Prompted image edits MAY use a provider API. They MUST be explicit user actions, use user-supplied credentials stored in the keychain, and must not run as a fallback for local tools.
 
 ## 3. Viewer
 
@@ -155,6 +156,6 @@
 7. Video duration, timestamps, and audio drift MUST be covered by automated tests.
 8. The app MUST report insufficient storage, unsupported codecs, and memory pressure clearly.
 
-## Deferred requirements
+## Local model requirements
 
-AI upscaling is not part of the current product requirements or implementation roadmap. The historical research document may be revisited only after the complete non-AI image and video workflows are stable.
+Best Quality background removal and Best Quality image upscaling MAY use app-managed local runtime installs. They MUST be explicit user actions from Settings, run on-device, store assets in Application Support, and fail with actionable install errors instead of falling back to cloud processing.

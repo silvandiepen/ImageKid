@@ -6,25 +6,35 @@ struct ContentView: View {
     @State private var isDropTarget = false
 
     var body: some View {
-        Group {
-            switch appModel.media {
-            case .image(let session):
-                ImageWorkspaceView(session: session)
-            case .video(let session):
-                VideoWorkspaceView(session: session)
-            case nil:
-                EmptyStateView(isDropTarget: isDropTarget) {
-                    appModel.openPanel()
-                }
+        ZStack(alignment: .leading) {
+            workspaceContent
+
+            if !appModel.items.isEmpty {
+                WorkspaceSidebar(isCollapsed: $appModel.isWorkspaceSidebarCollapsed)
+                    .padding(.leading, 18)
+                    .padding(.vertical, 18)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+                    .zIndex(10)
             }
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .animation(.snappy(duration: 0.22), value: appModel.items.count)
+        .animation(.snappy(duration: 0.22), value: appModel.isWorkspaceSidebarCollapsed)
+        .background(WindowHeaderConfigurator())
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: $isDropTarget, perform: handleDrop)
         .sheet(isPresented: $appModel.isShowingResize) {
             resizeSheet
         }
         .sheet(isPresented: $appModel.isShowingExport) {
             exportSheet
+        }
+        .sheet(isPresented: $appModel.isShowingPromptEdit) {
+            PromptEditSheet(
+                isApplying: appModel.isApplyingPromptEdit,
+                providerName: appModel.promptEditProviderName,
+                hasCredential: appModel.hasPromptEditCredential,
+                onCancel: { appModel.isShowingPromptEdit = false },
+                onApply: { prompt in appModel.applyPromptEdit(prompt: prompt) }
+            )
         }
         .alert(
             "ImageKid",
@@ -36,6 +46,22 @@ struct ContentView: View {
             Button("OK", role: .cancel) { appModel.errorMessage = nil }
         } message: {
             Text(appModel.errorMessage ?? "Unknown error")
+        }
+    }
+
+    @ViewBuilder
+    private var workspaceContent: some View {
+        Group {
+                switch appModel.media {
+                case .image(let session):
+                    ImageWorkspaceView(session: session)
+                case .video(let session):
+                    VideoWorkspaceView(session: session)
+                case nil:
+                    EmptyStateView(isDropTarget: isDropTarget) {
+                        appModel.openPanel()
+                    }
+                }
         }
     }
 
@@ -67,7 +93,11 @@ struct ContentView: View {
     private var exportSheet: some View {
         switch appModel.media {
         case .image(let session):
-            ExportSheet(originalSize: session.effectivePixelSize) { options in
+            ExportSheet(
+                imageSize: session.effectivePixelSize,
+                initialFormat: session.sourceURL.flatMap(ImageExportFormat.init(url:)) ?? .png,
+                itemCount: max(1, appModel.exportTargetItems.count)
+            ) { options in
                 appModel.exportImage(options: options)
             }
         case .video:
@@ -80,23 +110,48 @@ struct ContentView: View {
     }
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
-        guard let provider = providers.first else { return false }
+        guard !providers.isEmpty else { return false }
 
-        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
-            guard error == nil else { return }
+        for provider in providers {
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
+                guard error == nil else { return }
 
-            let url: URL?
-            if let data = item as? Data {
-                url = URL(dataRepresentation: data, relativeTo: nil)
-            } else if let value = item as? URL {
-                url = value
-            } else {
-                url = nil
+                let url: URL?
+                if let data = item as? Data {
+                    url = URL(dataRepresentation: data, relativeTo: nil)
+                } else if let value = item as? URL {
+                    url = value
+                } else {
+                    url = nil
+                }
+
+                guard let url else { return }
+                Task { @MainActor in appModel.load(url) }
             }
-
-            guard let url else { return }
-            Task { @MainActor in appModel.load(url) }
         }
         return true
+    }
+}
+
+private struct WindowHeaderConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            configure(window: view.window)
+        }
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async {
+            configure(window: view.window)
+        }
+    }
+
+    private func configure(window: NSWindow?) {
+        guard let window else { return }
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isMovableByWindowBackground = false
     }
 }

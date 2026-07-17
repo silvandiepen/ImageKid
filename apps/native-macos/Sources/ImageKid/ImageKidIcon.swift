@@ -3,6 +3,35 @@ import SwiftUI
 
 struct ImageKidIcon: View {
     var body: some View {
+        if let image = ImageKidAsset.image(named: "ImageKidAppIcon") {
+            Image(nsImage: image)
+                .resizable()
+                .scaledToFill()
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        } else {
+            FallbackImageKidIcon()
+        }
+    }
+}
+
+enum ImageKidAsset {
+    static func image(named name: String) -> NSImage? {
+        #if SWIFT_PACKAGE
+        let bundle = Bundle.module
+        #else
+        let bundle = Bundle.main
+        #endif
+
+        guard let url = bundle.url(forResource: name, withExtension: "png") else {
+            return nil
+        }
+
+        return NSImage(contentsOf: url)
+    }
+}
+
+private struct FallbackImageKidIcon: View {
+    var body: some View {
         GeometryReader { proxy in
             let size = min(proxy.size.width, proxy.size.height)
 
@@ -305,6 +334,10 @@ private struct Diamond: Shape {
 @MainActor
 enum ImageKidIconRenderer {
     static func makeNSImage(size: CGFloat = 512) -> NSImage? {
+        if let image = ImageKidAsset.image(named: "ImageKidAppIcon") {
+            return roundedImage(from: image, size: size)
+        }
+
         let rootView = ImageKidIcon()
             .frame(width: size, height: size)
 
@@ -320,6 +353,27 @@ enum ImageKidIconRenderer {
 
         let image = NSImage(size: CGSize(width: size, height: size))
         image.addRepresentation(representation)
+        return image
+    }
+
+    private static func roundedImage(from sourceImage: NSImage, size: CGFloat) -> NSImage {
+        let targetSize = CGSize(width: size, height: size)
+        let targetRect = CGRect(origin: .zero, size: targetSize)
+        let image = NSImage(size: targetSize)
+
+        image.lockFocus()
+        NSColor.clear.setFill()
+        targetRect.fill()
+
+        let path = NSBezierPath(
+            roundedRect: targetRect,
+            xRadius: size * 0.225,
+            yRadius: size * 0.225
+        )
+        path.addClip()
+        sourceImage.draw(in: targetRect, from: .zero, operation: .sourceOver, fraction: 1)
+        image.unlockFocus()
+
         return image
     }
 }

@@ -1,0 +1,27 @@
+name: ImageKid
+options:
+  bundleIdPrefix: app.imagekid
+  deploymentTarget:
+    macOS: "14.0"
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+targets:
+  ImageKid:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/ImageKid
+    resources:
+      - path: Sources/ImageKid/Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.imagekid.mac
+        PRODUCT_NAME: ImageKid
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: ImageKid
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.graphics-design
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_STYLE: Automatic

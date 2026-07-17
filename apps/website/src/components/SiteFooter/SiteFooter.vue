@@ -11,7 +11,7 @@
           <RouterLink v-else :class="bemm('link')" :to="link.to">{{ link.label }}</RouterLink>
         </template>
       </nav>
-      <p :class="bemm('note')">Native macOS source foundation. No packaged release yet.</p>
+      <p :class="bemm('note')">Native macOS image tools. Local processing first; Magic uses your own AI provider.</p>
     </div>
   </footer>
 </template>

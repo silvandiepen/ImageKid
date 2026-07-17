@@ -7,27 +7,63 @@ struct FloatingToolbar: View {
     var body: some View {
         HStack(spacing: 7) {
             toolButton(.view)
+            toolButton(.select)
             toolButton(.pickColor)
             toolButton(.crop)
+            toolButton(.resize)
             toolButton(.draw)
             toolButton(.text)
 
             Divider().frame(height: 30)
 
             Button {
-                appModel.isShowingResize = true
+                appModel.removeBackground()
             } label: {
-                toolbarIcon("arrow.up.left.and.arrow.down.right", selected: false)
+                toolbarIcon(
+                    appModel.hasRemovedBackground ? "arrow.uturn.backward" : "eraser",
+                    selected: appModel.hasRemovedBackground
+                )
             }
-            .help("Resize")
+            .disabled(!appModel.canRemoveBackground)
+            .help(appModel.hasRemovedBackground ? "Restore Background" : "Remove Background")
+            .accessibilityLabel(appModel.hasRemovedBackground ? "Restore Background" : "Remove Background")
 
             Button {
-                appModel.requestExport()
+                appModel.requestPromptEdit()
+            } label: {
+                toolbarIcon("sparkles", selected: appModel.isShowingPromptEdit || appModel.isApplyingPromptEdit)
+            }
+            .disabled(appModel.isApplyingPromptEdit)
+            .help("Magic")
+            .accessibilityLabel("Magic")
+
+            Menu {
+                Button("Copy Image") {
+                    appModel.copyCurrentImageToClipboard()
+                }
+
+                if appModel.canCopyImageSelection {
+                    Button("Copy Selection") {
+                        appModel.copyImageSelectionToClipboard()
+                    }
+                }
+
+                Divider()
+
+                Button("Save") {
+                    appModel.saveImage()
+                }
+
+                Button("Export…") {
+                    appModel.requestExport()
+                }
             } label: {
                 toolbarIcon("square.and.arrow.up", selected: false)
             }
             .disabled(!canExport)
-            .help("Export")
+            .menuStyle(.borderlessButton)
+            .help("Image Actions")
+            .accessibilityLabel("Image Actions")
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 12)
@@ -38,7 +74,6 @@ struct FloatingToolbar: View {
                 .strokeBorder(.white.opacity(0.14))
         )
         .shadow(color: .black.opacity(0.26), radius: 24, y: 10)
-        .help("ImageKid tools")
     }
 
     private func toolButton(_ tool: Tool) -> some View {
@@ -48,6 +83,7 @@ struct FloatingToolbar: View {
             toolbarIcon(tool.symbolName, selected: appModel.activeTool == tool)
         }
         .help(tool.label)
+        .accessibilityLabel(tool.label)
     }
 
     private func toolbarIcon(_ symbol: String, selected: Bool) -> some View {

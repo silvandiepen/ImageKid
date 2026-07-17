@@ -2,14 +2,14 @@
   <DocsShell>
     <div :class="bemm()">
       <p :class="bemm('eyebrow')">Documentation</p>
-      <h1 :class="bemm('title')">Build and understand ImageKid.</h1>
-      <p :class="bemm('lead')">Guides for the checked-in native implementation, its current limits, and the path toward a distributable Mac app.</p>
+      <h1 :class="bemm('title')">Understand ImageKid.</h1>
+      <p :class="bemm('lead')">Guides for the local image workflow, privacy model, Magic provider boundary, and current product scope.</p>
       <aside :class="bemm('boundary')">
         <div :class="bemm('boundary-copy')">
-          <strong>Development boundary</strong>
-          <span>ImageKid currently runs as a Swift package built from source. There is no signed, sandboxed, notarised, or App Store release.</span>
+          <strong>Local-first boundary</strong>
+          <span>Background removal, upscaling, crop, resize, annotation, export, and batches are local-first. Magic is the provider-backed exception.</span>
         </div>
-        <Button to="/docs/getting-started" variant="primary">Start with the build guide</Button>
+        <Button to="/features" variant="primary">Explore features</Button>
       </aside>
       <div :class="bemm('index')">
         <RouterLink

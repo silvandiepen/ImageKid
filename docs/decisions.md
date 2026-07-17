@@ -22,7 +22,7 @@ Crop and annotation geometry are stored relative to orientation-correct media, n
 
 ## D-006 — Offline without exceptions
 
-Core behaviour must work with networking disabled. The app has no account, activation, analytics, cloud processing, paid SDK, or runtime download.
+Core behaviour must work with networking disabled. The app has no account, activation, analytics, paid SDK, or implicit cloud processing. Prompted image edits are the explicit exception: they use a user-supplied provider credential and only run after the user starts that action.
 
 ## D-007 — Apple frameworks first
 

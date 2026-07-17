@@ -7,10 +7,10 @@ import { productPreviewTools } from "./ProductPreview.model";
 vi.mock("@sil/ui", () => ({ Icon: { template: "<i />" } }));
 
 describe("ProductPreview", () => {
-  it("labels the preview as the current source-build representation", () => {
+  it("labels the preview as a local Mac workflow representation", () => {
     const text = mount(ProductPreview).text();
 
-    expect(text).toContain("Current source build");
+    expect(text).toContain("Local Mac workflow");
     expect(text).toContain("Interface representation");
     expect(text).toContain("Pick Colour tool active");
   });

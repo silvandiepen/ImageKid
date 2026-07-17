@@ -13,7 +13,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "ImageKid",
-            path: "Sources/ImageKid"
+            path: "Sources/ImageKid",
+            resources: [
+                .process("Resources")
+            ]
         ),
         .testTarget(
             name: "ImageKidTests",

@@ -31,6 +31,211 @@ enum MediaItem {
     case video(VideoSession)
 }
 
+protocol PromptImageEditProvider {
+    var name: String { get }
+
+    @MainActor
+    func edit(image: NSImage, prompt: String) async throws -> NSImage
+}
+
+enum PromptImageEditError: LocalizedError {
+    case missingCredential(String)
+    case imageEncodingFailed
+    case invalidResponse(String)
+    case apiError(String)
+    case timedOut
+
+    var errorDescription: String? {
+        switch self {
+        case .missingCredential(let providerName):
+            "Add a \(providerName) credential in Settings before using prompted edits."
+        case .imageEncodingFailed:
+            "ImageKid could not prepare this image for prompted editing."
+        case .invalidResponse(let providerName):
+            "\(providerName) did not return an edited image."
+        case .apiError(let message):
+            message
+        case .timedOut:
+            "Magic took too long. Try again with a smaller selection, or check your connection."
+        }
+    }
+}
+
+enum PromptImageEditService {
+    @MainActor
+    static func edit(image: NSImage, prompt: String, provider: PromptImageEditProvider) async throws -> NSImage {
+        try await provider.edit(image: image, prompt: prompt)
+    }
+}
+
+struct OpenAIPromptImageEditProvider: PromptImageEditProvider {
+    private static let endpoint = URL(string: "https://api.openai.com/v1/images/edits")!
+    private static let model = "gpt-image-1.5"
+
+    let apiKey: String
+    var name: String { "OpenAI" }
+
+    @MainActor
+    func edit(image: NSImage, prompt: String) async throws -> NSImage {
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { throw PromptImageEditError.missingCredential(name) }
+        guard let imageData = ImageRenderer.pngData(for: image) else {
+            throw PromptImageEditError.imageEncodingFailed
+        }
+
+        var request = URLRequest(url: Self.endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 300
+        request.setValue("Bearer \(trimmedKey)", forHTTPHeaderField: "Authorization")
+
+        let boundary = "ImageKid-\(UUID().uuidString)"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Self.multipartBody(
+            fields: [
+                "model": Self.model,
+                "prompt": trimmedPrompt,
+                "size": "auto",
+                "quality": "medium",
+                "output_format": "png"
+            ],
+            files: [
+                MultipartFile(
+                    fieldName: "image",
+                    fileName: "imagekid-source.png",
+                    mimeType: "image/png",
+                    data: imageData
+                )
+            ],
+            boundary: boundary
+        )
+
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 300
+        configuration.timeoutIntervalForResource = 420
+        let session = URLSession(configuration: configuration)
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let error as URLError where error.code == .timedOut {
+            throw PromptImageEditError.timedOut
+        }
+        if let httpResponse = response as? HTTPURLResponse,
+           !(200...299).contains(httpResponse.statusCode) {
+            throw PromptImageEditError.apiError(Self.apiErrorMessage(from: data) ?? "\(name) image editing failed.")
+        }
+
+        let editResponse = try JSONDecoder().decode(OpenAIImagesResponse.self, from: data)
+        guard
+            let base64 = editResponse.data?.first?.b64Json,
+            let editedData = Data(base64Encoded: base64),
+            let editedImage = NSImage(data: editedData)
+        else {
+            throw PromptImageEditError.invalidResponse(name)
+        }
+
+        return editedImage
+    }
+
+    private static func apiErrorMessage(from data: Data) -> String? {
+        guard let response = try? JSONDecoder().decode(OpenAIErrorResponse.self, from: data) else {
+            return nil
+        }
+        return response.error.message
+    }
+
+    private static func multipartBody(
+        fields: [String: String],
+        files: [MultipartFile],
+        boundary: String
+    ) -> Data {
+        var body = Data()
+
+        for (name, value) in fields {
+            body.append("--\(boundary)\r\n")
+            body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
+            body.append("\(value)\r\n")
+        }
+
+        for file in files {
+            body.append("--\(boundary)\r\n")
+            body.append(
+                "Content-Disposition: form-data; name=\"\(file.fieldName)\"; filename=\"\(file.fileName)\"\r\n"
+            )
+            body.append("Content-Type: \(file.mimeType)\r\n\r\n")
+            body.append(file.data)
+            body.append("\r\n")
+        }
+
+        body.append("--\(boundary)--\r\n")
+        return body
+    }
+}
+
+private struct MultipartFile {
+    let fieldName: String
+    let fileName: String
+    let mimeType: String
+    let data: Data
+}
+
+private struct OpenAIImagesResponse: Decodable {
+    let data: [OpenAIImageResponse]?
+}
+
+private struct OpenAIImageResponse: Decodable {
+    let b64Json: String?
+
+    enum CodingKeys: String, CodingKey {
+        case b64Json = "b64_json"
+    }
+}
+
+private struct OpenAIErrorResponse: Decodable {
+    let error: OpenAIError
+}
+
+private struct OpenAIError: Decodable {
+    let message: String
+}
+
+private extension Data {
+    mutating func append(_ string: String) {
+        append(Data(string.utf8))
+    }
+}
+
+@MainActor
+struct WorkspaceItem: Identifiable {
+    let id = UUID()
+    var media: MediaItem
+
+    var title: String {
+        switch media {
+        case .image(let session):
+            return session.sourceURL?.lastPathComponent ?? "Pasted Image"
+        case .video(let session):
+            return session.sourceURL.lastPathComponent
+        }
+    }
+
+    var isDirty: Bool {
+        switch media {
+        case .image(let session): session.isDirty
+        case .video: false
+        }
+    }
+
+    var thumbnail: NSImage? {
+        switch media {
+        case .image(let session): session.workingSourceImage
+        case .video: nil
+        }
+    }
+}
+
 struct PixelSampler {
     static func color(in image: NSImage, at normalizedPoint: CGPoint) -> NSColor? {
         guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
@@ -55,51 +260,105 @@ struct PixelSampler {
 
 @MainActor
 enum ImageRenderer {
-    static func render(_ session: ImageSession, options: ImageExportOptions = ImageExportOptions()) -> NSImage? {
-        guard let source = session.sourceImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+    static func pngData(for image: NSImage) -> Data? {
+        guard
+            let tiff = image.tiffRepresentation,
+            let bitmap = NSBitmapImageRep(data: tiff)
+        else {
             return nil
         }
 
-        let pixelCrop = CGRect(
-            x: session.cropRect.minX * CGFloat(source.width),
-            y: session.cropRect.minY * CGFloat(source.height),
-            width: session.cropRect.width * CGFloat(source.width),
-            height: session.cropRect.height * CGFloat(source.height)
-        ).integral
+        return bitmap.representation(using: .png, properties: [:])
+    }
 
-        guard let cropped = source.cropping(to: pixelCrop) else { return nil }
-        let baseSize = session.effectivePixelSize
-        let targetSize = CGSize(
-            width: max(1, (baseSize.width * options.scale).rounded()),
-            height: max(1, (baseSize.height * options.scale).rounded())
+    static func render(_ session: ImageSession, options: ImageExportOptions = ImageExportOptions()) -> NSImage? {
+        let targetSize = finalSize(for: session, options: options)
+        return render(session, targetSize: targetSize, options: options, includesAnnotations: true)
+    }
+
+    static func renderedImage(
+        for session: ImageSession,
+        targetSize: CGSize,
+        format: ImageExportFormat = .png,
+        backgroundColor: NSColor = .white,
+        upscaleEngine: UpscaleEngine = .standard,
+        upscaleContentMode: UpscaleContentMode = .textAndUI
+    ) throws -> NSImage {
+        let naturalSize = session.croppedPixelSize
+        let effectiveContentMode = ImageUpscaleService.resolvedContentMode(
+            for: session.workingSourceImage,
+            requestedMode: upscaleContentMode
         )
-        let result = NSImage(size: targetSize)
+        let shouldUseBestQuality = upscaleEngine == .bestQuality
+            && (effectiveContentMode == .textAndUI || ImageUpscaleService.isBestQualityRuntimeAvailable)
+            && (targetSize.width > naturalSize.width || targetSize.height > naturalSize.height)
 
-        result.lockFocus()
-        defer { result.unlockFocus() }
-
-        if !options.format.supportsAlpha {
-            options.backgroundColor.setFill()
-            NSBezierPath(rect: CGRect(origin: .zero, size: targetSize)).fill()
+        let renderSize = shouldUseBestQuality ? naturalSize : targetSize
+        let options = ImageExportOptions(format: format, backgroundColor: backgroundColor)
+        guard var image = render(
+            session,
+            targetSize: renderSize,
+            options: options,
+            includesAnnotations: !shouldUseBestQuality
+        ) else {
+            throw ImageRenderError.renderFailed
         }
 
-        NSGraphicsContext.current?.imageInterpolation = .high
-        NSImage(cgImage: cropped, size: targetSize).draw(
-            in: CGRect(origin: .zero, size: targetSize),
-            from: .zero,
-            operation: .sourceOver,
-            fraction: 1
-        )
-
-        for annotation in session.annotations {
-            draw(annotation, cropRect: session.cropRect, sourceSize: session.pixelSize, targetSize: targetSize)
+        if shouldUseBestQuality {
+            image = try ImageUpscaleService.upscale(image, to: targetSize, contentMode: upscaleContentMode)
+            return drawAnnotations(on: image, session: session, targetSize: targetSize)
         }
 
-        return result
+        if upscaleEngine == .bestQuality
+            && (targetSize.width > naturalSize.width || targetSize.height > naturalSize.height) {
+            throw ImageRenderError.upscaleRuntimeMissing
+        }
+
+        return image
+    }
+
+    static func renderUpscaleBase(
+        for session: ImageSession,
+        targetSize: CGSize,
+        format: ImageExportFormat = .png,
+        backgroundColor: NSColor = .white,
+        upscaleEngine: UpscaleEngine,
+        upscaleContentMode: UpscaleContentMode
+    ) throws -> NSImage {
+        let naturalSize = session.croppedPixelSize
+        let effectiveContentMode = ImageUpscaleService.resolvedContentMode(
+            for: session.workingSourceImage,
+            requestedMode: upscaleContentMode
+        )
+        let shouldUseBestQuality = upscaleEngine == .bestQuality
+            && (effectiveContentMode == .textAndUI || ImageUpscaleService.isBestQualityRuntimeAvailable)
+            && (targetSize.width > naturalSize.width || targetSize.height > naturalSize.height)
+
+        let renderSize = shouldUseBestQuality ? naturalSize : targetSize
+        let options = ImageExportOptions(format: format, backgroundColor: backgroundColor)
+        guard let image = render(
+            session,
+            targetSize: renderSize,
+            options: options,
+            includesAnnotations: !shouldUseBestQuality
+        ) else {
+            throw ImageRenderError.renderFailed
+        }
+        return image
+    }
+
+    static func drawAnnotationsOnImage(_ image: NSImage, session: ImageSession, targetSize: CGSize) -> NSImage {
+        drawAnnotations(on: image, session: session, targetSize: targetSize)
     }
 
     static func write(_ session: ImageSession, to url: URL, options: ImageExportOptions) throws {
-        guard let image = render(session, options: options) else {
+        let targetSize = finalSize(for: session, options: options)
+        guard let image = render(
+            session,
+            targetSize: targetSize,
+            options: options,
+            includesAnnotations: true
+        ) else {
             throw ImageRenderError.renderFailed
         }
 
@@ -119,12 +378,65 @@ enum ImageRenderer {
         var properties: [NSBitmapImageRep.PropertyKey: Any] = [:]
         if options.format.supportsQuality {
             properties[.compressionFactor] = options.quality
+        } else if options.format.supportsCompression {
+            properties[.compressionFactor] = options.pngCompression
         }
 
         guard let data = bitmap.representation(using: bitmapType, properties: properties) else {
             throw ImageRenderError.encodeFailed
         }
         try data.write(to: url, options: .atomic)
+    }
+
+    private static func finalSize(for session: ImageSession, options: ImageExportOptions) -> CGSize {
+        let baseSize = session.effectivePixelSize
+        return CGSize(
+            width: max(1, baseSize.width.rounded()),
+            height: max(1, baseSize.height.rounded())
+        )
+    }
+
+    private static func render(
+        _ session: ImageSession,
+        targetSize: CGSize,
+        options: ImageExportOptions,
+        includesAnnotations: Bool
+    ) -> NSImage? {
+        guard let source = session.workingSourceImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return nil
+        }
+
+        let pixelCrop = CGRect(
+            x: session.cropRect.minX * CGFloat(source.width),
+            y: session.cropRect.minY * CGFloat(source.height),
+            width: session.cropRect.width * CGFloat(source.width),
+            height: session.cropRect.height * CGFloat(source.height)
+        ).integral
+
+        guard let cropped = source.cropping(to: pixelCrop) else { return nil }
+        let result = NSImage(size: targetSize)
+
+        result.lockFocus()
+        defer { result.unlockFocus() }
+
+        if !options.format.supportsAlpha {
+            options.backgroundColor.setFill()
+            NSBezierPath(rect: CGRect(origin: .zero, size: targetSize)).fill()
+        }
+
+        NSGraphicsContext.current?.imageInterpolation = .high
+        NSImage(cgImage: cropped, size: targetSize).draw(
+            in: CGRect(origin: .zero, size: targetSize),
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 1
+        )
+
+        if includesAnnotations {
+            drawAnnotations(session: session, targetSize: targetSize)
+        }
+
+        return result
     }
 
     private static func writeHEIC(_ image: NSImage, to url: URL, quality: Double) throws {
@@ -148,6 +460,20 @@ enum ImageRenderer {
 
         guard CGImageDestinationFinalize(destination) else {
             throw ImageRenderError.encodeFailed
+        }
+    }
+
+    private static func drawAnnotations(on image: NSImage, session: ImageSession, targetSize: CGSize) -> NSImage {
+        let result = image.copy() as? NSImage ?? image
+        result.lockFocus()
+        defer { result.unlockFocus() }
+        drawAnnotations(session: session, targetSize: targetSize)
+        return result
+    }
+
+    private static func drawAnnotations(session: ImageSession, targetSize: CGSize) {
+        for annotation in session.annotations {
+            draw(annotation, cropRect: session.cropRect, sourceSize: session.pixelSize, targetSize: targetSize)
         }
     }
 
@@ -221,11 +547,20 @@ enum ImageRenderer {
             if annotation.fontFamily.isEmpty {
                 font = NSFont.systemFont(ofSize: size, weight: annotation.fontWeight.appKitWeight)
             } else {
-                font = NSFont(name: annotation.fontFamily, size: size)
+                let weightedFont = NSFontManager.shared.font(
+                    withFamily: annotation.fontFamily,
+                    traits: [],
+                    weight: annotation.fontWeight.fontManagerWeight,
+                    size: size
+                )
+                let baseFont = NSFont(name: annotation.fontFamily, size: size)
                     ?? NSFont.systemFont(ofSize: size, weight: annotation.fontWeight.appKitWeight)
+                font = weightedFont ?? baseFont
             }
             let paragraph = NSMutableParagraphStyle()
             paragraph.alignment = annotation.textAlignment.paragraphAlignment
+            paragraph.minimumLineHeight = size * annotation.lineHeight
+            paragraph.maximumLineHeight = size * annotation.lineHeight
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: font,
                 .foregroundColor: annotation.strokeColor,
@@ -288,11 +623,13 @@ enum ImageRenderer {
 enum ImageRenderError: LocalizedError {
     case renderFailed
     case encodeFailed
+    case upscaleRuntimeMissing
 
     var errorDescription: String? {
         switch self {
         case .renderFailed: "The image could not be rendered."
         case .encodeFailed: "The image could not be encoded."
+        case .upscaleRuntimeMissing: "Best Quality is not ready yet. Turn it on in Settings > Upscale."
         }
     }
 }

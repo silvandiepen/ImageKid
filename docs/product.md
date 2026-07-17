@@ -39,9 +39,9 @@ Opening media does not create a project or show an import workflow. The first re
 
 Tools appear only when relevant. Resize uses a compact sheet. Annotation properties use contextual controls. Video timing uses a small scrubber rather than a timeline editor.
 
-### Offline
+### Local-first
 
-Every feature works without a connection. No cloud fallback, account, API key, remote telemetry, paid service, or runtime download is permitted.
+Core viewing and editing works without a connection. There is no account, activation, remote telemetry, advertising, or implicit cloud fallback. Prompted image edits are an explicit provider-backed action and currently use a user-supplied OpenAI API key.
 
 ### Native
 
@@ -89,7 +89,8 @@ One window handles one image or one video. ImageKid does not become a photo cata
 
 - PNG, JPEG, HEIC/HEIF, TIFF, GIF first frame, and safely supported Image I/O formats.
 - Exact colour sampling and dominant palette extraction.
-- High-quality standard resize.
+- High-quality standard resize and optional local Best Quality upscaling for enlarged exports.
+- On-device image background removal.
 - Full annotation toolset.
 
 ### Video
@@ -101,13 +102,13 @@ One window handles one image or one video. ImageKid does not become a photo cata
 
 ## Explicit non-goals for the first release
 
-- AI upscaling or other bundled machine-learning models.
+- Cloud AI upscaling or bundled heavyweight machine-learning runtimes in the default app download.
 - Multiple tracks, clips, transitions, titles, or timeline editing.
 - Motion tracking or keyframed annotation movement.
 - Trimming, splitting, speed changes, or audio editing.
 - RAW photo development.
 - Animated GIF editing.
-- AI generation, background removal, OCR, or object recognition.
+- AI generation, OCR, or object recognition.
 - Batch processing.
 - Accounts, collaboration, comments, or sync.
 - A permanent layer panel.

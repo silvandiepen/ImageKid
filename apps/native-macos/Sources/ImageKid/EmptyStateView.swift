@@ -6,157 +6,144 @@ struct EmptyStateView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let compact = proxy.size.height < 650 || proxy.size.width < 820
+            let compact = proxy.size.width < 900 || proxy.size.height < 620
+            let panelRect = CGRect(origin: .zero, size: proxy.size)
 
             ZStack {
-                background
+                panelBackground(size: panelRect.size, isDropTarget: isDropTarget)
+                    .frame(width: panelRect.width, height: panelRect.height)
+                    .position(x: panelRect.midX, y: panelRect.midY)
 
-                VStack(spacing: 0) {
-                    titleBar
-                        .padding(.top, compact ? 15 : 20)
+                dropZone(compact: compact)
+                    .frame(
+                        width: compact ? min(560, panelRect.width * 0.54) : panelRect.width * 0.52,
+                        height: compact ? panelRect.height * 0.48 : panelRect.height * 0.48
+                    )
+                    .position(
+                        x: panelRect.midX,
+                        y: panelRect.midY
+                    )
 
-                    Spacer(minLength: compact ? 14 : 24)
-
-                    dropZone(compact: compact)
+                if let character = ImageKidAsset.image(named: "ImageKidCharacter") {
+                    Image(nsImage: character)
+                        .resizable()
+                        .scaledToFit()
                         .frame(
-                            maxWidth: compact ? 620 : 720,
-                            maxHeight: compact ? 445 : 580
+                            width: compact ? panelRect.width * 0.36 : panelRect.width * 0.42,
+                            height: compact ? panelRect.height * 0.84 : panelRect.height * 0.92
                         )
-                        .padding(.horizontal, compact ? 38 : 70)
-
-                    Spacer(minLength: compact ? 24 : 54)
+                        .position(
+                            x: panelRect.minX + panelRect.width * (compact ? 0.23 : 0.25),
+                            y: panelRect.maxY - panelRect.height * (compact ? 0.33 : 0.30)
+                        )
+                        .allowsHitTesting(false)
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
-        .preferredColorScheme(.dark)
     }
 
-    private var background: some View {
-        ZStack {
-            Color(red: 0.045, green: 0.045, blue: 0.075)
-
-            RadialGradient(
-                colors: [Color.purple.opacity(0.12), .clear],
-                center: .top,
-                startRadius: 0,
-                endRadius: 520
-            )
-
+    private func panelBackground(size: CGSize, isDropTarget: Bool) -> some View {
+        ZStack(alignment: .bottom) {
             LinearGradient(
                 colors: [
-                    Color.blue.opacity(0.025),
-                    .clear,
-                    Color.pink.opacity(0.028)
+                    Color(red: 0.055, green: 0.065, blue: 0.10),
+                    Color(red: 0.015, green: 0.018, blue: 0.026)
                 ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                startPoint: .top,
+                endPoint: .bottom
             )
-        }
-        .ignoresSafeArea()
-    }
 
-    private var titleBar: some View {
-        HStack(spacing: 10) {
-            ImageKidIcon()
-                .frame(width: 28, height: 28)
-
-            Text("ImageKid")
-                .font(.system(size: 17, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.72))
+            AnimatedBottomWave(isDropTarget: isDropTarget)
+                .frame(height: min(isDropTarget ? 260 : 150, size.height * (isDropTarget ? 0.36 : 0.22)))
+                .opacity(isDropTarget ? 0.48 : 0.34)
+                .animation(.easeOut(duration: 0.24), value: isDropTarget)
         }
-        .frame(maxWidth: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(.white.opacity(0.06), lineWidth: 1)
+        )
     }
 
     private func dropZone(compact: Bool) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: compact ? 28 : 34, style: .continuous)
-                .fill(Color.black.opacity(isDropTarget ? 0.2 : 0.105))
-
-            RoundedRectangle(cornerRadius: compact ? 28 : 34, style: .continuous)
-                .strokeBorder(
-                    AngularGradient(
-                        colors: [
-                            Color.cyan,
-                            Color.blue,
-                            Color.purple,
-                            Color.pink,
-                            Color.orange,
-                            Color.cyan
-                        ],
-                        center: .center
-                    ),
-                    style: StrokeStyle(
-                        lineWidth: isDropTarget ? 2.5 : 1.55,
-                        lineCap: .round,
-                        dash: [8, 10]
+        Button(action: openAction) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.black.opacity(isDropTarget ? 0.16 : 0.04))
+                    .shadow(
+                        color: isDropTarget ? Color(red: 0.14, green: 0.58, blue: 0.85).opacity(0.45) : .clear,
+                        radius: isDropTarget ? 22 : 0
                     )
-                )
-                .opacity(isDropTarget ? 1 : 0.88)
-
-            VStack(spacing: compact ? 12 : 16) {
-                ImageKidHeroGraphic()
-                    .frame(
-                        width: compact ? 180 : 245,
-                        height: compact ? 180 : 245
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(
+                                isDropTarget ? Color(red: 0.14, green: 0.58, blue: 0.85) : .white.opacity(0.16),
+                                lineWidth: isDropTarget ? 2 : 1
+                            )
                     )
-                    .scaleEffect(isDropTarget ? 1.045 : 1)
 
-                Text(isDropTarget ? "Release to open" : "Drop an image here")
-                    .font(.system(size: compact ? 31 : 40, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
+                VStack(spacing: compact ? 16 : 20) {
+                    Text(isDropTarget ? "Let it go" : "Drop your image here")
+                        .font(.system(size: compact ? 32 : 42, weight: .bold))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
 
-                Text("or")
-                    .font(.system(size: compact ? 17 : 20, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.42))
-
-                Button(action: openAction) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "folder")
-                            .font(.system(size: compact ? 19 : 22, weight: .semibold))
-
-                        Text("Open Image")
-                            .font(.system(size: compact ? 18 : 21, weight: .bold, design: .rounded))
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, compact ? 34 : 46)
-                    .padding(.vertical, compact ? 13 : 16)
-                    .background(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.02, green: 0.52, blue: 1),
-                                Color(red: 0.48, green: 0.08, blue: 0.96),
-                                Color(red: 0.94, green: 0.08, blue: 0.5),
-                                Color(red: 1, green: 0.35, blue: 0.12)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        ),
-                        in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    )
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(.white.opacity(0.18), lineWidth: 1)
-                    }
-                    .shadow(color: Color.purple.opacity(0.28), radius: 18, y: 8)
+                    Text("Jpg, Png, WebP and more up to 50mb")
+                        .font(.system(size: compact ? 15 : 17, weight: .semibold))
+                        .foregroundStyle(Color(red: 0.04, green: 0.55, blue: 0.83))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                 }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.defaultAction)
-
-                Text("Drag and drop an image to get started.")
-                    .font(.system(size: compact ? 14 : 16, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.42))
-                    .padding(.top, compact ? 2 : 4)
+                .padding(.horizontal, compact ? 22 : 34)
             }
-            .padding(.horizontal, compact ? 30 : 56)
-            .padding(.vertical, compact ? 24 : 42)
         }
-        .scaleEffect(isDropTarget ? 1.008 : 1)
-        .shadow(
-            color: isDropTarget ? Color.purple.opacity(0.22) : .clear,
-            radius: 30
-        )
+        .buttonStyle(.plain)
+        .keyboardShortcut(.defaultAction)
         .animation(.easeOut(duration: 0.16), value: isDropTarget)
+    }
+}
+
+private struct AnimatedBottomWave: View {
+    let isDropTarget: Bool
+
+    var body: some View {
+        TimelineView(.animation) { context in
+            let phase = context.date.timeIntervalSinceReferenceDate
+            ZStack(alignment: .bottom) {
+                WaveShape(phase: phase * 0.48, amplitude: isDropTarget ? 22 : 16)
+                    .fill(Color(red: 0.08, green: 0.48, blue: 0.70).opacity(0.46))
+            }
+        }
+    }
+}
+
+private struct WaveShape: Shape {
+    let phase: Double
+    let amplitude: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let midY = rect.minY + rect.height * 0.34
+        path.move(to: CGPoint(x: rect.minX, y: midY))
+
+        let step = max(rect.width / 72, 8)
+        var x = rect.minX
+        while x <= rect.maxX + step {
+            let progress = (x - rect.minX) / max(rect.width, 1)
+            let y = midY
+                + sin(progress * .pi * 2.0 + phase) * amplitude
+                + sin(progress * .pi * 4.0 + phase * 0.72) * amplitude * 0.28
+            path.addLine(to: CGPoint(x: x, y: y))
+            x += step
+        }
+
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.closeSubpath()
+        return path
     }
 }

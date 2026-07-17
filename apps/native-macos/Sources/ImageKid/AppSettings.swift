@@ -1,0 +1,215 @@
+import AppKit
+import SwiftUI
+
+enum AppearanceMode: String, CaseIterable, Identifiable {
+    case system
+    case light
+    case dark
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .system: "System"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+}
+
+enum CanvasBackground: String, CaseIterable, Identifiable {
+    case light
+    case dark
+    case checkerboard
+    case custom
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .light: "Light"
+        case .dark: "Dark"
+        case .checkerboard: "Checkerboard"
+        case .custom: "Custom"
+        }
+    }
+}
+
+enum BackgroundRemovalEngine: String, CaseIterable, Identifiable {
+    case builtIn
+    case bestQuality
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .builtIn: "Built-in"
+        case .bestQuality: "Best Quality"
+        }
+    }
+}
+
+enum UpscaleEngine: String, CaseIterable, Identifiable {
+    case standard
+    case bestQuality
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .standard: "Standard"
+        case .bestQuality: "Best Quality"
+        }
+    }
+}
+
+enum UpscaleContentMode: String, CaseIterable, Identifiable {
+    case automatic
+    case textAndUI
+    case photoArtwork
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .automatic: "Auto"
+        case .textAndUI: "Text & UI"
+        case .photoArtwork: "Photo & Artwork"
+        }
+    }
+}
+
+@MainActor
+final class AppSettings: ObservableObject {
+    @AppStorage("appearanceMode") var appearanceModeRaw = AppearanceMode.system.rawValue {
+        willSet { objectWillChange.send() }
+    }
+
+    @AppStorage("canvasBackground") var canvasBackgroundRaw = CanvasBackground.checkerboard.rawValue {
+        willSet { objectWillChange.send() }
+    }
+
+    @AppStorage("customCanvasBackground") var customCanvasBackgroundRaw = "#7ABBDC" {
+        willSet { objectWillChange.send() }
+    }
+
+    @AppStorage("imageCornerRadius") var imageCornerRadius = 8.0 {
+        willSet { objectWillChange.send() }
+    }
+
+    @AppStorage("backgroundRemovalEngine") var backgroundRemovalEngineRaw = BackgroundRemovalEngine.builtIn.rawValue {
+        willSet { objectWillChange.send() }
+    }
+
+    @AppStorage("upscaleEngine") var upscaleEngineRaw = UpscaleEngine.standard.rawValue {
+        willSet { objectWillChange.send() }
+    }
+
+    @AppStorage("upscaleContentMode") var upscaleContentModeRaw = UpscaleContentMode.automatic.rawValue {
+        willSet { objectWillChange.send() }
+    }
+
+    @AppStorage("showInFinderContextMenus") var showInFinderContextMenus = true {
+        willSet { objectWillChange.send() }
+    }
+
+    @AppStorage("quickActionsJSON") var quickActionsJSON = "" {
+        willSet { objectWillChange.send() }
+    }
+
+    var appearanceMode: AppearanceMode {
+        get { AppearanceMode(rawValue: appearanceModeRaw) ?? .system }
+        set { appearanceModeRaw = newValue.rawValue }
+    }
+
+    var canvasBackground: CanvasBackground {
+        get { CanvasBackground(rawValue: canvasBackgroundRaw) ?? .checkerboard }
+        set { canvasBackgroundRaw = newValue.rawValue }
+    }
+
+    var customCanvasBackground: NSColor {
+        get { NSColor(hexString: customCanvasBackgroundRaw) ?? NSColor(red: 0.47, green: 0.73, blue: 0.86, alpha: 1) }
+        set { customCanvasBackgroundRaw = newValue.hexString }
+    }
+
+    var canvasColor: Color {
+        switch canvasBackground {
+        case .light: Color(red: 0.94, green: 0.94, blue: 0.92)
+        case .dark: Color(red: 0.08, green: 0.085, blue: 0.095)
+        case .checkerboard: Color(nsColor: .underPageBackgroundColor)
+        case .custom: Color(nsColor: customCanvasBackground)
+        }
+    }
+
+    var backgroundRemovalEngine: BackgroundRemovalEngine {
+        get { BackgroundRemovalEngine(rawValue: backgroundRemovalEngineRaw) ?? .builtIn }
+        set { backgroundRemovalEngineRaw = newValue.rawValue }
+    }
+
+    var upscaleEngine: UpscaleEngine {
+        get { UpscaleEngine(rawValue: upscaleEngineRaw) ?? .standard }
+        set { upscaleEngineRaw = newValue.rawValue }
+    }
+
+    var upscaleContentMode: UpscaleContentMode {
+        get { UpscaleContentMode(rawValue: upscaleContentModeRaw) ?? .automatic }
+        set { upscaleContentModeRaw = newValue.rawValue }
+    }
+
+    var quickActions: [QuickActionDefinition] {
+        get {
+            guard let data = quickActionsJSON.data(using: .utf8),
+                  let definitions = try? JSONDecoder().decode([QuickActionDefinition].self, from: data),
+                  !definitions.isEmpty else {
+                return QuickActionDefaults.definitions
+            }
+            return mergedQuickActions(definitions)
+        }
+        set {
+            guard let data = try? JSONEncoder().encode(newValue),
+                  let json = String(data: data, encoding: .utf8) else {
+                return
+            }
+            quickActionsJSON = json
+        }
+    }
+
+    private func mergedQuickActions(_ stored: [QuickActionDefinition]) -> [QuickActionDefinition] {
+        var result = stored
+        let storedIDs = Set(stored.map(\.id))
+        let missingDefaults = QuickActionDefaults.definitions.filter { !storedIDs.contains($0.id) }
+        result.insert(contentsOf: missingDefaults, at: 0)
+        return result
+    }
+}
+
+private extension NSColor {
+    convenience init?(hexString: String) {
+        let value = hexString.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        guard value.count == 6, let integer = Int(value, radix: 16) else { return nil }
+        self.init(
+            red: CGFloat((integer >> 16) & 0xff) / 255,
+            green: CGFloat((integer >> 8) & 0xff) / 255,
+            blue: CGFloat(integer & 0xff) / 255,
+            alpha: 1
+        )
+    }
+
+    var hexString: String {
+        let color = usingColorSpace(.sRGB) ?? self
+        return String(
+            format: "#%02X%02X%02X",
+            Int((color.redComponent * 255).rounded()),
+            Int((color.greenComponent * 255).rounded()),
+            Int((color.blueComponent * 255).rounded())
+        )
+    }
+}

@@ -9,7 +9,8 @@ The package form keeps the initial repository small, reviewable, and directly te
 ## Implemented
 
 - SwiftUI application lifecycle and native command menus.
-- Empty drop state.
+- SwiftUI empty drop state with app-controlled light/dark appearance, native drop target, Open action, and asset slots for character and plant artwork.
+- macOS Settings scene with System integration preferences, Appearance, light/dark/checkerboard/custom canvas background, background-removal engine/model install state, upscale engine/runtime install state, and secure OpenAI API key storage.
 - Open panel, drag and drop, URL paste, and image paste.
 - Image loading with `NSImage`.
 - Video loading and playback with AVFoundation and AVKit.
@@ -18,15 +19,19 @@ The package form keeps the initial repository small, reviewable, and directly te
 - Persistent colour panel with multi-selection, removal, colour adjustment, expanded HEX/RGB/RGBA/HSL/SwiftUI values, copy formats, and file export.
 - Crop overlay with corner and edge handles, rule-of-thirds guides, ratio choices, editable pixel dimensions, reset, cancel, Escape cancellation, and apply.
 - Applied crop immediately reframes the working canvas and remains the basis for viewing, picking, annotations, and further crops.
-- Resize sheet with exact size and percentage presets.
+- Resize tool with draggable output frame, exact size fields, percentage presets, aspect lock, and explicit apply/cancel.
 - Editable rectangles, ellipses, lines, arrows, and freehand annotations.
 - Reliable freehand input from mouse-down through mouse-up, including short and fast strokes.
 - Drawing settings for mode, stroke colour, fill, thickness, and opacity.
-- Text annotations that remain editable, movable, and resizable.
+- Text annotations that remain editable, movable, resizable, deletable via Delete/Backspace, and configurable with font, weight, line height, alignment, and colour.
 - Contextual text settings for content, font family, size, weight, alignment, and colour.
+- On-device image background removal using Apple Vision foreground instance masks, with reversible restore and Keep/Remove refinement brushes.
 - Draggable vertical contextual panels with a dark translucent surface and large corner radius.
-- Image export sheet with PNG, JPEG, HEIC, TIFF, BMP, and GIF, quality, scale, transparency background, and Finder reveal controls.
+- Image export sheet with PNG, JPEG, HEIC, TIFF, BMP, and GIF, quality, scale, upscaling engine, transparency background, and Finder reveal controls.
 - Full-resolution image export rendered from source media and edit state.
+- Optional Best Quality image upscaling through an app-managed local Real-ESRGAN ncnn Vulkan runtime. The runtime is downloaded from Settings, stored in Application Support, and executed on-device during exports that enlarge the cropped source.
+- Prompted image editing for the current rendered image through a provider-neutral app service. OpenAI is the first provider and uses the user-supplied API key from Keychain. The result replaces the current workspace image and is marked dirty.
+- Managed Quick Action workflows for future Finder Services or Quick Actions. Settings includes a dedicated Actions tab where default and custom actions are shown, default actions can be enabled/disabled but not deleted, and custom actions can be created, renamed, deleted, reset, and composed from ordered steps such as Remove Background, Upscale 2x/4x, and fitting onto a transparent canvas size. `--quick-action <action-id> <images…>` opens a minimal progress window and writes sibling output files without overwriting the source. The default-on `showInFinderContextMenus` setting is in place for the later OS registration layer.
 - Geometry, crop-coordinate, freehand-input, and colour-coordinate mapping unit tests.
 - macOS CI build and test workflow.
 
@@ -38,9 +43,11 @@ The package form keeps the initial repository small, reviewable, and directly te
 - Text editing is performed through the contextual panel rather than direct inline canvas typing.
 - Undo, redo, close protection, recovery, and document lifecycle remain.
 - Video currently provides viewing and playback only. Video colour picking, crop, resize, annotations, and export remain a separate major technical slice.
+- Prompted edits currently apply to the whole rendered image. Region masks, outpainting canvas expansion, provider selection UI, and alternative providers remain.
 - Metadata preservation and advanced colour-profile controls remain. Current exports intentionally render a fresh file without source metadata.
 - The Swift package does not yet define production signing, sandboxing, or distribution settings.
+- Finder context menu registration remains unimplemented until the native target has signed app bundle metadata and either Finder Services or a Finder Sync/Action extension.
 
 ## Deferred
 
-AI upscaling and all model/runtime work are deferred. No Core ML model, model registry, provider interface, runtime download, cloud provider, or upscaling UI should be added while the core milestones remain unfinished.
+Video processing, document lifecycle, and undo/redo remain deferred. Best Quality upscaling and Best Quality background removal are opt-in local runtime installs. Prompted image edits are opt-in provider calls rather than local processing.

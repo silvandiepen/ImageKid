@@ -1,67 +1,174 @@
 <template>
   <div :class="bemm()">
-    <header :class="bemm('intro')">
-      <div :class="bemm('intro-copy-wrap')">
+    <header :class="bemm('hero')">
+      <div :class="bemm('hero-copy')">
         <p :class="bemm('eyebrow')">Features</p>
-        <h1 :class="bemm('title')">What ImageKid does today.</h1>
-        <p :class="bemm('intro-copy')">A focused native toolkit for common image work. Current behavior is separated from planned work so the product boundary stays clear.</p>
+        <h1 :class="bemm('title')">Local image tools that do not meter every edit.</h1>
+        <p :class="bemm('lead')">Remove backgrounds, upscale, crop, annotate, batch, and export on your Mac. Magic can call your own AI provider, but the core image tools stay local.</p>
+        <p :class="bemm('status')">No upload step for local tools. No per-image fees for background removal or upscaling.</p>
       </div>
-      <ProductPreview compact />
+      <figure :class="bemm('hero-media')">
+        <video
+          :class="bemm('video')"
+          src="/media/app/annotate-workflow.mp4"
+          poster="/media/app/workspace.jpg"
+          autoplay
+          muted
+          loop
+          playsinline
+          controls
+        />
+        <figcaption :class="bemm('caption')">A captured ImageKid workflow using the example image.</figcaption>
+      </figure>
     </header>
 
-    <section :class="bemm('section')">
+    <section :class="bemm('workflow')">
       <div :class="bemm('section-heading')">
-        <p :class="bemm('eyebrow')">Current build</p>
-        <h2 :class="bemm('heading')">Available in source</h2>
+        <p :class="bemm('eyebrow')">Workflow</p>
+        <h2 :class="bemm('heading')">One Mac app for repeat image work.</h2>
+        <p :class="bemm('section-copy')">ImageKid is built around direct local actions: open an image, make the edit, apply the same kind of work in batches, and export without handing the file to a web service.</p>
       </div>
-      <div :class="bemm('feature-grid')">
-        <article v-for="feature in currentFeatures" :key="feature.title" :class="bemm('feature-card')">
-          <span :class="bemm('feature-status')">Available in source</span>
-          <h3>{{ feature.title }}</h3>
-          <p>{{ feature.copy }}</p>
-        </article>
+      <figure :class="bemm('wide-shot')">
+        <img :class="bemm('image')" src="/media/app/workspace.jpg" alt="ImageKid workspace with an image open and the tool menu visible." />
+      </figure>
+    </section>
+
+    <section
+      v-for="feature in featureSections"
+      :id="feature.id"
+      :key="feature.id"
+      :class="[bemm('feature-band'), bemm('feature-band', feature.tone), feature.imageSide === 'left' ? bemm('feature-band', 'image-left') : '']"
+    >
+      <div :class="bemm('feature-inner')">
+        <div :class="bemm('feature-copy')">
+          <p :class="bemm('eyebrow')">{{ feature.eyebrow }}</p>
+          <h2 :class="bemm('heading')">{{ feature.title }}</h2>
+          <p :class="bemm('section-copy')">{{ feature.copy }}</p>
+          <p v-if="feature.disclaimer" :class="bemm('disclaimer')">{{ feature.disclaimer }}</p>
+        </div>
+        <figure :class="bemm('feature-media')">
+          <img :class="bemm('image')" :src="feature.image" :alt="feature.alt" loading="lazy" />
+        </figure>
       </div>
     </section>
 
     <section :class="bemm('section')">
       <div :class="bemm('section-heading')">
-        <p :class="bemm('eyebrow')">Release boundary</p>
-        <h2 :class="bemm('heading')">Not complete</h2>
+        <p :class="bemm('eyebrow')">Scope</p>
+        <h2 :class="bemm('heading')">Clear boundaries, not hidden subscriptions.</h2>
       </div>
-      <div :class="bemm('incomplete-grid')">
-        <article v-for="item in incompleteFeatures" :key="item.title" :class="bemm('incomplete-card')">
-          <h3>{{ item.title }}</h3>
-          <p>{{ item.copy }}</p>
+      <div :class="bemm('boundary-grid')">
+        <article v-for="item in boundaryItems" :key="item.title" :class="bemm('boundary-item')">
+          <h3 :class="bemm('boundary-title')">{{ item.title }}</h3>
+          <p :class="bemm('boundary-copy')">{{ item.copy }}</p>
         </article>
       </div>
-    </section>
-
-    <section :class="bemm('callout')">
-      <p :class="bemm('eyebrow')">Scope</p>
-      <h2 :class="bemm('heading')">Deliberately deferred</h2>
-      <p :class="bemm('callout-copy')">AI upscaling and model runtime work are outside the current architecture and roadmap. ImageKid is not a nonlinear video editor, photo catalogue, collaboration service, or cloud product.</p>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import { useBemm } from "bemm";
-import ProductPreview from "../components/ProductPreview";
 
 const bemm = useBemm("features-page", { includeBaseClass: true });
-const currentFeatures = [
-  { title: "Open and view", copy: "Open by file panel, drag and drop, URL paste, or image paste. Fit, pan, pinch zoom, and reset the viewer." },
-  { title: "Inspect colour", copy: "Sample image pixels, keep picked colours, copy values in useful formats, and export a local palette file." },
-  { title: "Crop and resize", copy: "Use free crop, ratio presets, handles, guides, pixel dimensions, exact sizing, percentages, and scale presets." },
-  { title: "Annotate", copy: "Add editable rectangles, ellipses, lines, arrows, freehand strokes, and text with contextual controls." },
-  { title: "Export", copy: "Render PNG, JPEG, HEIC, TIFF, BMP, and GIF from the full-resolution source image and edit state." },
-  { title: "Video playback", copy: "Play supported local video through AVFoundation. Editing and export are not available yet." }
+const featureSections = [
+  {
+    id: "pick-colours",
+    title: "Pick exact colours",
+    eyebrow: "Inspect",
+    copy: "Sample image pixels, keep picked colours, copy useful values, and export a local palette file.",
+    image: "/media/app/color-picker.jpg",
+    alt: "ImageKid colour picker panel with sampled colours from the open image.",
+    tone: "tone-1",
+    imageSide: "right"
+  },
+  {
+    id: "crop",
+    title: "Crop from the image",
+    eyebrow: "Crop",
+    copy: "Use free crop, ratio presets, handles, rule-of-thirds guides, editable pixel dimensions, reset, cancel, and apply.",
+    image: "/media/app/crop.jpg",
+    alt: "ImageKid crop overlay around part of the example image.",
+    tone: "tone-2",
+    imageSide: "left"
+  },
+  {
+    id: "resize",
+    title: "Resize deliberately",
+    eyebrow: "Resize",
+    copy: "Set exact output sizes, percentage presets, aspect lock, and an explicit apply or cancel step.",
+    image: "/media/app/resize.jpg",
+    alt: "ImageKid resize tool showing output frame and size controls.",
+    tone: "tone-3",
+    imageSide: "right"
+  },
+  {
+    id: "remove-background",
+    title: "Remove Background",
+    eyebrow: "Local and included",
+    copy: "Cut out the subject with a direct local action. No remote background-removal credits and no hosted cutout service.",
+    disclaimer: "For best quality, enable or install the advanced background feature in Settings. It is still local and free.",
+    image: "/media/app/workspace.jpg",
+    alt: "ImageKid workspace with the example image open.",
+    tone: "tone-4",
+    imageSide: "left"
+  },
+  {
+    id: "upscale",
+    title: "Upscale locally",
+    eyebrow: "Local and included",
+    copy: "Create larger exports with local upscaling instead of paying a hosted service per image. Upscale as much as your Mac can reasonably process.",
+    disclaimer: "For best quality, enable or install the advanced upscaling feature in Settings. It is still local and free.",
+    image: "/media/app/export.jpg",
+    alt: "ImageKid export sheet with upscaling and output options.",
+    tone: "tone-5",
+    imageSide: "right"
+  },
+  {
+    id: "batch",
+    title: "Batch actions",
+    eyebrow: "Repeat work",
+    copy: "Run repeated transforms across groups of images instead of clicking through the same work one file at a time.",
+    image: "/media/app/workspace.jpg",
+    alt: "ImageKid workspace ready for repeated local image actions.",
+    tone: "tone-2",
+    imageSide: "left"
+  },
+  {
+    id: "annotate",
+    title: "Annotate",
+    eyebrow: "Mark up",
+    copy: "Add editable rectangles, ellipses, lines, arrows, freehand strokes, and text with contextual controls.",
+    image: "/media/app/annotate.jpg",
+    alt: "ImageKid annotation tools with shapes and marks over the example image.",
+    tone: "tone-1",
+    imageSide: "right"
+  },
+  {
+    id: "export",
+    title: "Choose the output deliberately",
+    eyebrow: "Export",
+    copy: "Export renders PNG, JPEG, HEIC, TIFF, BMP, and GIF from the source media plus the current edit state. It does not overwrite the original file implicitly.",
+    image: "/media/app/export.jpg",
+    alt: "ImageKid export sheet with format and output options.",
+    tone: "tone-3",
+    imageSide: "left"
+  },
+  {
+    id: "magic",
+    title: "Magic uses your AI provider.",
+    eyebrow: "Magic",
+    copy: "Prompted edits are intentionally separate from the local tools. OpenAI is the first provider, you bring the provider key, and the app warns when credentials are missing.",
+    image: "/media/app/magic-provider-warning.jpg",
+    alt: "ImageKid Magic panel showing a missing provider key warning.",
+    tone: "magic",
+    imageSide: "right"
+  }
 ];
-const incompleteFeatures = [
-  { title: "Colour analysis", copy: "Pixel-grid colour loupe and dominant palette extraction." },
-  { title: "Advanced annotation", copy: "Blur, pixelation, annotation ordering, duplication, and rotation." },
-  { title: "Document lifecycle", copy: "Undo, redo, dirty-close protection, recovery, and complete lifecycle behavior." },
-  { title: "Media fidelity", copy: "Metadata preservation, advanced colour-profile controls, and complete video workflows." },
-  { title: "Production release", copy: "Signing, sandbox entitlements, notarisation, packaging, and App Store distribution." }
+const boundaryItems = [
+  { title: "Local tools stay local", copy: "Crop, resize, annotate, export, background removal, upscaling, and batches are designed for on-device processing." },
+  { title: "Magic uses your provider", copy: "Prompted edits can use OpenAI first, with room for other providers later. That usage depends on your own provider account." },
+  { title: "No implicit overwrites", copy: "ImageKid exports a new result instead of silently replacing the source file." },
+  { title: "Video is separate", copy: "Video playback exists, while video editing and export remain outside the main image workflow." }
 ];
 </script>
