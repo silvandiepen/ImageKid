@@ -26,22 +26,25 @@ struct EmptyStateView: View {
                     VStack(spacing: 20) {
                         Spacer(minLength: 0)
                         content(compact: true)
-                        character(height: min(size.height * 0.42, 320))
+                        character(height: min(size.height * 0.5, 460))
                     }
                     .padding(.top, 28)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 } else {
-                    HStack(alignment: .bottom, spacing: 0) {
-                        character(height: min(size.height * 0.98, 660))
-                            .frame(maxWidth: size.width * 0.44)
-                            .padding(.leading, compact ? 20 : 44)
-
+                    // Content vertically centered on the right.
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
                         content(compact: compact)
                             .frame(maxWidth: 480)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                             .padding(.trailing, compact ? 30 : 60)
-                            .padding(.vertical, 40)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    // Character pinned flush to the bottom-left, ~1.5x larger.
+                    character(height: min(size.height * 0.96, size.width * 0.5, 1000))
+                        .padding(.leading, compact ? 20 : 44)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                        .allowsHitTesting(false)
                 }
             }
             .frame(width: size.width, height: size.height)

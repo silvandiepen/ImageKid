@@ -32,9 +32,14 @@ private enum ActiveAppModel {
         guard !didQueueCommandLineFileURLs else { return }
         didQueueCommandLineFileURLs = true
 
+        // Only treat arguments that point at a real file as documents to open.
+        // macOS/Xcode inject option pairs such as `-NSDocumentRevisionsDebugMode YES`,
+        // and the bare value ("YES") must not be mistaken for a file path.
         let urls = CommandLine.arguments.dropFirst().compactMap { argument -> URL? in
             guard !argument.hasPrefix("-") else { return nil }
-            return URL(fileURLWithPath: argument).standardizedFileURL
+            let candidate = URL(fileURLWithPath: argument).standardizedFileURL
+            guard FileManager.default.fileExists(atPath: candidate.path) else { return nil }
+            return candidate
         }
 
         guard !urls.isEmpty else { return }
