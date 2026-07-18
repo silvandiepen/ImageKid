@@ -22,23 +22,27 @@ struct EmptyStateView: View {
             ZStack {
                 EmptyStateBackground(isDropTarget: isDropTarget)
 
-                Group {
-                    if stacked {
-                        VStack(spacing: 24) {
-                            character(maxHeight: min(size.height * 0.34, 260))
-                            content(compact: true)
-                        }
-                    } else {
-                        HStack(alignment: .center, spacing: compact ? 28 : 52) {
-                            character(maxHeight: min(size.height * 0.86, 520))
-                                .frame(maxWidth: .infinity, alignment: .center)
-                            content(compact: compact)
-                                .frame(maxWidth: compact ? 380 : 440, alignment: .leading)
-                        }
+                if stacked {
+                    VStack(spacing: 20) {
+                        Spacer(minLength: 0)
+                        content(compact: true)
+                        character(height: min(size.height * 0.42, 320))
+                    }
+                    .padding(.top, 28)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                } else {
+                    HStack(alignment: .bottom, spacing: 0) {
+                        character(height: min(size.height * 0.98, 660))
+                            .frame(maxWidth: size.width * 0.44)
+                            .padding(.leading, compact ? 20 : 44)
+
+                        content(compact: compact)
+                            .frame(maxWidth: 480)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                            .padding(.trailing, compact ? 30 : 60)
+                            .padding(.vertical, 40)
                     }
                 }
-                .padding(compact ? 30 : 56)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(width: size.width, height: size.height)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -55,29 +59,30 @@ struct EmptyStateView: View {
 
     // MARK: - Character
 
-    private func character(maxHeight: CGFloat) -> some View {
+    private func character(height: CGFloat) -> some View {
         ZStack(alignment: .bottom) {
             Ellipse()
-                .fill(Color.black.opacity(0.35))
-                .frame(width: maxHeight * 0.62, height: maxHeight * 0.09)
-                .blur(radius: 22)
-                .offset(y: maxHeight * 0.02)
+                .fill(Color.black.opacity(0.32))
+                .frame(width: height * 0.5, height: height * 0.06)
+                .blur(radius: 26)
+                .offset(y: -height * 0.01)
 
             if let character = ImageKidAsset.image(named: "ImageKidCharacter") {
                 Image(nsImage: character)
                     .resizable()
                     .scaledToFit()
-                    .frame(maxHeight: maxHeight)
-                    .shadow(color: Brand.blue.opacity(isDropTarget ? 0.5 : 0.28), radius: 34, y: 12)
+                    .frame(height: height)
+                    .shadow(color: Brand.blue.opacity(isDropTarget ? 0.5 : 0.28), radius: 40, y: 14)
                     .rotationEffect(.degrees(isDropTarget ? -2.5 : 0), anchor: .bottom)
                     .scaleEffect(isDropTarget ? 1.03 : 1, anchor: .bottom)
             } else {
                 Image(systemName: "paintbrush.pointed.fill")
-                    .font(.system(size: maxHeight * 0.4))
+                    .font(.system(size: height * 0.4))
                     .foregroundStyle(Brand.blueBright)
-                    .frame(height: maxHeight)
+                    .frame(height: height)
             }
         }
+        .frame(height: height, alignment: .bottom)
         .animation(.spring(response: 0.4, dampingFraction: 0.6), value: isDropTarget)
         .allowsHitTesting(false)
     }
@@ -88,29 +93,20 @@ struct EmptyStateView: View {
         let alignment: HorizontalAlignment = compact ? .center : .leading
         let textAlign: TextAlignment = compact ? .center : .leading
 
-        return VStack(alignment: alignment, spacing: compact ? 18 : 22) {
-            VStack(alignment: alignment, spacing: 10) {
-                HStack(spacing: 9) {
-                    ImageKidIcon()
-                        .frame(width: 26, height: 26)
-                    Text("ImageKid")
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.65))
-                        .tracking(0.5)
-                }
-
+        return VStack(alignment: alignment, spacing: compact ? 18 : 24) {
+            VStack(alignment: alignment, spacing: 12) {
                 Text(isDropTarget ? "Drop it right here!" : "Let's make something.")
-                    .font(.system(size: compact ? 30 : 38, weight: .heavy, design: .rounded))
+                    .font(.system(size: compact ? 32 : 42, weight: .heavy, design: .rounded))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(textAlign)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Text("Drop an image anywhere, or open one to remove backgrounds, upscale, edit with AI, and more.")
-                    .font(.system(size: compact ? 14 : 15, weight: .medium))
+                    .font(.system(size: compact ? 14 : 16, weight: .medium))
                     .foregroundStyle(.white.opacity(0.55))
                     .multilineTextAlignment(textAlign)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 380)
+                    .frame(maxWidth: 400)
             }
 
             dropCard(compact: compact)
@@ -122,7 +118,7 @@ struct EmptyStateView: View {
 
     private func dropCard(compact: Bool) -> some View {
         Button(action: openAction) {
-            HStack(spacing: 16) {
+            HStack(spacing: 18) {
                 ZStack {
                     Circle()
                         .fill(
@@ -132,44 +128,44 @@ struct EmptyStateView: View {
                                 endPoint: .bottomTrailing
                             )
                         )
-                        .frame(width: 46, height: 46)
-                        .shadow(color: Brand.blue.opacity(0.6), radius: 10, y: 4)
+                        .frame(width: 58, height: 58)
+                        .shadow(color: Brand.blue.opacity(0.6), radius: 12, y: 5)
                     Image(systemName: isDropTarget ? "tray.and.arrow.down.fill" : "photo.badge.plus.fill")
-                        .font(.system(size: 20, weight: .semibold))
+                        .font(.system(size: 25, weight: .semibold))
                         .foregroundStyle(.white)
                 }
 
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text(isDropTarget ? "Release to open" : "Choose an image")
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .font(.system(size: 19, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                     Text("JPG, PNG, WebP and more · up to 50 MB")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.white.opacity(0.5))
                 }
 
-                Spacer(minLength: 4)
+                Spacer(minLength: 8)
 
                 Image(systemName: "arrow.right")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(.white.opacity(0.6))
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 15)
-            .frame(maxWidth: 380)
+            .padding(.horizontal, 22)
+            .padding(.vertical, 20)
+            .frame(maxWidth: 440)
             .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(Color.white.opacity(isDropTarget ? 0.10 : 0.05))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .strokeBorder(
                         isDropTarget ? Brand.blueBright : .white.opacity(0.14),
                         style: StrokeStyle(lineWidth: isDropTarget ? 2 : 1.5, dash: isDropTarget ? [] : [7, 5])
                     )
             )
-            .shadow(color: isDropTarget ? Brand.blueBright.opacity(0.4) : .clear, radius: 20)
-            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .shadow(color: isDropTarget ? Brand.blueBright.opacity(0.4) : .clear, radius: 22)
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(PressableButtonStyle())
         .keyboardShortcut(.defaultAction)
@@ -191,21 +187,17 @@ struct EmptyStateView: View {
                         .foregroundStyle(Brand.orange)
                     Text(item.1)
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.72))
+                        .foregroundStyle(.white.opacity(0.75))
                 }
-                .padding(.horizontal, 11)
-                .padding(.vertical, 7)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
                 .background(
                     Capsule(style: .continuous)
-                        .fill(Color.white.opacity(0.05))
-                )
-                .overlay(
-                    Capsule(style: .continuous)
-                        .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+                        .fill(Brand.ink.opacity(0.65))
                 )
             }
         }
-        .frame(maxWidth: 380)
+        .frame(maxWidth: 440)
     }
 }
 
@@ -243,45 +235,72 @@ private struct EmptyStateBackground: View {
             )
             .animation(.easeOut(duration: 0.3), value: isDropTarget)
 
-            FloatingPaintDots()
-                .opacity(0.55)
+            FloatingStars()
         }
         .ignoresSafeArea()
     }
 }
 
-private struct FloatingPaintDots: View {
-    private struct Dot {
+private struct FloatingStars: View {
+    private struct Star {
         let x: CGFloat
+        let y: CGFloat
         let size: CGFloat
         let color: Color
-        let speed: Double
-        let phase: Double
-        let travel: CGFloat
+        let twinkleSpeed: Double
+        let twinklePhase: Double
+        let driftSpeed: Double
+        let driftPhase: Double
+        let driftAmount: CGFloat
     }
 
-    private let dots: [Dot] = [
-        .init(x: 0.14, size: 10, color: EmptyStateView.Brand.blueBright, speed: 0.09, phase: 0.0, travel: 26),
-        .init(x: 0.30, size: 6, color: EmptyStateView.Brand.orange, speed: 0.13, phase: 1.7, travel: 18),
-        .init(x: 0.62, size: 8, color: EmptyStateView.Brand.cream, speed: 0.07, phase: 3.1, travel: 30),
-        .init(x: 0.78, size: 5, color: EmptyStateView.Brand.blueBright, speed: 0.15, phase: 0.9, travel: 20),
-        .init(x: 0.90, size: 9, color: EmptyStateView.Brand.orange, speed: 0.10, phase: 2.4, travel: 24)
-    ]
+    private let stars: [Star] = {
+        let palette: [Color] = [
+            .white,
+            EmptyStateView.Brand.cream,
+            EmptyStateView.Brand.blueBright,
+            EmptyStateView.Brand.orange
+        ]
+        // Deterministic scatter across the panel.
+        let seeds: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.08, 0.16, 14), (0.15, 0.62, 9),  (0.21, 0.34, 7),  (0.27, 0.82, 11),
+            (0.34, 0.12, 8),  (0.41, 0.48, 6),  (0.44, 0.72, 13), (0.52, 0.22, 10),
+            (0.57, 0.60, 7),  (0.63, 0.38, 9),  (0.68, 0.86, 12), (0.72, 0.14, 8),
+            (0.78, 0.52, 14), (0.83, 0.30, 6),  (0.88, 0.70, 10), (0.92, 0.44, 8),
+            (0.95, 0.18, 12), (0.12, 0.90, 7),  (0.49, 0.90, 9),  (0.60, 0.08, 11)
+        ]
+        return seeds.enumerated().map { index, seed in
+            Star(
+                x: seed.0,
+                y: seed.1,
+                size: seed.2,
+                color: palette[index % palette.count],
+                twinkleSpeed: 0.6 + Double(index % 5) * 0.18,
+                twinklePhase: Double(index) * 0.7,
+                driftSpeed: 0.05 + Double(index % 4) * 0.03,
+                driftPhase: Double(index) * 1.3,
+                driftAmount: 10 + CGFloat(index % 4) * 6
+            )
+        }
+    }()
 
     var body: some View {
         TimelineView(.animation) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             GeometryReader { proxy in
                 ZStack {
-                    ForEach(Array(dots.enumerated()), id: \.offset) { _, dot in
-                        let baseY = proxy.size.height * (0.2 + dot.phase.truncatingRemainder(dividingBy: 0.6))
-                        let drift = sin(t * dot.speed * .pi + dot.phase) * dot.travel
-                        Circle()
-                            .fill(dot.color)
-                            .frame(width: dot.size, height: dot.size)
-                            .blur(radius: 0.5)
-                            .opacity(0.35)
-                            .position(x: proxy.size.width * dot.x, y: baseY + drift)
+                    ForEach(Array(stars.enumerated()), id: \.offset) { _, star in
+                        let twinkle = 0.35 + 0.4 * (0.5 + 0.5 * sin(t * star.twinkleSpeed * .pi + star.twinklePhase))
+                        let drift = sin(t * star.driftSpeed * .pi + star.driftPhase) * star.driftAmount
+                        Image(systemName: "sparkle")
+                            .font(.system(size: star.size, weight: .medium))
+                            .foregroundStyle(star.color)
+                            .opacity(twinkle)
+                            .shadow(color: star.color.opacity(0.5), radius: star.size * 0.35)
+                            .position(
+                                x: proxy.size.width * star.x,
+                                y: proxy.size.height * star.y + drift
+                            )
                     }
                 }
             }
