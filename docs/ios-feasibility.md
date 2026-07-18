@@ -135,6 +135,13 @@ the same published weights the macOS app downloads today; they are not committed
 to the repository. The package is not yet wired into `apps/native-macos`, and it
 builds only on macOS (it needs Apple frameworks).
 
+A first iOS app consuming the package lives in `apps/native-ios` — a SwiftUI
+app (iOS 17+, generated with XcodeGen) that picks a photo, removes its
+background or upscales it through `ImageKidInference`, and shares the result.
+Built-in engines (Vision, Core Image) work immediately; the Best Quality Core ML
+engines light up once the converted models are added to the app bundle. It does
+not touch `apps/native-macos`. See `apps/native-ios/README.md`.
+
 ## Effort shape
 
 - Built-in tiers (Vision mask, Core Image / MetalFX resize): light port.

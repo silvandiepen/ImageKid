@@ -1,0 +1,39 @@
+import CoreGraphics
+import Foundation
+import UIKit
+
+extension UIImage {
+    /// Returns an orientation-normalised, up-facing `CGImage` so the inference
+    /// engines never see rotated pixel data. Photos imported from the library
+    /// frequently carry a non-`.up` orientation flag.
+    func normalizedCGImage() -> CGImage? {
+        guard let cgImage else { return nil }
+        if imageOrientation == .up { return cgImage }
+
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = scale
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        let redrawn = renderer.image { _ in
+            draw(in: CGRect(origin: .zero, size: size))
+        }
+        return redrawn.cgImage
+    }
+}
+
+enum ShareFile {
+    /// Writes a `CGImage` to a temporary PNG (preserving alpha) and returns the
+    /// URL, suitable for a `ShareLink`.
+    static func makePNG(from image: CGImage, name: String = "ImageKid") -> URL? {
+        let data = UIImage(cgImage: image).pngData()
+        guard let data else { return nil }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(name)-\(UUID().uuidString).png")
+        do {
+            try data.write(to: url, options: .atomic)
+            return url
+        } catch {
+            return nil
+        }
+    }
+}

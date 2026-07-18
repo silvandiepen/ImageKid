@@ -26,6 +26,7 @@ ImageKid/
 │   │   ├── Package.swift
 │   │   ├── Sources/ImageKid/
 │   │   └── Tests/ImageKidTests/
+│   ├── native-ios/          # SwiftUI iOS app using the Core ML engines
 │   └── website/
 │       ├── src/
 │       │   ├── components/
