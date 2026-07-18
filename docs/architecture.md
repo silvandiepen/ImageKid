@@ -111,6 +111,8 @@ The Swift package is the current build and test foundation. A distributable prod
 
 Buildability and distribution readiness are separate milestones.
 
-## Deferred architecture
+## Best Quality add-on architecture
 
-No Core ML runtime, model registry, provider abstraction, tile planner, or upscaling pipeline belongs in the current architecture. Historical upscaling research is not an implementation dependency.
+Two opt-in Best Quality add-ons run alongside the built-in engines. AI upscaling uses an app-managed Real-ESRGAN `ncnn-vulkan` runtime with a tile planner and corruption-retry pass; AI background removal uses a downloaded ONNX model plus a locally built `rembg` Python runtime. Both are downloaded on demand, stored in Application Support, and executed on-device as subprocesses. See `apps/native-macos/Sources/ImageKid/UpscaleService.swift` and `BackgroundRemovalService.swift`.
+
+This downloaded-runtime approach is macOS-specific and does not port to iOS. The intended cross-platform direction is Core ML inference in-process, which would also let macOS retire the binary download, the Vulkan dependency, and the Python runtime. See `ios-feasibility.md`.
