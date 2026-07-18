@@ -32,9 +32,14 @@ private enum ActiveAppModel {
         guard !didQueueCommandLineFileURLs else { return }
         didQueueCommandLineFileURLs = true
 
+        // Only treat arguments that point at a real file as documents to open.
+        // macOS/Xcode inject option pairs such as `-NSDocumentRevisionsDebugMode YES`,
+        // and the bare value ("YES") must not be mistaken for a file path.
         let urls = CommandLine.arguments.dropFirst().compactMap { argument -> URL? in
             guard !argument.hasPrefix("-") else { return nil }
-            return URL(fileURLWithPath: argument).standardizedFileURL
+            let candidate = URL(fileURLWithPath: argument).standardizedFileURL
+            guard FileManager.default.fileExists(atPath: candidate.path) else { return nil }
+            return candidate
         }
 
         guard !urls.isEmpty else { return }
@@ -60,6 +65,14 @@ final class AppModel: ObservableObject {
         didSet {
             UserDefaults.standard.set(isWorkspaceSidebarCollapsed, forKey: "workspaceSidebarCollapsed")
         }
+    }
+    var dirtyCloseConfirmation: (String) -> Bool = { title in
+        let alert = NSAlert()
+        alert.messageText = "Close \(title)?"
+        alert.informativeText = "This image has unsaved changes. Save or export it before closing, or discard the changes."
+        alert.addButton(withTitle: "Discard")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
     }
     private var didApplyScreenshotScenario = false
 
@@ -99,6 +112,13 @@ final class AppModel: ObservableObject {
     var hasPromptEditCredential: Bool {
         guard let apiKey = KeychainStore.string(for: "openai-api-key") else { return false }
         return !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var promptEditSendsSelectionOnly: Bool {
+        if case .image(let session) = media {
+            return session.hasImageSelection
+        }
+        return false
     }
 
     var hasRemovedBackground: Bool {
@@ -300,6 +320,10 @@ final class AppModel: ObservableObject {
 
     func closeItem(_ id: UUID) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        let item = items[index]
+        if item.isDirty, !dirtyCloseConfirmation(item.title) {
+            return
+        }
         let wasSelected = selectedItemID == id
         items.remove(at: index)
         selectedItemIDs.remove(id)
@@ -321,8 +345,17 @@ final class AppModel: ObservableObject {
     }
 
     func replaceSelectedMedia(_ media: MediaItem) {
-        guard let selectedItemIndex else { return }
-        items[selectedItemIndex].media = media
+        guard let selectedItemID else { return }
+        replaceMedia(media, for: selectedItemID)
+    }
+
+    @discardableResult
+    func replaceMedia(_ media: MediaItem, for itemID: UUID) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == itemID }) else {
+            return false
+        }
+        items[index].media = media
+        return true
     }
 
     func loadReplacingSelected(_ url: URL) {
@@ -471,6 +504,10 @@ final class AppModel: ObservableObject {
         upscaleContentMode: UpscaleContentMode
     ) {
         guard !isApplyingResize else { return }
+        guard let itemID = selectedItemID else {
+            errorMessage = "Open an image first."
+            return
+        }
         guard case .image(let session) = media else {
             errorMessage = "Open an image first."
             return
@@ -555,7 +592,9 @@ final class AppModel: ObservableObject {
 
                     let resizedSession = ImageSession(sourceURL: sourceURL, sourceImage: image)
                     resizedSession.isDirty = true
-                    replaceSelectedMedia(.image(resizedSession))
+                    if !replaceMedia(.image(resizedSession), for: itemID) {
+                        errorMessage = "That image was closed before the resize finished."
+                    }
                 } catch {
                     errorMessage = error.localizedDescription
                 }
@@ -587,6 +626,10 @@ final class AppModel: ObservableObject {
 
     func applyPromptEdit(prompt: String) {
         guard !isApplyingPromptEdit else { return }
+        guard let itemID = selectedItemID else {
+            errorMessage = "Open an image first."
+            return
+        }
         guard case .image(let session) = media else {
             errorMessage = "Open an image first."
             return
@@ -604,20 +647,18 @@ final class AppModel: ObservableObject {
             return
         }
 
-        guard let sourceImage = ImageRenderer.render(session) else {
-            errorMessage = PromptImageEditError.imageEncodingFailed.localizedDescription
+        let payload: PromptImageEditPayload
+        do {
+            payload = try PromptImageEditPayloadBuilder.payload(for: session)
+        } catch {
+            errorMessage = error.localizedDescription
             return
         }
-        let selectionRect = session.selectionRect
-        let promptSourceImage: NSImage
-        if let selectionRect {
-            guard let cropped = ImageSelectionRenderer.crop(sourceImage, normalizedRect: selectionRect) else {
-                errorMessage = PromptImageEditError.imageEncodingFailed.localizedDescription
-                return
-            }
-            promptSourceImage = cropped
+        let selectionRect: CGRect?
+        if case .selection(let rect) = payload.scope {
+            selectionRect = rect
         } else {
-            promptSourceImage = sourceImage
+            selectionRect = nil
         }
 
         let sourceURL = session.sourceURL
@@ -634,7 +675,7 @@ final class AppModel: ObservableObject {
             do {
                 let provider = OpenAIPromptImageEditProvider(apiKey: apiKey)
                 let editedImage = try await PromptImageEditService.edit(
-                    image: promptSourceImage,
+                    image: payload.image,
                     prompt: trimmedPrompt,
                     provider: provider
                 )
@@ -642,7 +683,7 @@ final class AppModel: ObservableObject {
                 if let selectionRect {
                     finalImage = Self.composite(
                         editedImage,
-                        into: sourceImage,
+                        into: payload.sourceImage,
                         normalizedRect: selectionRect
                     ) ?? editedImage
                 } else {
@@ -650,7 +691,9 @@ final class AppModel: ObservableObject {
                 }
                 let editedSession = ImageSession(sourceURL: sourceURL, sourceImage: finalImage)
                 editedSession.isDirty = true
-                replaceSelectedMedia(.image(editedSession))
+                if !replaceMedia(.image(editedSession), for: itemID) {
+                    errorMessage = "That image was closed before Magic finished."
+                }
                 activeTool = .view
             } catch {
                 errorMessage = error.localizedDescription
@@ -754,15 +797,10 @@ final class AppModel: ObservableObject {
     }
 
     func saveImage() {
-        let dirtyImageSessions = items.compactMap { item -> ImageSession? in
-            guard case .image(let session) = item.media, session.isDirty else { return nil }
-            return session
-        }
-        if dirtyImageSessions.count > 1 {
-            saveDirtyImages(dirtyImageSessions)
+        guard let itemID = selectedItemID else {
+            errorMessage = "Open an image first."
             return
         }
-
         guard case .image(let session) = media else {
             errorMessage = "Open an image first."
             return
@@ -796,11 +834,23 @@ final class AppModel: ObservableObject {
         do {
             try ImageRenderer.write(session, to: sourceURL, options: options)
             let savedImage = try reloadedImage(from: sourceURL)
-            replaceSelectedMedia(.image(ImageSession(sourceURL: sourceURL, sourceImage: savedImage)))
+            _ = replaceMedia(.image(ImageSession(sourceURL: sourceURL, sourceImage: savedImage)), for: itemID)
             activeTool = .view
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    func saveAllImages() {
+        let dirtyImageSessions = items.compactMap { item -> ImageSession? in
+            guard case .image(let session) = item.media, session.isDirty else { return nil }
+            return session
+        }
+        guard !dirtyImageSessions.isEmpty else {
+            activeTool = .view
+            return
+        }
+        saveDirtyImages(dirtyImageSessions)
     }
 
     private func saveDirtyImages(_ sessions: [ImageSession]) {
@@ -854,6 +904,10 @@ final class AppModel: ObservableObject {
     }
 
     func removeBackground() {
+        guard let itemID = selectedItemID else {
+            errorMessage = "Background removal is available for images only."
+            return
+        }
         guard case .image(let session) = media else {
             errorMessage = "Background removal is available for images only."
             return
@@ -895,7 +949,9 @@ final class AppModel: ObservableObject {
                     size: CGSize(width: output.width, height: output.height)
                 )
                 session.isDirty = true
-                activeTool = .view
+                if selectedItemID == itemID {
+                    activeTool = .view
+                }
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -990,32 +1046,32 @@ struct AppCommands: Commands {
 
         CommandMenu("Tools") {
             Button("View") { currentAppModel?.activeTool = .view }
-                .keyboardShortcut("v", modifiers: [])
+                .keyboardShortcut(Tool.view.menuShortcutKey, modifiers: Tool.view.menuShortcutModifiers)
                 .disabled(currentAppModel == nil)
             Button("Select") { currentAppModel?.activeTool = .select }
-                .keyboardShortcut("s", modifiers: [])
+                .keyboardShortcut(Tool.select.menuShortcutKey, modifiers: Tool.select.menuShortcutModifiers)
                 .disabled(currentAppModel == nil)
             Button("Pick Colour") { currentAppModel?.activeTool = .pickColor }
-                .keyboardShortcut("p", modifiers: [])
+                .keyboardShortcut(Tool.pickColor.menuShortcutKey, modifiers: Tool.pickColor.menuShortcutModifiers)
                 .disabled(currentAppModel == nil)
             Button("Crop") { currentAppModel?.activeTool = .crop }
-                .keyboardShortcut("c", modifiers: [])
+                .keyboardShortcut(Tool.crop.menuShortcutKey, modifiers: Tool.crop.menuShortcutModifiers)
                 .disabled(currentAppModel == nil)
             Divider()
             Button("Draw") { currentAppModel?.activeTool = .draw }
-                .keyboardShortcut("d", modifiers: [])
+                .keyboardShortcut(Tool.draw.menuShortcutKey, modifiers: Tool.draw.menuShortcutModifiers)
                 .disabled(currentAppModel == nil)
             Button("Text") { currentAppModel?.activeTool = .text }
-                .keyboardShortcut("t", modifiers: [])
+                .keyboardShortcut(Tool.text.menuShortcutKey, modifiers: Tool.text.menuShortcutModifiers)
                 .disabled(currentAppModel == nil)
             Divider()
             Button("Resize") { currentAppModel?.activeTool = .resize }
-                .keyboardShortcut("r", modifiers: [])
+                .keyboardShortcut(Tool.resize.menuShortcutKey, modifiers: Tool.resize.menuShortcutModifiers)
                 .disabled(currentAppModel == nil)
             Button(currentAppModel?.hasRemovedBackground == true ? "Restore Background" : "Remove Background") {
                 currentAppModel?.removeBackground()
             }
-            .keyboardShortcut("b", modifiers: [])
+            .keyboardShortcut(Tool.refineBackground.menuShortcutKey, modifiers: Tool.refineBackground.menuShortcutModifiers)
             .disabled(currentAppModel?.canRemoveBackground != true)
             Button("Cancel Current Tool") { currentAppModel?.cancelCurrentTool() }
                 .keyboardShortcut(.cancelAction)
@@ -1049,6 +1105,10 @@ struct AppCommands: Commands {
         CommandGroup(replacing: .saveItem) {
             Button("Save") { currentAppModel?.saveImage() }
                 .keyboardShortcut("s")
+                .disabled(currentAppModel == nil)
+
+            Button("Save All") { currentAppModel?.saveAllImages() }
+                .keyboardShortcut("s", modifiers: [.command, .option])
                 .disabled(currentAppModel == nil)
 
             Button("Export…") { currentAppModel?.requestExport() }

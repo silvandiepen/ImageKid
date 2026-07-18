@@ -32,6 +32,7 @@ struct ContentView: View {
                 isApplying: appModel.isApplyingPromptEdit,
                 providerName: appModel.promptEditProviderName,
                 hasCredential: appModel.hasPromptEditCredential,
+                sendsSelectionOnly: appModel.promptEditSendsSelectionOnly,
                 onCancel: { appModel.isShowingPromptEdit = false },
                 onApply: { prompt in appModel.applyPromptEdit(prompt: prompt) }
             )

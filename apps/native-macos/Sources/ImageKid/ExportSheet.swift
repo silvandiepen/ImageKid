@@ -6,7 +6,6 @@ struct ImageExportOptions {
     var format: ImageExportFormat = .png
     var quality: Double = 0.92
     var pngCompression: Double = 0.82
-    var removesMetadata = true
     var backgroundColor: NSColor = .white
     var revealAfterExport = false
     var upscaleEngine: UpscaleEngine = .standard
@@ -175,8 +174,6 @@ struct ExportSheet: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-
-                Toggle("Remove metadata", isOn: $options.removesMetadata)
 
                 Toggle("Reveal exported file in Finder", isOn: $options.revealAfterExport)
             }

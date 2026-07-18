@@ -1,6 +1,6 @@
 name: ImageKid
 options:
-  bundleIdPrefix: app.imagekid
+  bundleIdPrefix: com.hakobs
   deploymentTarget:
     macOS: "14.0"
 settings:
@@ -15,10 +15,11 @@ targets:
     sources:
       - path: Sources/ImageKid
     resources:
+      - path: Sources/ImageKid/Resources/Assets.xcassets
       - path: Sources/ImageKid/Resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: app.imagekid.mac
+        PRODUCT_BUNDLE_IDENTIFIER: com.hakobs.imagekid
         PRODUCT_NAME: ImageKid
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: ImageKid

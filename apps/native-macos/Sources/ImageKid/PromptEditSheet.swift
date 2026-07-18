@@ -4,6 +4,7 @@ struct PromptEditSheet: View {
     let isApplying: Bool
     let providerName: String
     let hasCredential: Bool
+    let sendsSelectionOnly: Bool
     let onCancel: () -> Void
     let onApply: (String) -> Void
 
@@ -15,7 +16,7 @@ struct PromptEditSheet: View {
                 Label("Magic", systemImage: "sparkles")
                     .font(.title3.weight(.semibold))
 
-                Text("Describe how to change the current image. ImageKid will send the rendered image and prompt to the configured provider, then replace this workspace image with the result.")
+                Text(disclosureText)
                     .foregroundStyle(.secondary)
             }
 
@@ -40,7 +41,7 @@ struct PromptEditSheet: View {
                 )
                 .disabled(isApplying)
 
-            Text("Core ImageKid tools remain local. The current provider is \(providerName), so this action uses your saved provider key and requires a network connection.")
+            Text("Core ImageKid tools remain local. Magic sends \(payloadName) and your prompt to \(providerName) using your saved provider key.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -58,5 +59,16 @@ struct PromptEditSheet: View {
         }
         .padding(22)
         .frame(width: 460)
+    }
+
+    private var disclosureText: String {
+        if sendsSelectionOnly {
+            return "Describe how to change the selected area. ImageKid will send only that selected crop and your prompt to the configured provider, then place the result back into this image."
+        }
+        return "Describe how to change the whole rendered image. ImageKid will send that image and your prompt to the configured provider, then replace this workspace image with the result."
+    }
+
+    private var payloadName: String {
+        sendsSelectionOnly ? "the selected crop" : "the rendered image"
     }
 }
