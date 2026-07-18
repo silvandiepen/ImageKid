@@ -21,10 +21,23 @@ final class BackgroundRemovalAssetVerifierTests: XCTestCase {
     func testBackgroundRemovalAddOnUsesPinnedPackageVersion() {
         XCTAssertEqual(BackgroundRemovalModelConfiguration.rembgVersion, "2.0.76")
         XCTAssertEqual(BackgroundRemovalModelConfiguration.rembgPackageRequirement, "rembg[cpu,cli]==2.0.76")
+        XCTAssertEqual(BackgroundRemovalModelConfiguration.minimumPythonVersion, PythonVersion(major: 3, minor: 11))
     }
 
     func testBackgroundRemovalModelPinIsComplete() {
         XCTAssertEqual(BackgroundRemovalModelConfiguration.modelByteCount, 178_648_008)
         XCTAssertEqual(BackgroundRemovalModelConfiguration.modelSHA256.count, 64)
+    }
+
+    func testPythonVersionParsesStandardOutput() {
+        XCTAssertEqual(PythonVersion(versionOutput: "Python 3.11.9"), PythonVersion(major: 3, minor: 11, patch: 9))
+        XCTAssertEqual(PythonVersion(versionOutput: "Python 3.12"), PythonVersion(major: 3, minor: 12))
+        XCTAssertNil(PythonVersion(versionOutput: "not python"))
+    }
+
+    func testPythonVersionOrderingUsesPatchLevel() {
+        XCTAssertLessThan(PythonVersion(major: 3, minor: 10, patch: 12), PythonVersion(major: 3, minor: 11))
+        XCTAssertLessThan(PythonVersion(major: 3, minor: 11), PythonVersion(major: 3, minor: 11, patch: 1))
+        XCTAssertGreaterThan(PythonVersion(major: 3, minor: 12), PythonVersion(major: 3, minor: 11, patch: 99))
     }
 }

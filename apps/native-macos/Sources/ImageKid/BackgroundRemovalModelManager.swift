@@ -8,6 +8,7 @@ enum BackgroundRemovalModelConfiguration {
     static let modelByteCount = 178_648_008
     static let modelSHA256 = "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a"
     static let rembgVersion = "2.0.76"
+    static let minimumPythonVersion = PythonVersion(major: 3, minor: 11, patch: 0)
     static let runtimeManifestFileName = "imagekid-runtime-manifest.txt"
     static var rembgPackageRequirement: String { "rembg[cpu,cli]==\(rembgVersion)" }
 
@@ -185,6 +186,9 @@ enum BackgroundRemovalAssetVerifier {
 private func installManagedRuntime() throws {
     let runtimeDirectory = BackgroundRemovalModelConfiguration.runtimeDirectory
     let fileManager = FileManager.default
+    let pythonURL = try pythonExecutableURL()
+    try validatePythonVersion(pythonURL)
+
     try fileManager.createDirectory(
         at: runtimeDirectory.deletingLastPathComponent(),
         withIntermediateDirectories: true
@@ -194,7 +198,6 @@ private func installManagedRuntime() throws {
         try fileManager.removeItem(at: runtimeDirectory)
     }
 
-    let pythonURL = try pythonExecutableURL()
     try run(pythonURL, arguments: ["-m", "venv", runtimeDirectory.path])
 
     let pipURL = runtimeDirectory
@@ -232,32 +235,109 @@ private func pythonExecutableURL() throws -> URL {
     throw RuntimeInstallError.pythonMissing
 }
 
+private func validatePythonVersion(_ executableURL: URL) throws {
+    let output = try runAndCaptureOutput(executableURL, arguments: ["--version"])
+    guard let version = PythonVersion(versionOutput: output) else {
+        throw RuntimeInstallError.pythonVersionUnsupported("ImageKid could not read the Python version from \(executableURL.path).")
+    }
+    guard version >= BackgroundRemovalModelConfiguration.minimumPythonVersion else {
+        throw RuntimeInstallError.pythonVersionUnsupported(
+            "The best-quality add-on needs Python \(BackgroundRemovalModelConfiguration.minimumPythonVersion.shortLabel) or newer. ImageKid found Python \(version.shortLabel) at \(executableURL.path)."
+        )
+    }
+}
+
 private func run(_ executableURL: URL, arguments: [String]) throws {
+    _ = try runAndCaptureOutput(executableURL, arguments: arguments)
+}
+
+private func runAndCaptureOutput(_ executableURL: URL, arguments: [String]) throws -> String {
     let process = Process()
     process.executableURL = executableURL
     process.arguments = arguments
 
+    let outputPipe = Pipe()
     let errorPipe = Pipe()
+    process.standardOutput = outputPipe
     process.standardError = errorPipe
     try process.run()
     process.waitUntilExit()
 
+    let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+    let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+    let output = String(data: outputData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let errorOutput = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+
     guard process.terminationStatus == 0 else {
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-        let message = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        throw RuntimeInstallError.commandFailed(message ?? "\(executableURL.lastPathComponent) exited with status \(process.terminationStatus).")
+        let message = [errorOutput, output]
+            .compactMap { value in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+            .joined(separator: "\n")
+        throw RuntimeInstallError.commandFailed(message.isEmpty ? "\(executableURL.lastPathComponent) exited with status \(process.terminationStatus)." : message)
+    }
+
+    return [output, errorOutput]
+        .compactMap { value in
+            guard let value, !value.isEmpty else { return nil }
+            return value
+        }
+        .joined(separator: "\n")
+}
+
+struct PythonVersion: Comparable, Equatable {
+    let major: Int
+    let minor: Int
+    let patch: Int
+
+    init(major: Int, minor: Int, patch: Int = 0) {
+        self.major = major
+        self.minor = minor
+        self.patch = patch
+    }
+
+    init?(versionOutput: String) {
+        let pattern = #"\bPython\s+(\d+)\.(\d+)(?:\.(\d+))?\b"#
+        guard
+            let expression = try? NSRegularExpression(pattern: pattern),
+            let match = expression.firstMatch(
+                in: versionOutput,
+                range: NSRange(versionOutput.startIndex..., in: versionOutput)
+            ),
+            let majorRange = Range(match.range(at: 1), in: versionOutput),
+            let minorRange = Range(match.range(at: 2), in: versionOutput)
+        else {
+            return nil
+        }
+
+        let patchRange = Range(match.range(at: 3), in: versionOutput)
+        self.major = Int(versionOutput[majorRange]) ?? 0
+        self.minor = Int(versionOutput[minorRange]) ?? 0
+        self.patch = patchRange.flatMap { Int(versionOutput[$0]) } ?? 0
+    }
+
+    var shortLabel: String {
+        "\(major).\(minor)"
+    }
+
+    static func < (lhs: PythonVersion, rhs: PythonVersion) -> Bool {
+        (lhs.major, lhs.minor, lhs.patch) < (rhs.major, rhs.minor, rhs.patch)
     }
 }
 
 private enum RuntimeInstallError: LocalizedError {
     case pythonMissing
+    case pythonVersionUnsupported(String)
     case commandFailed(String)
     case integrityFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .pythonMissing:
-            "ImageKid could not find python3 on this Mac. Install Python 3, then try again."
+            "ImageKid could not find python3 on this Mac. Install Python \(BackgroundRemovalModelConfiguration.minimumPythonVersion.shortLabel) or newer, then try again."
+        case .pythonVersionUnsupported(let message):
+            message
         case .commandFailed(let message):
             "Add-on setup failed: \(message)"
         case .integrityFailed(let message):
