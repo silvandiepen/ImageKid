@@ -61,6 +61,14 @@ final class AppModel: ObservableObject {
             UserDefaults.standard.set(isWorkspaceSidebarCollapsed, forKey: "workspaceSidebarCollapsed")
         }
     }
+    var dirtyCloseConfirmation: (String) -> Bool = { title in
+        let alert = NSAlert()
+        alert.messageText = "Close \(title)?"
+        alert.informativeText = "This image has unsaved changes. Save or export it before closing, or discard the changes."
+        alert.addButton(withTitle: "Discard")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
     private var didApplyScreenshotScenario = false
 
     init() {
@@ -300,6 +308,10 @@ final class AppModel: ObservableObject {
 
     func closeItem(_ id: UUID) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        let item = items[index]
+        if item.isDirty, !dirtyCloseConfirmation(item.title) {
+            return
+        }
         let wasSelected = selectedItemID == id
         items.remove(at: index)
         selectedItemIDs.remove(id)
@@ -321,8 +333,17 @@ final class AppModel: ObservableObject {
     }
 
     func replaceSelectedMedia(_ media: MediaItem) {
-        guard let selectedItemIndex else { return }
-        items[selectedItemIndex].media = media
+        guard let selectedItemID else { return }
+        replaceMedia(media, for: selectedItemID)
+    }
+
+    @discardableResult
+    func replaceMedia(_ media: MediaItem, for itemID: UUID) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == itemID }) else {
+            return false
+        }
+        items[index].media = media
+        return true
     }
 
     func loadReplacingSelected(_ url: URL) {
@@ -471,6 +492,10 @@ final class AppModel: ObservableObject {
         upscaleContentMode: UpscaleContentMode
     ) {
         guard !isApplyingResize else { return }
+        guard let itemID = selectedItemID else {
+            errorMessage = "Open an image first."
+            return
+        }
         guard case .image(let session) = media else {
             errorMessage = "Open an image first."
             return
@@ -555,7 +580,9 @@ final class AppModel: ObservableObject {
 
                     let resizedSession = ImageSession(sourceURL: sourceURL, sourceImage: image)
                     resizedSession.isDirty = true
-                    replaceSelectedMedia(.image(resizedSession))
+                    if !replaceMedia(.image(resizedSession), for: itemID) {
+                        errorMessage = "That image was closed before the resize finished."
+                    }
                 } catch {
                     errorMessage = error.localizedDescription
                 }
@@ -587,6 +614,10 @@ final class AppModel: ObservableObject {
 
     func applyPromptEdit(prompt: String) {
         guard !isApplyingPromptEdit else { return }
+        guard let itemID = selectedItemID else {
+            errorMessage = "Open an image first."
+            return
+        }
         guard case .image(let session) = media else {
             errorMessage = "Open an image first."
             return
@@ -650,7 +681,9 @@ final class AppModel: ObservableObject {
                 }
                 let editedSession = ImageSession(sourceURL: sourceURL, sourceImage: finalImage)
                 editedSession.isDirty = true
-                replaceSelectedMedia(.image(editedSession))
+                if !replaceMedia(.image(editedSession), for: itemID) {
+                    errorMessage = "That image was closed before Magic finished."
+                }
                 activeTool = .view
             } catch {
                 errorMessage = error.localizedDescription
@@ -754,15 +787,10 @@ final class AppModel: ObservableObject {
     }
 
     func saveImage() {
-        let dirtyImageSessions = items.compactMap { item -> ImageSession? in
-            guard case .image(let session) = item.media, session.isDirty else { return nil }
-            return session
-        }
-        if dirtyImageSessions.count > 1 {
-            saveDirtyImages(dirtyImageSessions)
+        guard let itemID = selectedItemID else {
+            errorMessage = "Open an image first."
             return
         }
-
         guard case .image(let session) = media else {
             errorMessage = "Open an image first."
             return
@@ -796,11 +824,23 @@ final class AppModel: ObservableObject {
         do {
             try ImageRenderer.write(session, to: sourceURL, options: options)
             let savedImage = try reloadedImage(from: sourceURL)
-            replaceSelectedMedia(.image(ImageSession(sourceURL: sourceURL, sourceImage: savedImage)))
+            _ = replaceMedia(.image(ImageSession(sourceURL: sourceURL, sourceImage: savedImage)), for: itemID)
             activeTool = .view
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    func saveAllImages() {
+        let dirtyImageSessions = items.compactMap { item -> ImageSession? in
+            guard case .image(let session) = item.media, session.isDirty else { return nil }
+            return session
+        }
+        guard !dirtyImageSessions.isEmpty else {
+            activeTool = .view
+            return
+        }
+        saveDirtyImages(dirtyImageSessions)
     }
 
     private func saveDirtyImages(_ sessions: [ImageSession]) {
@@ -854,6 +894,10 @@ final class AppModel: ObservableObject {
     }
 
     func removeBackground() {
+        guard let itemID = selectedItemID else {
+            errorMessage = "Background removal is available for images only."
+            return
+        }
         guard case .image(let session) = media else {
             errorMessage = "Background removal is available for images only."
             return
@@ -895,7 +939,9 @@ final class AppModel: ObservableObject {
                     size: CGSize(width: output.width, height: output.height)
                 )
                 session.isDirty = true
-                activeTool = .view
+                if selectedItemID == itemID {
+                    activeTool = .view
+                }
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -1049,6 +1095,10 @@ struct AppCommands: Commands {
         CommandGroup(replacing: .saveItem) {
             Button("Save") { currentAppModel?.saveImage() }
                 .keyboardShortcut("s")
+                .disabled(currentAppModel == nil)
+
+            Button("Save All") { currentAppModel?.saveAllImages() }
+                .keyboardShortcut("s", modifiers: [.command, .option])
                 .disabled(currentAppModel == nil)
 
             Button("Export…") { currentAppModel?.requestExport() }

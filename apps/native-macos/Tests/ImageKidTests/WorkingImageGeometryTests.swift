@@ -120,6 +120,82 @@ final class WorkingImageGeometryTests: XCTestCase {
         XCTAssertEqual(session.pixelSize.height, 2508)
     }
 
+    @MainActor
+    func testDirtyCloseCanBeCancelledOrDiscarded() throws {
+        let model = AppModel()
+        model.load([try temporaryImageURL(for: makeBitmapImage(width: 64, height: 64))])
+        let itemID = try XCTUnwrap(model.selectedItemID)
+        guard case .image(let session) = model.media else {
+            return XCTFail("Expected image session")
+        }
+        session.isDirty = true
+
+        model.dirtyCloseConfirmation = { _ in false }
+        model.closeItem(itemID)
+        XCTAssertEqual(model.items.count, 1)
+        XCTAssertEqual(model.selectedItemID, itemID)
+
+        model.dirtyCloseConfirmation = { _ in true }
+        model.closeItem(itemID)
+        XCTAssertTrue(model.items.isEmpty)
+        XCTAssertNil(model.selectedItemID)
+    }
+
+    @MainActor
+    func testSaveWritesOnlyActiveDirtyImage() throws {
+        let model = AppModel()
+        model.load([
+            try temporaryImageURL(for: makeBitmapImage(width: 64, height: 64)),
+            try temporaryImageURL(for: makePhotoLikeImage(width: 64, height: 64))
+        ])
+        let firstID = try XCTUnwrap(model.selectedItemID)
+        let secondID = try XCTUnwrap(model.items.last?.id)
+
+        guard case .image(let firstSession) = model.items.first(where: { $0.id == firstID })?.media,
+              case .image(let secondSession) = model.items.first(where: { $0.id == secondID })?.media else {
+            return XCTFail("Expected image sessions")
+        }
+        firstSession.isDirty = true
+        secondSession.isDirty = true
+
+        model.saveImage()
+
+        guard case .image(let savedFirst) = model.items.first(where: { $0.id == firstID })?.media,
+              case .image(let untouchedSecond) = model.items.first(where: { $0.id == secondID })?.media else {
+            return XCTFail("Expected image sessions")
+        }
+        XCTAssertFalse(savedFirst.isDirty)
+        XCTAssertTrue(untouchedSecond.isDirty)
+    }
+
+    @MainActor
+    func testReplacementTargetsStableItemAfterSelectionChanges() throws {
+        let model = AppModel()
+        model.load([
+            try temporaryImageURL(for: makeBitmapImage(width: 64, height: 64)),
+            try temporaryImageURL(for: makePhotoLikeImage(width: 64, height: 64))
+        ])
+        let firstID = try XCTUnwrap(model.selectedItemID)
+        let secondID = try XCTUnwrap(model.items.last?.id)
+        model.selectItem(secondID)
+
+        let replacement = ImageSession(
+            sourceURL: nil,
+            sourceImage: try makeBitmapImage(width: 96, height: 80)
+        )
+        XCTAssertTrue(model.replaceMedia(.image(replacement), for: firstID))
+
+        guard case .image(let firstSession) = model.items.first(where: { $0.id == firstID })?.media,
+              case .image(let secondSession) = model.items.first(where: { $0.id == secondID })?.media else {
+            return XCTFail("Expected image sessions")
+        }
+        XCTAssertEqual(firstSession.pixelSize.width, 96)
+        XCTAssertEqual(firstSession.pixelSize.height, 80)
+        XCTAssertEqual(secondSession.pixelSize.width, 64)
+        XCTAssertEqual(secondSession.pixelSize.height, 64)
+        XCTAssertEqual(model.selectedItemID, secondID)
+    }
+
     private func makeBitmapImage(width: Int, height: Int) throws -> NSImage {
         guard
             let context = CGContext(
