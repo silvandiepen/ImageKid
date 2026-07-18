@@ -1,9 +1,15 @@
+import CryptoKit
 import Foundation
 
 enum BackgroundRemovalModelConfiguration {
     static let modelFileName = "isnet-general-use.onnx"
     static let modelName = "isnet-general-use"
     static let modelURL = URL(string: "https://huggingface.co/fofr/comfyui/resolve/main/rembg/isnet-general-use.onnx")!
+    static let modelByteCount = 178_648_008
+    static let modelSHA256 = "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a"
+    static let rembgVersion = "2.0.76"
+    static let runtimeManifestFileName = "imagekid-runtime-manifest.txt"
+    static var rembgPackageRequirement: String { "rembg[cpu,cli]==\(rembgVersion)" }
 
     static var modelsDirectory: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -26,6 +32,10 @@ enum BackgroundRemovalModelConfiguration {
             .appendingPathComponent("bin", isDirectory: true)
             .appendingPathComponent("rembg")
     }
+
+    static var runtimeManifestURL: URL {
+        runtimeDirectory.appendingPathComponent(runtimeManifestFileName)
+    }
 }
 
 @MainActor
@@ -39,11 +49,11 @@ final class BackgroundRemovalModelManager: ObservableObject {
     }
 
     var isInstalled: Bool {
-        FileManager.default.fileExists(atPath: modelFileURL.path)
+        (try? BackgroundRemovalAssetVerifier.validateModel(at: modelFileURL)) != nil
     }
 
     var isRuntimeInstalled: Bool {
-        FileManager.default.isExecutableFile(atPath: BackgroundRemovalModelConfiguration.managedRembgExecutableURL.path)
+        BackgroundRemovalAssetVerifier.isManagedRuntimeInstalled
     }
 
     var installedSizeLabel: String {
@@ -67,16 +77,24 @@ final class BackgroundRemovalModelManager: ObservableObject {
 
         Task {
             do {
-                try FileManager.default.createDirectory(
+                let fileManager = FileManager.default
+                try fileManager.createDirectory(
                     at: modelsDirectory,
                     withIntermediateDirectories: true
                 )
 
                 let (temporaryURL, _) = try await URLSession.shared.download(from: BackgroundRemovalModelConfiguration.modelURL)
-                if FileManager.default.fileExists(atPath: modelFileURL.path) {
-                    try FileManager.default.removeItem(at: modelFileURL)
+                try BackgroundRemovalAssetVerifier.validateModel(at: temporaryURL)
+
+                let stagedURL = modelsDirectory
+                    .appendingPathComponent("\(BackgroundRemovalModelConfiguration.modelFileName).installing-\(UUID().uuidString)")
+                try fileManager.moveItem(at: temporaryURL, to: stagedURL)
+                try BackgroundRemovalAssetVerifier.validateModel(at: stagedURL)
+                if fileManager.fileExists(atPath: modelFileURL.path) {
+                    _ = try fileManager.replaceItemAt(modelFileURL, withItemAt: stagedURL)
+                } else {
+                    try fileManager.moveItem(at: stagedURL, to: modelFileURL)
                 }
-                try FileManager.default.moveItem(at: temporaryURL, to: modelFileURL)
                 objectWillChange.send()
             } catch {
                 errorMessage = error.localizedDescription
@@ -130,6 +148,40 @@ final class BackgroundRemovalModelManager: ObservableObject {
     private var modelsDirectory: URL { BackgroundRemovalModelConfiguration.modelsDirectory }
 }
 
+enum BackgroundRemovalAssetVerifier {
+    static var isManagedRuntimeInstalled: Bool {
+        let fileManager = FileManager.default
+        guard fileManager.isExecutableFile(atPath: BackgroundRemovalModelConfiguration.managedRembgExecutableURL.path),
+              let manifest = try? String(
+                contentsOf: BackgroundRemovalModelConfiguration.runtimeManifestURL,
+                encoding: .utf8
+              )
+        else {
+            return false
+        }
+        return manifest.contains("rembg=\(BackgroundRemovalModelConfiguration.rembgVersion)")
+            && manifest.contains("model-sha256=\(BackgroundRemovalModelConfiguration.modelSHA256)")
+    }
+
+    static func validateModel(at url: URL) throws {
+        let values = try url.resourceValues(forKeys: [.fileSizeKey])
+        guard values.fileSize == BackgroundRemovalModelConfiguration.modelByteCount else {
+            throw RuntimeInstallError.integrityFailed("The background model has an unexpected size.")
+        }
+
+        let hash = try sha256Hex(for: url)
+        guard hash == BackgroundRemovalModelConfiguration.modelSHA256 else {
+            throw RuntimeInstallError.integrityFailed("The background model did not match ImageKid's approved copy.")
+        }
+    }
+
+    static func sha256Hex(for url: URL) throws -> String {
+        let data = try Data(contentsOf: url)
+        let digest = SHA256.hash(data: data)
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+}
+
 private func installManagedRuntime() throws {
     let runtimeDirectory = BackgroundRemovalModelConfiguration.runtimeDirectory
     let fileManager = FileManager.default
@@ -148,8 +200,22 @@ private func installManagedRuntime() throws {
     let pipURL = runtimeDirectory
         .appendingPathComponent("bin", isDirectory: true)
         .appendingPathComponent("pip")
-    try run(pipURL, arguments: ["install", "--upgrade", "pip"])
-    try run(pipURL, arguments: ["install", "rembg[cpu,cli]"])
+    try run(pipURL, arguments: [
+        "install",
+        "--no-cache-dir",
+        "--only-binary=:all:",
+        BackgroundRemovalModelConfiguration.rembgPackageRequirement
+    ])
+
+    let manifest = """
+    rembg=\(BackgroundRemovalModelConfiguration.rembgVersion)
+    model=\(BackgroundRemovalModelConfiguration.modelName)
+    model-sha256=\(BackgroundRemovalModelConfiguration.modelSHA256)
+    """
+    try manifest.write(to: BackgroundRemovalModelConfiguration.runtimeManifestURL, atomically: true, encoding: .utf8)
+    guard BackgroundRemovalAssetVerifier.isManagedRuntimeInstalled else {
+        throw RuntimeInstallError.integrityFailed("The managed add-on could not be verified after setup.")
+    }
 }
 
 private func pythonExecutableURL() throws -> URL {
@@ -186,12 +252,15 @@ private func run(_ executableURL: URL, arguments: [String]) throws {
 private enum RuntimeInstallError: LocalizedError {
     case pythonMissing
     case commandFailed(String)
+    case integrityFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .pythonMissing:
             "ImageKid could not find python3 on this Mac. Install Python 3, then try again."
         case .commandFailed(let message):
+            "Add-on setup failed: \(message)"
+        case .integrityFailed(let message):
             "Add-on setup failed: \(message)"
         }
     }

@@ -6,7 +6,7 @@ import Vision
 
 enum BackgroundRemovalService {
     static var isBestQualityRuntimeAvailable: Bool {
-        rembgExecutableURL() != nil
+        managedRembgExecutableURL() != nil
     }
 
     static func removeBackground(from source: CGImage, engine: BackgroundRemovalEngine) throws -> CGImage {
@@ -47,13 +47,13 @@ enum BackgroundRemovalService {
     }
 
     private static func removeWithRembg(from source: CGImage) throws -> CGImage {
-        guard let rembgURL = rembgExecutableURL() else {
+        guard let rembgURL = managedRembgExecutableURL() else {
             throw BackgroundRemovalError.bestQualityRuntimeMissing
         }
 
         let modelURL = BackgroundRemovalModelConfiguration.modelsDirectory
             .appendingPathComponent(BackgroundRemovalModelConfiguration.modelFileName)
-        guard FileManager.default.fileExists(atPath: modelURL.path) else {
+        guard (try? BackgroundRemovalAssetVerifier.validateModel(at: modelURL)) != nil else {
             throw BackgroundRemovalError.bestQualityModelMissing
         }
 
@@ -76,8 +76,7 @@ enum BackgroundRemovalService {
             outputURL.path
         ]
         process.environment = ProcessInfo.processInfo.environment.merging([
-            "U2NET_HOME": BackgroundRemovalModelConfiguration.modelsDirectory.path,
-            "MODEL_CHECKSUM_DISABLED": "1"
+            "U2NET_HOME": BackgroundRemovalModelConfiguration.modelsDirectory.path
         ]) { _, new in new }
 
         let errorPipe = Pipe()
@@ -112,19 +111,11 @@ enum BackgroundRemovalService {
         }
     }
 
-    private static func rembgExecutableURL() -> URL? {
-        if FileManager.default.isExecutableFile(atPath: BackgroundRemovalModelConfiguration.managedRembgExecutableURL.path) {
+    private static func managedRembgExecutableURL() -> URL? {
+        if BackgroundRemovalAssetVerifier.isManagedRuntimeInstalled {
             return BackgroundRemovalModelConfiguration.managedRembgExecutableURL
         }
-
-        let candidates = [
-            "/opt/homebrew/bin/rembg",
-            "/usr/local/bin/rembg",
-            "/usr/bin/rembg"
-        ]
-        return candidates
-            .map(URL.init(fileURLWithPath:))
-            .first { FileManager.default.isExecutableFile(atPath: $0.path) }
+        return nil
     }
 }
 
