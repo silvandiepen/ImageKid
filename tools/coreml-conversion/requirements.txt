@@ -1,0 +1,12 @@
+# Core ML conversion dependencies. Pinned loosely; tighten once a known-good
+# combination is validated on your workstation.
+torch>=2.2,<2.6
+coremltools>=8.0
+numpy>=1.26
+# Real-ESRGAN RRDBNet architecture.
+basicsr>=1.4.2
+# ISNet is converted from its published ONNX graph via onnx2torch.
+onnx>=1.15
+onnx2torch>=1.5.15
+# Downloads.
+requests>=2.31

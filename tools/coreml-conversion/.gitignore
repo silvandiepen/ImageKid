@@ -1,0 +1,8 @@
+.venv/
+cache/
+out/
+__pycache__/
+*.mlpackage
+*.mlmodelc
+*.pth
+*.onnx
