@@ -68,6 +68,44 @@ enum PromptImageEditService {
     }
 }
 
+enum PromptImageEditPayloadScope: Equatable {
+    case fullImage
+    case selection(CGRect)
+}
+
+struct PromptImageEditPayload {
+    let image: NSImage
+    let sourceImage: NSImage
+    let scope: PromptImageEditPayloadScope
+}
+
+enum PromptImageEditPayloadBuilder {
+    @MainActor
+    static func payload(for session: ImageSession) throws -> PromptImageEditPayload {
+        guard let sourceImage = ImageRenderer.render(session) else {
+            throw PromptImageEditError.imageEncodingFailed
+        }
+
+        guard session.hasImageSelection, let selectionRect = session.selectionRect else {
+            return PromptImageEditPayload(
+                image: sourceImage,
+                sourceImage: sourceImage,
+                scope: .fullImage
+            )
+        }
+
+        guard let cropped = ImageSelectionRenderer.crop(sourceImage, normalizedRect: selectionRect) else {
+            throw PromptImageEditError.imageEncodingFailed
+        }
+
+        return PromptImageEditPayload(
+            image: cropped,
+            sourceImage: sourceImage,
+            scope: .selection(selectionRect)
+        )
+    }
+}
+
 struct OpenAIPromptImageEditProvider: PromptImageEditProvider {
     private static let endpoint = URL(string: "https://api.openai.com/v1/images/edits")!
     private static let model = "gpt-image-1.5"

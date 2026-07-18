@@ -114,6 +114,13 @@ final class AppModel: ObservableObject {
         return !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    var promptEditSendsSelectionOnly: Bool {
+        if case .image(let session) = media {
+            return session.hasImageSelection
+        }
+        return false
+    }
+
     var hasRemovedBackground: Bool {
         if case .image(let session) = media {
             return session.backgroundRemovedImage != nil
@@ -640,20 +647,18 @@ final class AppModel: ObservableObject {
             return
         }
 
-        guard let sourceImage = ImageRenderer.render(session) else {
-            errorMessage = PromptImageEditError.imageEncodingFailed.localizedDescription
+        let payload: PromptImageEditPayload
+        do {
+            payload = try PromptImageEditPayloadBuilder.payload(for: session)
+        } catch {
+            errorMessage = error.localizedDescription
             return
         }
-        let selectionRect = session.selectionRect
-        let promptSourceImage: NSImage
-        if let selectionRect {
-            guard let cropped = ImageSelectionRenderer.crop(sourceImage, normalizedRect: selectionRect) else {
-                errorMessage = PromptImageEditError.imageEncodingFailed.localizedDescription
-                return
-            }
-            promptSourceImage = cropped
+        let selectionRect: CGRect?
+        if case .selection(let rect) = payload.scope {
+            selectionRect = rect
         } else {
-            promptSourceImage = sourceImage
+            selectionRect = nil
         }
 
         let sourceURL = session.sourceURL
@@ -670,7 +675,7 @@ final class AppModel: ObservableObject {
             do {
                 let provider = OpenAIPromptImageEditProvider(apiKey: apiKey)
                 let editedImage = try await PromptImageEditService.edit(
-                    image: promptSourceImage,
+                    image: payload.image,
                     prompt: trimmedPrompt,
                     provider: provider
                 )
@@ -678,7 +683,7 @@ final class AppModel: ObservableObject {
                 if let selectionRect {
                     finalImage = Self.composite(
                         editedImage,
-                        into: sourceImage,
+                        into: payload.sourceImage,
                         normalizedRect: selectionRect
                     ) ?? editedImage
                 } else {
