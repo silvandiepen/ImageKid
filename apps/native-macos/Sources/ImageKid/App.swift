@@ -1046,32 +1046,32 @@ struct AppCommands: Commands {
 
         CommandMenu("Tools") {
             Button("View") { currentAppModel?.activeTool = .view }
-                .keyboardShortcut("v", modifiers: [])
+                .keyboardShortcut(Tool.view.menuShortcutKey, modifiers: Tool.view.menuShortcutModifiers)
                 .disabled(currentAppModel == nil)
             Button("Select") { currentAppModel?.activeTool = .select }
-                .keyboardShortcut("s", modifiers: [])
+                .keyboardShortcut(Tool.select.menuShortcutKey, modifiers: Tool.select.menuShortcutModifiers)
                 .disabled(currentAppModel == nil)
             Button("Pick Colour") { currentAppModel?.activeTool = .pickColor }
-                .keyboardShortcut("p", modifiers: [])
+                .keyboardShortcut(Tool.pickColor.menuShortcutKey, modifiers: Tool.pickColor.menuShortcutModifiers)
                 .disabled(currentAppModel == nil)
             Button("Crop") { currentAppModel?.activeTool = .crop }
-                .keyboardShortcut("c", modifiers: [])
+                .keyboardShortcut(Tool.crop.menuShortcutKey, modifiers: Tool.crop.menuShortcutModifiers)
                 .disabled(currentAppModel == nil)
             Divider()
             Button("Draw") { currentAppModel?.activeTool = .draw }
-                .keyboardShortcut("d", modifiers: [])
+                .keyboardShortcut(Tool.draw.menuShortcutKey, modifiers: Tool.draw.menuShortcutModifiers)
                 .disabled(currentAppModel == nil)
             Button("Text") { currentAppModel?.activeTool = .text }
-                .keyboardShortcut("t", modifiers: [])
+                .keyboardShortcut(Tool.text.menuShortcutKey, modifiers: Tool.text.menuShortcutModifiers)
                 .disabled(currentAppModel == nil)
             Divider()
             Button("Resize") { currentAppModel?.activeTool = .resize }
-                .keyboardShortcut("r", modifiers: [])
+                .keyboardShortcut(Tool.resize.menuShortcutKey, modifiers: Tool.resize.menuShortcutModifiers)
                 .disabled(currentAppModel == nil)
             Button(currentAppModel?.hasRemovedBackground == true ? "Restore Background" : "Remove Background") {
                 currentAppModel?.removeBackground()
             }
-            .keyboardShortcut("b", modifiers: [])
+            .keyboardShortcut(Tool.refineBackground.menuShortcutKey, modifiers: Tool.refineBackground.menuShortcutModifiers)
             .disabled(currentAppModel?.canRemoveBackground != true)
             Button("Cancel Current Tool") { currentAppModel?.cancelCurrentTool() }
                 .keyboardShortcut(.cancelAction)

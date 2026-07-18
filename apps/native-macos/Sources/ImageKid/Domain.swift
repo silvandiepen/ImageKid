@@ -42,6 +42,23 @@ public enum Tool: String, CaseIterable, Identifiable {
         case .text: "textformat"
         }
     }
+
+    var menuShortcutKey: KeyEquivalent {
+        switch self {
+        case .view: "v"
+        case .select: "s"
+        case .pickColor: "p"
+        case .crop: "c"
+        case .resize: "r"
+        case .refineBackground: "b"
+        case .draw: "d"
+        case .text: "t"
+        }
+    }
+
+    var menuShortcutModifiers: EventModifiers {
+        [.command, .option]
+    }
 }
 
 enum BackgroundRefinementMode: String, CaseIterable, Identifiable {
