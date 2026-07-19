@@ -1,0 +1,11 @@
+.venv/
+cache/
+out/
+__pycache__/
+*.mlpackage
+*.mlmodelc
+*.pth
+*.onnx
+
+# Downloaded / derived test images for compare_models.py
+testdata/

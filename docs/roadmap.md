@@ -1,6 +1,6 @@
 # Roadmap
 
-The roadmap is ordered so every milestone leaves a demonstrable, testable application. AI upscaling is intentionally excluded.
+The roadmap is ordered so every milestone leaves a demonstrable, testable application. The core milestones below cover the non-AI utility. The optional Best Quality AI add-ons (upscaling and background removal) ship separately from this sequence and must not block it; see `decisions.md` (D-013) and `ios-feasibility.md`.
 
 ## Milestone 0 — Buildable foundation
 
@@ -103,14 +103,14 @@ Exit criteria: annotation boundaries are frame-correct and exports remain synchr
 - Pixel-art-specific scaling.
 - HDR image and video preservation.
 - Recoverable `.imagekid` sessions.
-- Local AI upscaling only after the complete core product is stable.
+- Migrating the Best Quality add-ons from downloaded runtimes to in-process Core ML (see `ios-feasibility.md`).
+- An iOS build reusing the Core ML engines.
 
 ## Permanently out of direction unless explicitly reconsidered
 
-- Cloud processing.
-- Paid APIs or SDKs.
+- Cloud processing for core operation.
+- Paid APIs or SDKs for core operation.
 - Accounts or subscriptions required for core operation.
-- Runtime model downloads.
 - Advertising and behavioural analytics.
 - Full nonlinear video editing.
 - A Photoshop-style permanent editor layout.

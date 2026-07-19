@@ -21,6 +21,7 @@
     "native:test": "cd apps/native-macos && swift test",
     "native:run": "cd apps/native-macos && swift run ImageKid",
     "native:clean": "cd apps/native-macos && swift package clean",
+    "ios:project": "cd apps/native-ios && xcodegen generate",
     "release:project": "cd apps/native-macos && xcodegen generate",
     "release:preflight": "npm run release:project && app-release --config apps/native-macos/release/macos.json --mode preflight",
     "release:screenshots": "npm run release:project && app-release --config apps/native-macos/release/macos.json --mode screenshots",

@@ -2,8 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
-    @StateObject private var modelManager = BackgroundRemovalModelManager()
-    @StateObject private var upscaleManager = UpscaleRuntimeManager()
+    @StateObject private var modelDownloader = ModelDownloader()
     @State private var openAIKey = ""
     @State private var openAIKeyStatus: String?
     @State private var quickActions: [QuickActionDefinition] = []
@@ -250,71 +249,53 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Best Quality")
                             .font(.headline)
-                        Text("A steadier hand for fuzzy hair, tricky edges, and busier pictures.")
+                        Text("A steadier hand for fuzzy hair, tricky edges, and busier pictures. On-device Core ML — no Python runtime.")
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Text(modelManager.isInstalled ? modelManager.installedSizeLabel : "About 180 MB")
+                    Text(CoreMLModel.birefnet.approxSize)
                         .foregroundStyle(.secondary)
                 }
 
-                HStack {
-                    Label(
-                        BackgroundRemovalService.isBestQualityRuntimeAvailable ? "Add-on ready" : "Add-on missing",
-                        systemImage: BackgroundRemovalService.isBestQualityRuntimeAvailable ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
-                    )
-                    .foregroundStyle(BackgroundRemovalService.isBestQualityRuntimeAvailable ? .green : .orange)
+                modelDownloadRow(.birefnet)
 
-                    Spacer()
-
-                    if modelManager.isRuntimeInstalled {
-                        Button("Remove Add-on", role: .destructive) {
-                            modelManager.removeRuntime()
-                        }
-                    } else {
-                        Button(modelManager.isInstallingRuntime ? "Getting Ready…" : "Turn On Add-on") {
-                            modelManager.installRuntime()
-                        }
-                        .disabled(modelManager.isInstallingRuntime)
-                    }
-                }
-
-                HStack {
-                    if modelManager.isInstalled {
-                        Button("Remove Detail Pack", role: .destructive) {
-                            modelManager.remove()
-                        }
-                    } else {
-                        Button(modelManager.isInstalling ? "Fetching Details…" : "Add Detail Pack") {
-                            modelManager.install()
-                        }
-                        .disabled(modelManager.isInstalling)
-                    }
-
-                    if modelManager.isInstalling {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-
-                    if modelManager.isInstallingRuntime {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-                }
-
-                if let error = modelManager.errorMessage {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
-
-                Text("Optional add-on. Once it is ready, everything still happens on this Mac.")
+                Text("Optional download. Once it's on your Mac, everything happens on-device.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
         .padding(20)
+    }
+
+    /// Download / progress / remove control for an optional Core ML model.
+    @ViewBuilder
+    private func modelDownloadRow(_ model: CoreMLModel) -> some View {
+        HStack(spacing: 12) {
+            switch modelDownloader.state(model) {
+            case .ready:
+                Label("Downloaded", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Spacer()
+                Button("Remove", role: .destructive) { modelDownloader.remove(model) }
+            case .downloading(let fraction):
+                ProgressView(value: fraction).frame(width: 150)
+                Spacer()
+                Text("\(Int(fraction * 100))%").foregroundStyle(.secondary).monospacedDigit()
+            case .failed(let message):
+                Label("Download failed", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .help(message)
+                Spacer()
+                Button("Retry") { modelDownloader.download(model) }
+            case .notDownloaded:
+                Label("Not downloaded", systemImage: "arrow.down.circle")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Download") { modelDownloader.download(model) }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
     }
 
     private var upscalePane: some View {
@@ -353,41 +334,11 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Text(upscaleManager.isInstalled ? upscaleManager.installedSizeLabel : "About 70 MB")
+                    Text(CoreMLModel.realESRGAN.approxSize)
                         .foregroundStyle(.secondary)
                 }
 
-                HStack {
-                    Label(
-                        ImageUpscaleService.isBestQualityRuntimeAvailable ? "Add-on ready" : "Add-on missing",
-                        systemImage: ImageUpscaleService.isBestQualityRuntimeAvailable ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
-                    )
-                    .foregroundStyle(ImageUpscaleService.isBestQualityRuntimeAvailable ? .green : .orange)
-
-                    Spacer()
-
-                    if upscaleManager.isInstalled {
-                        Button("Remove Add-on", role: .destructive) {
-                            upscaleManager.remove()
-                        }
-                    } else {
-                        Button(upscaleManager.isInstalling ? "Getting Ready…" : "Turn On Add-on") {
-                            upscaleManager.install()
-                        }
-                        .disabled(upscaleManager.isInstalling)
-                    }
-                }
-
-                if upscaleManager.isInstalling {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-
-                if let error = upscaleManager.errorMessage {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
+                modelDownloadRow(.realESRGAN)
 
                 Text("Auto looks at the image and chooses the stretch that keeps it feeling like itself.")
                     .font(.caption)

@@ -34,11 +34,9 @@ The initial repository is a Swift Package Manager executable. This provides a sm
 
 A signed application target is added during release packaging, when bundle identifiers, entitlements, assets, archives, and notarisation become necessary.
 
-## D-009 — Standard scaling only
+## D-009 — Standard scaling always available (superseded in part by D-013)
 
-The active product uses deterministic high-quality standard interpolation. AI upscaling is deferred and removed from the first-release requirements, architecture, UI, code, and dependency graph.
-
-The historical research document remains for possible future evaluation but creates no implementation commitment.
+The active product uses deterministic high-quality standard interpolation as the always-available default. This decision originally also deferred AI upscaling and removed it from the code and dependency graph; that part is superseded by D-013, which records the shipped Best Quality add-ons.
 
 ## D-010 — Images before processed video
 
@@ -51,3 +49,13 @@ Video has playback, a scrubber, and optional annotation start/end ranges. Multip
 ## D-012 — Buildability is distinct from distribution readiness
 
 The repository must build and test now. App Sandbox entitlements, signing, notarisation, App Store metadata, and a production `.app` archive are separate release tasks and must not be implied by a successful SwiftPM build.
+
+## D-013 — Optional Best Quality add-ons as downloaded local runtimes
+
+ImageKid ships two opt-in Best Quality add-ons alongside the built-in engines: AI upscaling via a downloaded Real-ESRGAN `ncnn-vulkan` runtime, and AI background removal via a downloaded ONNX model plus a locally built `rembg` Python runtime. Both download on demand from Settings, store to Application Support, and run on-device as subprocesses. They remain fully offline at inference time and use no accounts, cloud processing, or paid APIs.
+
+This supersedes the D-009 position that AI upscaling was removed from the code and dependency graph, and it narrows the earlier "no runtime downloads" stance to "no cloud, accounts, or paid APIs." The built-in tiers (Core Image / Lanczos upscaling; Apple Vision background removal) remain the always-available defaults.
+
+## D-014 — Core ML as the cross-platform inference direction
+
+The downloaded-runtime mechanism in D-013 is macOS-specific and cannot move to iOS: iOS has no subprocesses, App Store review prohibits downloading executable code, there is no system Python, and there is no Vulkan. The intended direction is to convert the same models (Real-ESRGAN, ISNet) to Core ML and run inference in-process on both platforms, delivering weights as data rather than as an executable runtime. Adopting Core ML on macOS as well would let both apps share one engine and retire the binary download, Vulkan dependency, and Python runtime. See `ios-feasibility.md`.

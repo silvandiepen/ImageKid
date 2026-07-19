@@ -1,0 +1,54 @@
+name: ImageKidiOS
+options:
+  bundleIdPrefix: com.hakobs
+  deploymentTarget:
+    iOS: "17.0"
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+packages:
+  ImageKidInference:
+    path: ../../packages/ImageKidInference
+targets:
+  ImageKidiOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Sources/ImageKidiOS
+      - path: Models
+        optional: true
+        buildPhase: sources
+    dependencies:
+      - package: ImageKidInference
+    info:
+      path: Sources/ImageKidiOS/Info.plist
+      properties:
+        CFBundleDisplayName: ImageKid
+        NSPhotoLibraryAddUsageDescription: "ImageKid saves exported images to your photo library."
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # Register ImageKid as an editor for images so other apps can "Open in
+        # ImageKid" / share pictures to it, opened in place when allowed.
+        LSSupportsOpeningDocumentsInPlace: true
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Image
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.image
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hakobs.imagekid.ios
+        PRODUCT_NAME: ImageKid
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic

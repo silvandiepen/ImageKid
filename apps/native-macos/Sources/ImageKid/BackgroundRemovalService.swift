@@ -1,20 +1,23 @@
 import AppKit
 import CoreImage
+import CoreML
 import ImageIO
+import ImageKidInference
 import UniformTypeIdentifiers
 import Vision
 
 enum BackgroundRemovalService {
+    /// Best Quality is the downloadable Core ML BiRefNet model (no Python runtime).
     static var isBestQualityRuntimeAvailable: Bool {
-        managedRembgExecutableURL() != nil
+        CoreMLModel.birefnet.isDownloaded
     }
 
-    static func removeBackground(from source: CGImage, engine: BackgroundRemovalEngine) throws -> CGImage {
+    static func removeBackground(from source: CGImage, engine: BackgroundRemovalEngine) async throws -> CGImage {
         switch engine {
         case .builtIn:
             return try removeWithVision(from: source)
         case .bestQuality:
-            return try removeWithRembg(from: source)
+            return try await removeWithCoreML(from: source)
         }
     }
 
@@ -46,76 +49,20 @@ enum BackgroundRemovalService {
         return result
     }
 
-    private static func removeWithRembg(from source: CGImage) throws -> CGImage {
-        guard let rembgURL = managedRembgExecutableURL() else {
-            throw BackgroundRemovalError.bestQualityRuntimeMissing
-        }
-
-        let modelURL = BackgroundRemovalModelConfiguration.modelsDirectory
-            .appendingPathComponent(BackgroundRemovalModelConfiguration.modelFileName)
-        guard (try? BackgroundRemovalAssetVerifier.validateModel(at: modelURL)) != nil else {
+    /// BiRefNet must run in fp32 on the CPU (fp16 on the ANE/GPU overflows on its
+    /// Swin backbone and produces NaNs). Matches the iOS configuration.
+    private static func removeWithCoreML(from source: CGImage) async throws -> CGImage {
+        guard CoreMLModel.birefnet.isDownloaded else {
             throw BackgroundRemovalError.bestQualityModelMissing
         }
-
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ImageKid-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-
-        let inputURL = directory.appendingPathComponent("input.png")
-        let outputURL = directory.appendingPathComponent("output.png")
-        try writePNG(source, to: inputURL)
-
-        let process = Process()
-        process.executableURL = rembgURL
-        process.arguments = [
-            "i",
-            "-m",
-            BackgroundRemovalModelConfiguration.modelName,
-            inputURL.path,
-            outputURL.path
-        ]
-        process.environment = ProcessInfo.processInfo.environment.merging([
-            "U2NET_HOME": BackgroundRemovalModelConfiguration.modelsDirectory.path
-        ]) { _, new in new }
-
-        let errorPipe = Pipe()
-        process.standardError = errorPipe
-        try process.run()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let message = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw BackgroundRemovalError.bestQualityFailed(message ?? "The background peeler stopped with status \(process.terminationStatus).")
-        }
-
-        guard let result = NSImage(contentsOf: outputURL)?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            throw BackgroundRemovalError.renderFailed
-        }
-        return result
-    }
-
-    private static func writePNG(_ image: CGImage, to url: URL) throws {
-        guard let destination = CGImageDestinationCreateWithURL(
-            url as CFURL,
-            UTType.png.identifier as CFString,
-            1,
-            nil
-        ) else {
-            throw BackgroundRemovalError.renderFailed
-        }
-        CGImageDestinationAddImage(destination, image, nil)
-        guard CGImageDestinationFinalize(destination) else {
-            throw BackgroundRemovalError.renderFailed
-        }
-    }
-
-    private static func managedRembgExecutableURL() -> URL? {
-        if BackgroundRemovalAssetVerifier.isManagedRuntimeInstalled {
-            return BackgroundRemovalModelConfiguration.managedRembgExecutableURL
-        }
-        return nil
+        let configuration = MLModelConfiguration()
+        configuration.computeUnits = .cpuOnly
+        let provider = PackageModelProvider(
+            packageURL: CoreMLModel.birefnet.localPackageURL,
+            configuration: configuration
+        )
+        let remover = CoreMLBackgroundRemover(modelProvider: provider)
+        return try await remover.removeBackground(from: source, progress: nil)
     }
 }
 
