@@ -32,6 +32,22 @@ final class InferenceModel: ObservableObject {
     /// The image currently shown and acted on: the latest result, or the source.
     var workingImage: UIImage? { resultImage ?? sourceImage }
 
+    /// Applies a crop expressed as a normalised rectangle (top-left origin) to
+    /// the current working image, making the result the new working image.
+    func applyCrop(normalizedRect: CGRect) {
+        guard let source = workingImage?.normalizedCGImage() else { return }
+        let pixelRect = CGRect(
+            x: normalizedRect.minX * CGFloat(source.width),
+            y: normalizedRect.minY * CGFloat(source.height),
+            width: normalizedRect.width * CGFloat(source.width),
+            height: normalizedRect.height * CGFloat(source.height)
+        ).integral
+        guard let cropped = source.cropping(to: pixelRect) else { return }
+        resultImage = UIImage(cgImage: cropped)
+        resultShareURL = ShareFile.makePNG(from: cropped)
+        statusText = "Cropped"
+    }
+
     func setSource(_ image: UIImage) {
         sourceImage = image
         resultImage = nil

@@ -5,6 +5,7 @@ struct ContentView: View {
     @StateObject private var model = InferenceModel()
     @State private var pickerItem: PhotosPickerItem?
     @State private var isExporting = false
+    @State private var isCropping = false
 
     var body: some View {
         NavigationStack {
@@ -38,6 +39,13 @@ struct ContentView: View {
             .sheet(isPresented: $isExporting) {
                 if let cgImage = model.workingImage?.normalizedCGImage() {
                     ExportView(image: cgImage)
+                }
+            }
+            .sheet(isPresented: $isCropping) {
+                if let image = model.workingImage {
+                    CropView(image: image) { rect in
+                        model.applyCrop(normalizedRect: rect)
+                    }
                 }
             }
             .alert(
@@ -104,6 +112,10 @@ struct ContentView: View {
                 ) {
                     model.upscale(scale: 4, bestQuality: true)
                 }
+            }
+
+            section("Transform") {
+                actionButton("Crop", systemImage: "crop") { isCropping = true }
             }
 
             if !model.bestQualityBackgroundAvailable || !model.bestQualityUpscaleAvailable {
