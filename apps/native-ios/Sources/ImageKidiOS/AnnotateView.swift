@@ -14,6 +14,10 @@ struct AnnotateView: View {
     @State private var kind: Annotation.Kind = .rectangle
     @State private var color: Color = .red
     @State private var widthFraction: CGFloat = 0.008
+    @State private var textSizeFraction: CGFloat = 0.05
+    @State private var isEnteringText = false
+    @State private var textInput = ""
+    @State private var pendingTextLocation: CGPoint?
 
     var body: some View {
         NavigationStack {
@@ -29,6 +33,13 @@ struct AnnotateView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Apply") { apply() }.bold().disabled(annotations.isEmpty)
                 }
+            }
+            .alert("Add text", isPresented: $isEnteringText) {
+                TextField("Text", text: $textInput)
+                Button("Add") { addText() }
+                Button("Cancel", role: .cancel) { pendingTextLocation = nil }
+            } message: {
+                Text("Enter the text to place on the image.")
             }
         }
     }
@@ -47,6 +58,15 @@ struct AnnotateView: View {
 
                 Canvas { context, _ in
                     for annotation in annotations + [draft].compactMap({ $0 }) {
+                        if annotation.isText {
+                            let resolved = context.resolve(
+                                Text(annotation.text.isEmpty ? " " : annotation.text)
+                                    .font(.system(size: annotation.fontSize(in: imageRect)))
+                                    .foregroundColor(annotation.color)
+                            )
+                            context.draw(resolved, at: annotation.textOrigin(in: imageRect), anchor: .topLeading)
+                            continue
+                        }
                         context.stroke(
                             Path(annotation.path(in: imageRect)),
                             with: .color(annotation.color),
@@ -70,6 +90,7 @@ struct AnnotateView: View {
     private func drawGesture(in imageRect: CGRect) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onChanged { value in
+                guard kind != .text else { return }
                 let point = normalized(value.location, in: imageRect)
                 if draft == nil {
                     var new = Annotation(kind: kind, color: color, widthFraction: widthFraction)
@@ -82,10 +103,27 @@ struct AnnotateView: View {
                     if kind == .freehand { draft?.points.append(point) }
                 }
             }
-            .onEnded { _ in
+            .onEnded { value in
+                if kind == .text {
+                    pendingTextLocation = normalized(value.location, in: imageRect)
+                    textInput = ""
+                    isEnteringText = true
+                    return
+                }
                 if let draft { annotations.append(draft) }
                 draft = nil
             }
+    }
+
+    private func addText() {
+        let trimmed = textInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let location = pendingTextLocation else { return }
+        var annotation = Annotation(kind: .text, color: color, widthFraction: widthFraction)
+        annotation.start = location
+        annotation.text = trimmed
+        annotation.fontFraction = textSizeFraction
+        annotations.append(annotation)
+        pendingTextLocation = nil
     }
 
     private func normalized(_ point: CGPoint, in imageRect: CGRect) -> CGPoint {
@@ -108,8 +146,13 @@ struct AnnotateView: View {
                 ColorPicker("Colour", selection: $color, supportsOpacity: false)
                     .labelsHidden()
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Thickness").font(.caption).foregroundStyle(.secondary)
-                    Slider(value: $widthFraction, in: 0.002...0.02)
+                    if kind == .text {
+                        Text("Text size").font(.caption).foregroundStyle(.secondary)
+                        Slider(value: $textSizeFraction, in: 0.02...0.15)
+                    } else {
+                        Text("Thickness").font(.caption).foregroundStyle(.secondary)
+                        Slider(value: $widthFraction, in: 0.002...0.02)
+                    }
                 }
                 Button {
                     if !annotations.isEmpty { annotations.removeLast() }

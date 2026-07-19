@@ -13,6 +13,7 @@ struct Annotation: Identifiable {
         case line
         case arrow
         case freehand
+        case text
 
         var id: String { rawValue }
 
@@ -23,6 +24,7 @@ struct Annotation: Identifiable {
             case .line: return "Line"
             case .arrow: return "Arrow"
             case .freehand: return "Draw"
+            case .text: return "Text"
             }
         }
 
@@ -33,6 +35,7 @@ struct Annotation: Identifiable {
             case .line: return "line.diagonal"
             case .arrow: return "arrow.up.right"
             case .freehand: return "scribble"
+            case .text: return "textformat"
             }
         }
     }
@@ -45,6 +48,20 @@ struct Annotation: Identifiable {
     var start: CGPoint = .zero
     var end: CGPoint = .zero
     var points: [CGPoint] = []
+    /// Text content and size (fraction of image height) for `.text` annotations.
+    var text: String = ""
+    var fontFraction: CGFloat = 0.05
+
+    var isText: Bool { kind == .text }
+
+    /// Top-left origin of a text annotation, mapped into `rect`.
+    func textOrigin(in rect: CGRect) -> CGPoint {
+        CGPoint(x: rect.minX + start.x * rect.width, y: rect.minY + start.y * rect.height)
+    }
+
+    func fontSize(in rect: CGRect) -> CGFloat {
+        max(1, fontFraction * rect.height)
+    }
 
     /// Absolute stroke width for a given target rectangle (view or pixel space).
     func strokeWidth(in rect: CGRect) -> CGFloat {
@@ -72,6 +89,8 @@ struct Annotation: Identifiable {
             guard let first = points.first else { break }
             path.move(to: map(first))
             for point in points.dropFirst() { path.addLine(to: map(point)) }
+        case .text:
+            break // text is drawn separately, not stroked
         }
         return path
     }
@@ -124,6 +143,17 @@ enum AnnotationRasterizer {
             cg.setLineJoin(.round)
             let fullRect = CGRect(origin: .zero, size: pixelSize)
             for annotation in annotations {
+                if annotation.isText {
+                    let attributes: [NSAttributedString.Key: Any] = [
+                        .font: UIFont.systemFont(ofSize: annotation.fontSize(in: fullRect)),
+                        .foregroundColor: UIColor(annotation.color)
+                    ]
+                    (annotation.text as NSString).draw(
+                        at: annotation.textOrigin(in: fullRect),
+                        withAttributes: attributes
+                    )
+                    continue
+                }
                 cg.setStrokeColor(UIColor(annotation.color).cgColor)
                 cg.setLineWidth(annotation.strokeWidth(in: fullRect))
                 cg.addPath(annotation.path(in: fullRect))
