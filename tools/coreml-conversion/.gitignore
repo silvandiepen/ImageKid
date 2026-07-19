@@ -6,3 +6,6 @@ __pycache__/
 *.mlmodelc
 *.pth
 *.onnx
+
+# Downloaded / derived test images for compare_models.py
+testdata/

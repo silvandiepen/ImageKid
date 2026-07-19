@@ -8,10 +8,16 @@ struct AnnotateView: View {
     let image: UIImage
     let onApply: (CGImage) -> Void
 
+    init(image: UIImage, initialKind: Annotation.Kind = .rectangle, onApply: @escaping (CGImage) -> Void) {
+        self.image = image
+        self.onApply = onApply
+        _kind = State(initialValue: initialKind)
+    }
+
     @Environment(\.dismiss) private var dismiss
     @State private var annotations: [Annotation] = []
     @State private var draft: Annotation?
-    @State private var kind: Annotation.Kind = .rectangle
+    @State private var kind: Annotation.Kind
     @State private var color: Color = .red
     @State private var widthFraction: CGFloat = 0.008
     @State private var textSizeFraction: CGFloat = 0.05

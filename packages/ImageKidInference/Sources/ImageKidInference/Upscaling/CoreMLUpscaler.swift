@@ -124,13 +124,14 @@ public actor CoreMLUpscaler: ImageUpscaler {
         // Real-ESRGAN produces a fixed 4x result; resize to the exact target.
         let targetWidth = Int(targetSize.width.rounded())
         let targetHeight = Int(targetSize.height.rounded())
+        let scaled: CGImage
         if native.width == targetWidth && native.height == targetHeight {
-            return native
+            scaled = native
+        } else {
+            scaled = ImageConversion.resize(native, width: targetWidth, height: targetHeight) ?? native
         }
-        guard let resized = ImageConversion.resize(native, width: targetWidth, height: targetHeight) else {
-            return native
-        }
-        return resized
+        // Real-ESRGAN is RGB-only; restore the source's transparency.
+        return ImageConversion.reapplyAlpha(from: image, onto: scaled)
     }
 
     private func loadModel() async throws -> MLModel {

@@ -66,7 +66,7 @@ public actor CoreMLBackgroundRemover: BackgroundRemover {
         let provider = try MLDictionaryFeatureProvider(
             dictionary: [configuration.inputFeatureName: MLFeatureValue(pixelBuffer: buffer)]
         )
-        let result = try model.prediction(from: provider)
+        let result = try await model.prediction(from: provider)
 
         guard let feature = result.featureValue(for: configuration.outputFeatureName) else {
             throw InferenceError.outputMissing

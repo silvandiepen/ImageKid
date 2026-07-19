@@ -4,54 +4,83 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ContentView: View {
-    @StateObject private var model = InferenceModel()
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @ObservedObject var model: InferenceModel
     @State private var pickerItem: PhotosPickerItem?
     @State private var player: AVPlayer?
+    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
+    @State private var preferredColumn: NavigationSplitViewColumn = .detail
     @State private var isExporting = false
     @State private var isCropping = false
     @State private var isResizing = false
-    @State private var isAnnotating = false
     @State private var isSampling = false
     @State private var isRefining = false
     @State private var isPromptEditing = false
+    @State private var isBackgroundTool = false
+    @State private var isDrawing = false
+    @State private var isTexting = false
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 16) {
-                preview
-                if model.workingImage != nil {
-                    ScrollView { controls }
-                        .frame(maxHeight: 340)
-                } else if model.videoURL != nil {
+        NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: $preferredColumn) {
+            gallerySidebar
+        } detail: {
+            NavigationStack {
+                withEditorSheets(editorContent)
+            }
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+
+    private var editorContent: some View {
+        ZStack(alignment: .bottom) {
+            preview
+                .ignoresSafeArea(edges: .bottom)
+
+            VStack(spacing: 10) {
+                statusOverlay
+                if model.videoURL != nil {
                     Text("Video playback only. Editing tools apply to images.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                statusRow
-            }
-            .padding()
-            .navigationTitle("ImageKid")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    PhotosPicker(selection: $pickerItem, matching: .any(of: [.images, .videos])) {
-                        Label("Choose", systemImage: "photo.on.rectangle")
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    if model.workingImage != nil {
-                        Button {
-                            isExporting = true
-                        } label: {
-                            Label("Export", systemImage: "square.and.arrow.up")
-                        }
-                    }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(.regularMaterial, in: Capsule())
+                } else if model.workingImage != nil {
+                    bottomToolbar
                 }
             }
-            .onChange(of: pickerItem) { _, newValue in
-                loadPickedImage(newValue)
+            .padding(.bottom, 6)
+        }
+        .navigationTitle("ImageKid")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { editorToolbar }
+        .onChange(of: pickerItem) { _, newValue in
+            loadPickedImage(newValue)
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var editorToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            PhotosPicker(selection: $pickerItem, matching: .any(of: [.images, .videos])) {
+                Label("Choose", systemImage: "photo.on.rectangle")
             }
+        }
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            if model.workingImage != nil {
+                Button { model.undo() } label: { Image(systemName: "arrow.uturn.backward") }
+                    .disabled(!model.canUndo)
+                Button { model.redo() } label: { Image(systemName: "arrow.uturn.forward") }
+                    .disabled(!model.canRedo)
+                Button { isExporting = true } label: { Image(systemName: "square.and.arrow.up") }
+            }
+        }
+    }
+
+    /// The tool sheets and error alert, split out to keep `body` type-checkable.
+    @ViewBuilder
+    private func withEditorSheets(_ content: some View) -> some View {
+        content
             .sheet(isPresented: $isExporting) {
                 if let cgImage = model.workingImage?.normalizedCGImage() {
                     ExportView(image: cgImage)
@@ -66,21 +95,28 @@ struct ContentView: View {
             }
             .sheet(isPresented: $isResizing) {
                 if let cgImage = model.workingImage?.normalizedCGImage() {
-                    ResizeView(pixelSize: CGSize(width: cgImage.width, height: cgImage.height)) { width, height in
+                    ResizeView(model: model, pixelSize: CGSize(width: cgImage.width, height: cgImage.height)) { width, height in
                         model.applyResize(width: width, height: height)
                     }
                 }
             }
-            .sheet(isPresented: $isAnnotating) {
+            .sheet(isPresented: $isDrawing) {
                 if let image = model.workingImage {
-                    AnnotateView(image: image) { rendered in
+                    AnnotateView(image: image, initialKind: .freehand) { rendered in
+                        model.applyEditedImage(rendered, status: "Annotated")
+                    }
+                }
+            }
+            .sheet(isPresented: $isTexting) {
+                if let image = model.workingImage {
+                    AnnotateView(image: image, initialKind: .text) { rendered in
                         model.applyEditedImage(rendered, status: "Annotated")
                     }
                 }
             }
             .sheet(isPresented: $isSampling) {
                 if let cgImage = model.workingImage?.normalizedCGImage() {
-                    ColorSampleView(image: cgImage)
+                    ColorSampleView(image: cgImage, model: model)
                 }
             }
             .sheet(isPresented: $isRefining) {
@@ -96,6 +132,9 @@ struct ContentView: View {
                     model.promptEdit(prompt: prompt, apiKey: apiKey)
                 }
             }
+            .sheet(isPresented: $isBackgroundTool) {
+                BackgroundToolSheet(model: model) { isRefining = true }
+            }
             .alert(
                 "Something went wrong",
                 isPresented: Binding(
@@ -105,28 +144,40 @@ struct ContentView: View {
                 actions: { Button("OK", role: .cancel) {} },
                 message: { Text(model.errorMessage ?? "") }
             )
-        }
     }
+
+    private var isRegularWidth: Bool { horizontalSizeClass == .regular }
+
+    /// On iPad the canvas is framed and centred instead of stretching edge-to-edge.
+    private var canvasMaxWidth: CGFloat { isRegularWidth ? 1000 : .infinity }
 
     private var preview: some View {
         ZStack {
-            CheckerboardBackground()
+            Color(.systemGroupedBackground).ignoresSafeArea()
+
             if let player {
                 VideoPlayer(player: player)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .padding(isRegularWidth ? 24 : 10)
+                    .frame(maxWidth: canvasMaxWidth)
             } else if let display = model.workingImage {
-                ZoomableImageView(image: display)
-                    .padding(8)
-            } else {
-                ContentUnavailableView(
-                    "No media",
-                    systemImage: "photo",
-                    description: Text("Choose a photo to edit, or a video to play.")
+                // Checkerboard only sits behind an actual image (transparency read-out).
+                ZStack {
+                    CheckerboardBackground()
+                    ZoomableImageView(image: display).padding(8)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(Color(.separator), lineWidth: 1)
                 )
+                .padding(isRegularWidth ? 24 : 8)
+                .frame(maxWidth: canvasMaxWidth)
+            } else {
+                emptyState
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay {
             if model.isBusy {
                 ProgressView(value: model.progress)
@@ -137,106 +188,146 @@ struct ContentView: View {
         }
     }
 
-    private var controls: some View {
-        VStack(spacing: 12) {
-            section("Background") {
-                actionButton("Remove (Built-in)", systemImage: "person.crop.rectangle") {
-                    model.removeBackground(bestQuality: false)
-                }
-                actionButton(
-                    "Remove (Best Quality)",
-                    systemImage: "sparkles",
-                    enabled: model.bestQualityBackgroundAvailable
-                ) {
-                    model.removeBackground(bestQuality: true)
-                }
-                actionButton("Refine cutout", systemImage: "lasso") { isRefining = true }
-            }
-
-            section("Upscale") {
-                actionButton("2× (Standard)", systemImage: "arrow.up.left.and.arrow.down.right") {
-                    model.upscale(scale: 2, bestQuality: false)
-                }
-                actionButton(
-                    "4× (Best Quality)",
-                    systemImage: "sparkles",
-                    enabled: model.bestQualityUpscaleAvailable
-                ) {
-                    model.upscale(scale: 4, bestQuality: true)
-                }
-            }
-
-            section("Transform") {
-                actionButton("Crop", systemImage: "crop") { isCropping = true }
-                actionButton("Resize", systemImage: "arrow.up.left.and.arrow.down.right.square") { isResizing = true }
-            }
-
-            section("Annotate") {
-                actionButton("Draw, shapes, text", systemImage: "pencil.tip.crop.circle") { isAnnotating = true }
-            }
-
-            section("Inspect") {
-                actionButton("Colour picker", systemImage: "eyedropper") { isSampling = true }
-            }
-
-            section("AI") {
-                actionButton("Prompt edit", systemImage: "wand.and.stars") { isPromptEditing = true }
-            }
-
-            if !model.bestQualityBackgroundAvailable || !model.bestQualityUpscaleAvailable {
-                Text("Best Quality needs the Core ML models bundled in the app. See tools/coreml-conversion.")
-                    .font(.footnote)
+    /// Friendly empty state with a prominent add affordance (works on iPhone and iPad).
+    private var emptyState: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "photo.on.rectangle.angled")
+                .font(.system(size: 54))
+                .foregroundStyle(.secondary)
+            VStack(spacing: 6) {
+                Text("No pictures yet")
+                    .font(.title2.weight(.bold))
+                Text("Add a photo to edit, or a video to play. Everything you open stays in your workspace above.")
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
+            }
+            PhotosPicker(selection: $pickerItem, matching: .any(of: [.images, .videos])) {
+                Label("Add Photo or Video", systemImage: "plus")
+                    .font(.headline)
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 12)
+            }
+            .buttonStyle(.borderedProminent)
+            .clipShape(Capsule())
+        }
+        .frame(maxWidth: 460)
+        .padding(40)
+    }
+
+    /// Sidebar listing every picture in the workspace (toggleable, not always shown).
+    private var gallerySidebar: some View {
+        List(selection: sidebarSelection) {
+            if model.items.isEmpty {
+                Text("No pictures yet")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(model.items) { item in
+                    HStack(spacing: 12) {
+                        Image(uiImage: item.current)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 46, height: 46)
+                            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    .strokeBorder(Color(.separator))
+                            )
+                        Text(itemLabel(item))
+                    }
+                    .tag(item.id)
+                }
+                .onDelete { offsets in
+                    for index in offsets { model.removeItem(model.items[index].id) }
+                }
+            }
+        }
+        .navigationTitle("Pictures")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                PhotosPicker(selection: $pickerItem, matching: .any(of: [.images, .videos])) {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Add picture")
             }
         }
     }
 
-    private var statusRow: some View {
-        HStack(spacing: 16) {
-            if let statusText = model.statusText {
-                Text(statusText)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+    private var sidebarSelection: Binding<UUID?> {
+        Binding(
+            get: { model.selectedItemID },
+            set: { newValue in
+                if let id = newValue {
+                    player = nil
+                    model.selectItem(id)
+                    preferredColumn = .detail
+                }
             }
-            Spacer()
-            if model.sourceImage != nil {
-                Button { model.undo() } label: { Image(systemName: "arrow.uturn.backward") }
-                    .disabled(!model.canUndo)
-                Button { model.redo() } label: { Image(systemName: "arrow.uturn.forward") }
-                    .disabled(!model.canRedo)
-                if model.isEdited {
+        )
+    }
+
+    private func itemLabel(_ item: EditorItem) -> String {
+        if let index = model.items.firstIndex(where: { $0.id == item.id }) {
+            return "Picture \(index + 1)"
+        }
+        return "Picture"
+    }
+
+    /// Floating status pill above the toolbar (mirrors the macOS viewport status).
+    @ViewBuilder
+    private var statusOverlay: some View {
+        if let statusText = model.statusText, !statusText.isEmpty {
+            HStack(spacing: 8) {
+                if model.isBusy { ProgressView().controlSize(.small) }
+                Text(statusText).font(.subheadline)
+                if model.isEdited && !model.isBusy {
+                    Divider().frame(height: 14)
                     Button("Revert") { model.revertToOriginal() }
                         .font(.subheadline)
                 }
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(.regularMaterial, in: Capsule())
+            .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
         }
-        .frame(minHeight: 20)
     }
 
-    private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.headline)
-            HStack(spacing: 10) { content() }
+    /// macOS-style floating tool bar; each tool opens a sheet. Order mirrors the
+    /// macOS toolbar (pan/select are omitted — on touch you pan/zoom directly).
+    private var bottomToolbar: some View {
+        HStack(spacing: 5) {
+            toolButton("eyedropper", "Colour picker") { isSampling = true }
+            toolButton("crop", "Crop") { isCropping = true }
+            toolButton("arrow.up.left.and.arrow.down.right", "Resize") { isResizing = true }
+            toolButton("pencil.tip.crop.circle", "Draw") { isDrawing = true }
+            toolButton("textformat", "Text") { isTexting = true }
+            Divider().frame(height: 26).padding(.horizontal, 2)
+            toolButton("eraser", "Remove background") { isBackgroundTool = true }
+            toolButton("sparkles", "Magic edit") { isPromptEditing = true }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(.white.opacity(0.12))
+        )
+        .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
+        .disabled(model.isBusy)
     }
 
-    private func actionButton(
-        _ title: String,
-        systemImage: String,
-        enabled: Bool = true,
-        action: @escaping () -> Void
-    ) -> some View {
+    private func toolButton(_ symbol: String, _ label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .frame(maxWidth: .infinity)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+            Image(systemName: symbol)
+                .font(.system(size: 18, weight: .medium))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.primary)
+                .frame(width: 40, height: 40)
+                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
         }
-        .buttonStyle(.borderedProminent)
-        .disabled(!enabled || model.isBusy || model.sourceImage == nil)
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     private func loadPickedImage(_ item: PhotosPickerItem?) {
@@ -282,5 +373,5 @@ private struct CheckerboardBackground: View {
 }
 
 #Preview {
-    ContentView()
+    ContentView(model: InferenceModel())
 }

@@ -18,17 +18,37 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: Sources/ImageKidiOS
+      - path: Models
+        optional: true
+        buildPhase: sources
     dependencies:
       - package: ImageKidInference
+    info:
+      path: Sources/ImageKidiOS/Info.plist
+      properties:
+        CFBundleDisplayName: ImageKid
+        NSPhotoLibraryAddUsageDescription: "ImageKid saves exported images to your photo library."
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # Register ImageKid as an editor for images so other apps can "Open in
+        # ImageKid" / share pictures to it, opened in place when allowed.
+        LSSupportsOpeningDocumentsInPlace: true
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Image
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.image
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hakobs.imagekid.ios
         PRODUCT_NAME: ImageKid
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: ImageKid
-        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: "ImageKid saves exported images to your photo library."
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortraitUpsideDown"
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic

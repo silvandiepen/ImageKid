@@ -1,97 +1,264 @@
 import CoreGraphics
+import CoreML
 import Foundation
 import ImageKidInference
 import UIKit
 
-/// Drives the ImageKidInference engines and holds the editable working image
-/// with an undo/redo history. All published state is main-actor isolated; the
-/// heavy model work runs inside the engine actors.
+/// The background-removal engine the user can pick.
+enum BackgroundEngine: String, CaseIterable, Identifiable {
+    case vision    // Built-in, Apple Vision — always available.
+    case birefnet  // Best quality, BiRefNet (MIT).
+    case u2net     // U²-Net (Apache-2.0).
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .vision: "Built-in (Vision)"
+        case .birefnet: "Best (BiRefNet)"
+        case .u2net: "U²-Net"
+        }
+    }
+
+    var systemImage: String {
+        self == .vision ? "person.crop.rectangle" : "sparkles"
+    }
+}
+
+/// Upscale engine choice, mirroring the macOS app's Standard / Best Quality.
+enum UpscaleEngineChoice: String, CaseIterable, Identifiable {
+    case standard
+    case bestQuality
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .standard: "Standard"
+        case .bestQuality: "Best Quality"
+        }
+    }
+
+    /// Fast (Core Image) vs slow-but-best (Real-ESRGAN model).
+    var speedLabel: String {
+        switch self {
+        case .standard: "Fast"
+        case .bestQuality: "Slow"
+        }
+    }
+}
+
+/// One picture the user is working on: its original, current edit, per-item
+/// undo/redo history, and saved colour swatches. Value type so mutations flow
+/// through the model's `@Published items` array and republish to SwiftUI.
+struct EditorItem: Identifiable {
+    let id = UUID()
+    let sourceImage: UIImage
+    var current: UIImage
+    var undoStack: [UIImage] = []
+    var redoStack: [UIImage] = []
+    var sampledColors: [SampledColor] = []
+
+    init(source: UIImage) {
+        self.sourceImage = source
+        self.current = source
+    }
+}
+
+/// Drives the ImageKidInference engines and holds a list of pictures being
+/// edited, each with its own undo/redo history. All published state is
+/// main-actor isolated; the heavy model work runs inside the engine actors.
 @MainActor
 final class InferenceModel: ObservableObject {
-    @Published private(set) var sourceImage: UIImage?
-    @Published private(set) var current: UIImage?
+    /// Every picture the user has opened this session (the iOS "workspace").
+    @Published var items: [EditorItem] = []
+    @Published var selectedItemID: UUID?
     @Published private(set) var videoURL: URL?
     @Published var statusText: String?
     @Published var progress: Double?
     @Published var isBusy = false
     @Published var errorMessage: String?
 
-    private var undoStack: [UIImage] = []
-    private var redoStack: [UIImage] = []
+    private var activeIndex: Int? {
+        guard let selectedItemID else { return nil }
+        return items.firstIndex { $0.id == selectedItemID }
+    }
+
+    var active: EditorItem? { activeIndex.map { items[$0] } }
 
     // Built-in engines: always available, no model download.
     private let visionRemover = VisionBackgroundRemover()
 
-    // Best Quality engines: available only when the converted models are present
-    // in the app bundle (drag the .mlpackage files into the target — Xcode
-    // compiles them to .mlmodelc). See tools/coreml-conversion.
-    private let isnetProvider = BundledModelProvider(name: "ISNet", bundle: .main)
-    private let realESRGANProvider = BundledModelProvider(name: "RealESRGAN", bundle: .main)
-    private lazy var isnetRemover = CoreMLBackgroundRemover(modelProvider: isnetProvider)
-    private lazy var realESRGANUpscaler = CoreMLUpscaler(modelProvider: realESRGANProvider)
+    // Best Quality engines download their Core ML models on demand from R2 (see
+    // ModelDownloader) and cache them in Application Support. Until a model is
+    // downloaded, its engine is unavailable.
+    //
+    // BiRefNet must run in fp32 on the CPU, NOT the Neural Engine or GPU: those
+    // run it in fp16 and overflow on high-activation regions (its Swin backbone),
+    // producing NaNs that wipe the mask. CPU is fp32 and correct. U²-Net and
+    // Real-ESRGAN are plain CNNs with bounded activations — they stay on the fast
+    // default (Neural Engine) path.
+    private static func cpuOnlyConfiguration() -> MLModelConfiguration {
+        let configuration = MLModelConfiguration()
+        configuration.computeUnits = .cpuOnly
+        return configuration
+    }
 
-    var bestQualityBackgroundAvailable: Bool { isnetProvider.isAvailable }
-    var bestQualityUpscaleAvailable: Bool { realESRGANProvider.isAvailable }
+    let downloader = ModelDownloader()
+
+    // Providers point at the downloaded package in Application Support. They report
+    // unavailable until the model files are present, then compile on first use.
+    private lazy var birefnetProvider = PackageModelProvider(
+        packageURL: downloader.localPackageURL(for: .birefnet),
+        configuration: InferenceModel.cpuOnlyConfiguration()
+    )
+    private lazy var u2netProvider = PackageModelProvider(
+        packageURL: downloader.localPackageURL(for: .u2net)
+    )
+    private lazy var realESRGANProvider = PackageModelProvider(
+        packageURL: downloader.localPackageURL(for: .realESRGAN)
+    )
+    private lazy var birefnetRemover = CoreMLBackgroundRemover(modelProvider: birefnetProvider)
+    private lazy var u2netRemover = CoreMLBackgroundRemover(
+        modelProvider: u2netProvider,
+        configuration: CoreMLBackgroundRemoverConfiguration(inputSize: CGSize(width: 320, height: 320))
+    )
+    // The RealESRGAN model has a fixed 256×256 input (the reliable conversion
+    // path); the tiler resizes each tile to match. Keep in sync with
+    // tools/coreml-conversion (`--fixed-size 256`).
+    private lazy var realESRGANUpscaler = CoreMLUpscaler(
+        modelProvider: realESRGANProvider,
+        configuration: CoreMLUpscalerConfiguration(
+            fixedInputSize: CGSize(width: 256, height: 256)
+        )
+    )
+
+    /// Background engines available now (Vision always; Core ML ones when downloaded).
+    var availableBackgroundEngines: [BackgroundEngine] {
+        BackgroundEngine.allCases.filter { engine in
+            switch engine {
+            case .vision: true
+            case .birefnet: downloader.isDownloaded(.birefnet)
+            case .u2net: downloader.isDownloaded(.u2net)
+            }
+        }
+    }
+
+    var bestQualityUpscaleAvailable: Bool { downloader.isDownloaded(.realESRGAN) }
+
+    init() {
+        // Re-publish so views observing this model update as downloads progress.
+        downloader.onChange = { [weak self] in self?.objectWillChange.send() }
+    }
+
+    /// The original and current image of the selected picture.
+    var sourceImage: UIImage? { active?.sourceImage }
+    var current: UIImage? { active?.current }
 
     /// The image currently shown and acted on.
     var workingImage: UIImage? { current }
 
-    var canUndo: Bool { !undoStack.isEmpty }
-    var canRedo: Bool { !redoStack.isEmpty }
+    var canUndo: Bool { active.map { !$0.undoStack.isEmpty } ?? false }
+    var canRedo: Bool { active.map { !$0.redoStack.isEmpty } ?? false }
     var isEdited: Bool { canUndo || canRedo }
 
-    // MARK: Source and history
+    /// Saved colour swatches for the selected picture (persist across sheets).
+    var sampledColors: [SampledColor] { active?.sampledColors ?? [] }
 
+    // MARK: Workspace (list of pictures)
+
+    /// Adds a picture to the workspace and selects it for editing.
     func setSource(_ image: UIImage) {
         videoURL = nil
-        sourceImage = image
-        current = image
-        undoStack.removeAll()
-        redoStack.removeAll()
+        let item = EditorItem(source: image)
+        items.append(item)
+        selectedItemID = item.id
         errorMessage = nil
         statusText = nil
         progress = nil
     }
 
+    func selectItem(_ id: UUID) {
+        guard items.contains(where: { $0.id == id }) else { return }
+        videoURL = nil
+        selectedItemID = id
+        statusText = nil
+        progress = nil
+    }
+
+    func removeItem(_ id: UUID) {
+        items.removeAll { $0.id == id }
+        if selectedItemID == id {
+            selectedItemID = items.last?.id
+        }
+    }
+
+    /// Opens an image handed to ImageKid by another app ("Open in" / share sheet).
+    func openExternalImage(at url: URL) {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url), let image = UIImage(data: data) else {
+            errorMessage = "Couldn't open that image."
+            return
+        }
+        setSource(image)
+    }
+
     /// Switches to video mode (playback only — the image tools do not apply).
     func setVideo(_ url: URL) {
         videoURL = url
-        sourceImage = nil
-        current = nil
-        undoStack.removeAll()
-        redoStack.removeAll()
         errorMessage = nil
         statusText = "Video loaded"
         progress = nil
     }
 
+    // MARK: Colour swatches
+
+    func addSampledColor(_ colour: SampledColor) {
+        guard let index = activeIndex else { return }
+        items[index].sampledColors.append(colour)
+    }
+
+    func removeSampledColor(_ id: UUID) {
+        guard let index = activeIndex else { return }
+        items[index].sampledColors.removeAll { $0.id == id }
+    }
+
+    func clearSampledColors() {
+        guard let index = activeIndex else { return }
+        items[index].sampledColors.removeAll()
+    }
+
+    // MARK: History
+
     /// Commits a new working image and records the previous one for undo.
     private func commit(_ image: CGImage, status: String) {
-        if let current { undoStack.append(current) }
-        redoStack.removeAll()
-        current = UIImage(cgImage: image)
+        guard let index = activeIndex else { return }
+        items[index].undoStack.append(items[index].current)
+        items[index].redoStack.removeAll()
+        items[index].current = UIImage(cgImage: image)
         statusText = status
     }
 
     func undo() {
-        guard let previous = undoStack.popLast() else { return }
-        if let current { redoStack.append(current) }
-        current = previous
+        guard let index = activeIndex, let previous = items[index].undoStack.popLast() else { return }
+        items[index].redoStack.append(items[index].current)
+        items[index].current = previous
         statusText = "Undo"
     }
 
     func redo() {
-        guard let next = redoStack.popLast() else { return }
-        if let current { undoStack.append(current) }
-        current = next
+        guard let index = activeIndex, let next = items[index].redoStack.popLast() else { return }
+        items[index].undoStack.append(items[index].current)
+        items[index].current = next
         statusText = "Redo"
     }
 
     func revertToOriginal() {
-        guard let sourceImage, let current, current !== sourceImage else { return }
-        undoStack.append(current)
-        redoStack.removeAll()
-        self.current = sourceImage
+        guard let index = activeIndex, items[index].current !== items[index].sourceImage else { return }
+        items[index].undoStack.append(items[index].current)
+        items[index].redoStack.removeAll()
+        items[index].current = items[index].sourceImage
         statusText = "Reverted"
     }
 
@@ -125,19 +292,23 @@ final class InferenceModel: ObservableObject {
 
     // MARK: Inference edits
 
-    func removeBackground(bestQuality: Bool) {
-        run(status: "Done") { [self] progress in
+    func removeBackground(engine: BackgroundEngine) {
+        run(status: "Background removed") { [self] progress in
             guard let source = workingImage?.normalizedCGImage() else {
                 throw InferenceError.inputPreparationFailed
             }
-            if bestQuality {
-                return try await isnetRemover.removeBackground(from: source, progress: progress)
+            switch engine {
+            case .vision:
+                return try await visionRemover.removeBackground(from: source, progress: progress)
+            case .birefnet:
+                return try await birefnetRemover.removeBackground(from: source, progress: progress)
+            case .u2net:
+                return try await u2netRemover.removeBackground(from: source, progress: progress)
             }
-            return try await visionRemover.removeBackground(from: source, progress: progress)
         }
     }
 
-    func upscale(scale: CGFloat, bestQuality: Bool) {
+    func upscale(scale: CGFloat, engine: UpscaleEngineChoice, contentMode: UpscaleContentMode) {
         run(status: "Upscaled") { [self] progress in
             guard let source = workingImage?.normalizedCGImage() else {
                 throw InferenceError.inputPreparationFailed
@@ -146,11 +317,15 @@ final class InferenceModel: ObservableObject {
                 width: CGFloat(source.width) * scale,
                 height: CGFloat(source.height) * scale
             )
-            if bestQuality {
+            switch engine {
+            case .bestQuality:
                 return try await realESRGANUpscaler.upscale(source, to: target, progress: progress)
+            case .standard:
+                let resolved = UpscaleContentMode.resolved(contentMode, for: source)
+                let sharpening: CoreImageUpscaler.Sharpening = resolved == .textAndUI ? .textAndUI : .photoArtwork
+                return try await CoreImageUpscaler(sharpening: sharpening)
+                    .upscale(source, to: target, progress: progress)
             }
-            return try await CoreImageUpscaler(sharpening: .photoArtwork)
-                .upscale(source, to: target, progress: progress)
         }
     }
 

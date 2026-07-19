@@ -6,11 +6,14 @@ import UIKit
 /// copy their HEX or RGB values. Read-only — it never changes the image.
 struct ColorSampleView: View {
     let image: CGImage
+    @ObservedObject var model: InferenceModel
 
     @Environment(\.dismiss) private var dismiss
     @State private var current: SampledColor?
-    @State private var saved: [SampledColor] = []
     @State private var sampleLocation: CGPoint?
+
+    /// Saved swatches live on the model so they persist across open/close.
+    private var saved: [SampledColor] { model.sampledColors }
 
     var body: some View {
         NavigationStack {
@@ -85,7 +88,7 @@ struct ColorSampleView: View {
             }
             Spacer()
             Button {
-                if let current { saved.append(current) }
+                if let current { model.addSampledColor(current) }
             } label: {
                 Label("Save", systemImage: "plus.circle.fill")
             }
@@ -99,7 +102,7 @@ struct ColorSampleView: View {
                 Text("Saved").font(.headline)
                 Spacer()
                 if !saved.isEmpty {
-                    Button("Clear") { saved.removeAll() }.font(.subheadline)
+                    Button("Clear") { model.clearSampledColors() }.font(.subheadline)
                 }
             }
             if saved.isEmpty {
@@ -137,6 +140,6 @@ struct ColorSampleView: View {
     }
 
     private func remove(_ swatch: SampledColor) {
-        saved.removeAll { $0.id == swatch.id }
+        model.removeSampledColor(swatch.id)
     }
 }

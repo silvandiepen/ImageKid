@@ -94,6 +94,65 @@ enum ImageConversion {
         return context.makeImage()
     }
 
+    /// Whether an image carries a (non-opaque) alpha channel.
+    static func hasAlpha(_ image: CGImage) -> Bool {
+        switch image.alphaInfo {
+        case .none, .noneSkipFirst, .noneSkipLast:
+            return false
+        default:
+            return true
+        }
+    }
+
+    /// Re-applies `source`'s alpha channel (scaled to `upscaled`'s size) onto an
+    /// upscaled RGB image. Upscalers (Real-ESRGAN especially) work on RGB only and
+    /// drop transparency — without this, transparent regions come back as opaque
+    /// black. Returns `upscaled` unchanged if the source is fully opaque.
+    static func reapplyAlpha(from source: CGImage, onto upscaled: CGImage) -> CGImage {
+        guard hasAlpha(source) else { return upscaled }
+        let width = upscaled.width
+        let height = upscaled.height
+        let bytesPerRow = width * 4
+        let count = height * bytesPerRow
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+
+        // Source alpha, scaled to the upscaled size (premultiplied RGBA).
+        var sourcePixels = [UInt8](repeating: 0, count: count)
+        // The upscaled RGB, drawn opaque.
+        var outputPixels = [UInt8](repeating: 0, count: count)
+        let rect = CGRect(x: 0, y: 0, width: width, height: height)
+
+        guard
+            let sourceContext = CGContext(
+                data: &sourcePixels, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: bytesPerRow, space: sRGB, bitmapInfo: bitmapInfo
+            ),
+            let outputContext = CGContext(
+                data: &outputPixels, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: bytesPerRow, space: sRGB, bitmapInfo: bitmapInfo
+            )
+        else {
+            return upscaled
+        }
+
+        sourceContext.interpolationQuality = .high
+        sourceContext.draw(source, in: rect)
+        outputContext.interpolationQuality = .high
+        outputContext.draw(upscaled, in: rect)
+
+        // Replace the output's alpha with the scaled source alpha, keeping the RGB
+        // premultiplied so it composites correctly.
+        for index in stride(from: 0, to: count, by: 4) {
+            let alpha = Int(sourcePixels[index + 3])
+            outputPixels[index] = UInt8(Int(outputPixels[index]) * alpha / 255)
+            outputPixels[index + 1] = UInt8(Int(outputPixels[index + 1]) * alpha / 255)
+            outputPixels[index + 2] = UInt8(Int(outputPixels[index + 2]) * alpha / 255)
+            outputPixels[index + 3] = UInt8(alpha)
+        }
+
+        return outputContext.makeImage() ?? upscaled
+    }
+
     /// Crops a pixel rectangle out of `image`, clamped to the image bounds.
     static func crop(_ image: CGImage, to rect: CGRect) -> CGImage? {
         let bounds = CGRect(x: 0, y: 0, width: image.width, height: image.height)

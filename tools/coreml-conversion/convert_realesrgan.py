@@ -111,8 +111,8 @@ def convert(args: argparse.Namespace) -> None:
             shape=(
                 1,
                 3,
-                ct.RangeDimension(args.min_size, args.max_size),
-                ct.RangeDimension(args.min_size, args.max_size),
+                ct.RangeDim(args.min_size, args.max_size),
+                ct.RangeDim(args.min_size, args.max_size),
             )
         )
 

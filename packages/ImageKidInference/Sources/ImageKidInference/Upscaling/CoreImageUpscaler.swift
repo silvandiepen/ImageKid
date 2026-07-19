@@ -59,7 +59,8 @@ public struct CoreImageUpscaler: ImageUpscaler {
         }
 
         progress?(InferenceProgress(detail: "Done", fraction: 1))
-        return result
+        // Sharpening can darken transparent edges; restore the source's alpha.
+        return ImageConversion.reapplyAlpha(from: image, onto: result)
     }
 
     private var unsharpParameters: (radius: Double, intensity: Double) {

@@ -5,8 +5,19 @@ coremltools>=8.0
 numpy>=1.26
 # Real-ESRGAN RRDBNet architecture.
 basicsr>=1.4.2
-# ISNet is converted from its published ONNX graph via onnx2torch.
+# ISNet / U^2-Net are converted from their published ONNX graphs via onnx2torch.
 onnx>=1.15
 onnx2torch>=1.5.15
+# BiRefNet-lite (loaded from Hugging Face with trust_remote_code).
+transformers>=4.39
+timm
+einops
+kornia
+# Comparison montages (compare_models.py).
+pillow
 # Downloads.
 requests>=2.31
+
+# Note: basicsr 1.4.2 imports torchvision.transforms.functional_tensor, removed in
+# newer torchvision. Patch the one import in basicsr/data/degradations.py to
+# `from torchvision.transforms.functional import rgb_to_grayscale`.
