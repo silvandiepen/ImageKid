@@ -163,11 +163,11 @@ enum QuickActionRunner {
     }
 
     @MainActor
-    static func run(definition: QuickActionDefinition, sourceURL: URL) throws -> URL {
+    static func run(definition: QuickActionDefinition, sourceURL: URL) async throws -> URL {
         var image = try image(from: sourceURL)
 
         for step in definition.steps {
-            image = try apply(step, to: image)
+            image = try await apply(step, to: image)
         }
 
         let format = outputFormat(for: definition, sourceURL: sourceURL)
@@ -242,7 +242,7 @@ enum QuickActionRunner {
     }
 
     @MainActor
-    private static func apply(_ step: QuickActionStep, to image: NSImage) throws -> NSImage {
+    private static func apply(_ step: QuickActionStep, to image: NSImage) async throws -> NSImage {
         switch step {
         case .removeBackground:
             guard let source = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
@@ -252,7 +252,7 @@ enum QuickActionRunner {
                 rawValue: UserDefaults.standard.string(forKey: "backgroundRemovalEngine")
                     ?? BackgroundRemovalEngine.builtIn.rawValue
             ) ?? .builtIn
-            let output = try BackgroundRemovalService.removeBackground(from: source, engine: engine)
+            let output = try await BackgroundRemovalService.removeBackground(from: source, engine: engine)
             return NSImage(cgImage: output, size: CGSize(width: output.width, height: output.height))
 
         case .upscale(let scale):
@@ -426,7 +426,7 @@ final class QuickActionModel: ObservableObject {
         for index in items.indices {
             items[index].state = .processing
             do {
-                let outputURL = try QuickActionRunner.run(definition: definition, sourceURL: items[index].sourceURL)
+                let outputURL = try await QuickActionRunner.run(definition: definition, sourceURL: items[index].sourceURL)
                 items[index].state = .finished(outputURL)
                 FileHandle.standardOutput.write(Data("Wrote \(outputURL.path)\n".utf8))
             } catch {

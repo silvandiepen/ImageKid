@@ -2,100 +2,17 @@ import AppKit
 import CoreImage
 import Foundation
 import ImageIO
+import ImageKidInference
 import UniformTypeIdentifiers
 
-enum UpscaleRuntimeConfiguration {
-    static let runtimeURL = URL(string: "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan/releases/download/v0.2.0/realesrgan-ncnn-vulkan-v0.2.0-macos.zip")!
-    static let modelsURL = URL(string: "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip")!
-    static let executableName = "realesrgan-ncnn-vulkan"
-    static let modelName = "realesrgan-x4plus"
-    static let requiredModelFiles = [
-        "realesrgan-x4plus.param",
-        "realesrgan-x4plus.bin"
-    ]
-
-    static var runtimeDirectory: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base
-            .appendingPathComponent("ImageKid", isDirectory: true)
-            .appendingPathComponent("Runtime", isDirectory: true)
-            .appendingPathComponent("realesrgan", isDirectory: true)
-    }
-
-    static var executableURL: URL {
-        runtimeDirectory.appendingPathComponent(executableName)
-    }
-
-    static var modelDirectoryURL: URL {
-        runtimeDirectory.appendingPathComponent("models", isDirectory: true)
-    }
-}
-
-@MainActor
-final class UpscaleRuntimeManager: ObservableObject {
-    @Published private(set) var isInstalling = false
-    @Published private(set) var errorMessage: String?
-
-    var isInstalled: Bool {
-        ImageUpscaleService.isBestQualityRuntimeAvailable
-    }
-
-    var installedSizeLabel: String {
-        guard
-            let size = directorySize(at: UpscaleRuntimeConfiguration.runtimeDirectory)
-        else {
-            return "Not installed"
-        }
-
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useMB]
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: Int64(size))
-    }
-
-    func install() {
-        guard !isInstalling else { return }
-        isInstalling = true
-        errorMessage = nil
-
-        Task {
-            do {
-                let (runtimeArchiveURL, _) = try await URLSession.shared.download(from: UpscaleRuntimeConfiguration.runtimeURL)
-                let (modelsArchiveURL, _) = try await URLSession.shared.download(from: UpscaleRuntimeConfiguration.modelsURL)
-                try await Task.detached(priority: .userInitiated) {
-                    try installUpscaleRuntime(from: runtimeArchiveURL, modelsArchiveURL: modelsArchiveURL)
-                }.value
-                objectWillChange.send()
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-
-            isInstalling = false
-        }
-    }
-
-    func remove() {
-        do {
-            if FileManager.default.fileExists(atPath: UpscaleRuntimeConfiguration.runtimeDirectory.path) {
-                try FileManager.default.removeItem(at: UpscaleRuntimeConfiguration.runtimeDirectory)
-            }
-            objectWillChange.send()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
+private final class UpscaleResultBox: @unchecked Sendable {
+    var result: Result<CGImage, Error>?
 }
 
 enum ImageUpscaleService {
+    /// Best Quality is the downloadable Core ML Real-ESRGAN model (no ncnn binary).
     static var isBestQualityRuntimeAvailable: Bool {
-        FileManager.default.isExecutableFile(atPath: UpscaleRuntimeConfiguration.executableURL.path)
-            && UpscaleRuntimeConfiguration.requiredModelFiles.allSatisfy {
-                FileManager.default.fileExists(
-                    atPath: UpscaleRuntimeConfiguration.modelDirectoryURL
-                        .appendingPathComponent($0)
-                        .path
-                )
-            }
+        CoreMLModel.realESRGAN.isDownloaded
     }
 
     static func upscale(
@@ -114,57 +31,46 @@ enum ImageUpscaleService {
         guard isBestQualityRuntimeAvailable else {
             throw UpscaleError.runtimeMissing
         }
-
-        let modelScale = 4
-
-        progress?(UpscaleProgressUpdate(detail: "Measuring every pixel", fraction: nil))
-        let workingDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ImageKidUpscale-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: workingDirectory) }
-
-        let inputURL = workingDirectory.appendingPathComponent("input.png")
-        try writePNG(image, to: inputURL)
-
-        let runConfigurations = [
-            RealESRGANRunConfiguration(tileSize: 0, threadPlan: "1:1:1"),
-            RealESRGANRunConfiguration(tileSize: 512, threadPlan: "1:1:1"),
-            RealESRGANRunConfiguration(tileSize: 256, threadPlan: "1:1:1"),
-            RealESRGANRunConfiguration(tileSize: 128, threadPlan: "1:1:1")
-        ]
-        var lastUpscaled: NSImage?
-
-        for configuration in runConfigurations {
-            let outputURL = workingDirectory
-                .appendingPathComponent("output-\(configuration.outputSuffix).png")
-            try runUpscaler(
-                inputURL: inputURL,
-                outputURL: outputURL,
-                scale: modelScale,
-                configuration: configuration,
-                progress: progress
-            )
-
-            guard let upscaled = NSImage(contentsOf: outputURL) else {
-                throw UpscaleError.outputMissing
-            }
-
-            progress?(UpscaleProgressUpdate(detail: "Checking the stretch", fraction: nil))
-            lastUpscaled = upscaled
-            if !hasLikelyTileCorruption(upscaled, preferredTileSize: configuration.tileSize) {
-                progress?(UpscaleProgressUpdate(detail: "Tucking in the edges", fraction: nil))
-                let exactImage = upscaled.pixelSize == targetSize ? upscaled : resize(upscaled, to: targetSize)
-                return exactImage
-            }
-
-            progress?(UpscaleProgressUpdate(detail: "That stretch looked weird; trying again", fraction: nil))
+        guard let source = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            throw UpscaleError.outputMissing
         }
 
-        if let lastUpscaled {
-            let exactImage = lastUpscaled.pixelSize == targetSize ? lastUpscaled : resize(lastUpscaled, to: targetSize)
-            throw UpscaleError.corruptOutput(exactImage.pixelSize)
+        progress?(UpscaleProgressUpdate(detail: "Enlarging with Real-ESRGAN", fraction: nil))
+        let upscaled = try coreMLUpscale(source, to: targetSize, progress: progress)
+        return NSImage(cgImage: upscaled, size: targetSize)
+    }
+
+    /// Runs the on-device Core ML Real-ESRGAN upscaler. The service API is
+    /// synchronous (callers run it off the main thread), so we bridge the async
+    /// engine with a semaphore — the same blocking contract the old ncnn
+    /// subprocess had.
+    private static func coreMLUpscale(
+        _ image: CGImage,
+        to targetSize: CGSize,
+        progress: (@Sendable (UpscaleProgressUpdate) -> Void)?
+    ) throws -> CGImage {
+        let provider = PackageModelProvider(packageURL: CoreMLModel.realESRGAN.localPackageURL)
+        // Fixed 256×256 input matches the reliable conversion path (tools/coreml-conversion).
+        let upscaler = CoreMLUpscaler(
+            modelProvider: provider,
+            configuration: CoreMLUpscalerConfiguration(fixedInputSize: CGSize(width: 256, height: 256))
+        )
+
+        let semaphore = DispatchSemaphore(value: 0)
+        let box = UpscaleResultBox()
+        Task.detached {
+            do {
+                box.result = .success(try await upscaler.upscale(image, to: targetSize, progress: { update in
+                    progress?(UpscaleProgressUpdate(detail: update.detail, fraction: update.fraction))
+                }))
+            } catch {
+                box.result = .failure(error)
+            }
+            semaphore.signal()
         }
-        throw UpscaleError.outputMissing
+        semaphore.wait()
+        guard let result = box.result else { throw UpscaleError.outputMissing }
+        return try result.get()
     }
 
     static func resolvedContentMode(for image: NSImage, requestedMode: UpscaleContentMode) -> UpscaleContentMode {
@@ -270,148 +176,6 @@ enum ImageUpscaleService {
         _ rhs: (r: Int, g: Int, b: Int, a: Int)
     ) -> Int {
         abs(lhs.r - rhs.r) + abs(lhs.g - rhs.g) + abs(lhs.b - rhs.b)
-    }
-
-    private static func runUpscaler(
-        inputURL: URL,
-        outputURL: URL,
-        scale: Int,
-        configuration: RealESRGANRunConfiguration,
-        progress: (@Sendable (UpscaleProgressUpdate) -> Void)?
-    ) throws {
-        progress?(UpscaleProgressUpdate(detail: configuration.progressLabel, fraction: nil))
-
-        let process = Process()
-        process.executableURL = UpscaleRuntimeConfiguration.executableURL
-        process.currentDirectoryURL = UpscaleRuntimeConfiguration.runtimeDirectory
-        process.arguments = [
-            "-i", inputURL.path,
-            "-o", outputURL.path,
-            "-n", UpscaleRuntimeConfiguration.modelName,
-            "-s", String(scale),
-            "-m", UpscaleRuntimeConfiguration.modelDirectoryURL.path,
-            "-f", "png",
-            "-t", String(configuration.tileSize),
-            "-j", configuration.threadPlan
-        ]
-
-        let outputPipe = Pipe()
-        let outputLock = NSLock()
-        var outputData = Data()
-
-        outputPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            outputLock.lock()
-            outputData.append(data)
-            outputLock.unlock()
-
-            guard
-                let text = String(data: data, encoding: .utf8),
-                let percentage = progressPercentage(in: text)
-            else {
-                return
-            }
-            progress?(UpscaleProgressUpdate(
-                detail: "\(configuration.progressLabel) \(Int(percentage.rounded()))%",
-                fraction: percentage / 100
-            ))
-        }
-
-        process.standardOutput = outputPipe
-        process.standardError = outputPipe
-        try process.run()
-        process.waitUntilExit()
-        outputPipe.fileHandleForReading.readabilityHandler = nil
-
-        guard process.terminationStatus == 0 else {
-            outputLock.lock()
-            let data = outputData
-            outputLock.unlock()
-            let message = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw UpscaleError.commandFailed(message ?? "The image stretcher stopped with status \(process.terminationStatus).")
-        }
-    }
-
-    private static func progressPercentage(in text: String) -> Double? {
-        let pattern = #"([0-9]+(?:\.[0-9]+)?)\s*%"#
-        guard
-            let expression = try? NSRegularExpression(pattern: pattern),
-            let match = expression.matches(in: text, range: NSRange(text.startIndex..., in: text)).last,
-            let range = Range(match.range(at: 1), in: text)
-        else {
-            return nil
-        }
-        return Double(text[range])
-    }
-
-    private static func hasLikelyTileCorruption(_ image: NSImage, preferredTileSize: Int) -> Bool {
-        guard
-            let source = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
-            let bitmap = sampledBitmap(from: source, size: CGSize(width: 192, height: 192))
-        else {
-            return false
-        }
-
-        let tileSizes = ([preferredTileSize, 512, 256, 128, 64, 32])
-            .filter { $0 > 0 && source.width >= $0 * 3 && source.height >= $0 * 3 }
-        guard !tileSizes.isEmpty else { return false }
-
-        return tileSizes.contains { tileSize in
-            hasLikelyTileCorruption(source: source, bitmap: bitmap, tileSize: tileSize)
-        }
-    }
-
-    private static func hasLikelyTileCorruption(source: CGImage, bitmap: SampledBitmap, tileSize: Int) -> Bool {
-        var allDelta = 0
-        var allCount = 0
-        var seamDelta = 0
-        var seamCount = 0
-        let sampledTile = max(8, Int((CGFloat(tileSize) / CGFloat(max(source.width, source.height))) * 192))
-
-        for y in 0..<bitmap.height {
-            for x in 1..<bitmap.width {
-                let delta = colorDelta(bitmap.pixel(x: x, y: y), bitmap.pixel(x: x - 1, y: y))
-                allDelta += delta
-                allCount += 1
-                if x % sampledTile == 0 {
-                    seamDelta += delta
-                    seamCount += 1
-                }
-            }
-        }
-
-        for y in 1..<bitmap.height {
-            for x in 0..<bitmap.width {
-                let delta = colorDelta(bitmap.pixel(x: x, y: y), bitmap.pixel(x: x, y: y - 1))
-                allDelta += delta
-                allCount += 1
-                if y % sampledTile == 0 {
-                    seamDelta += delta
-                    seamCount += 1
-                }
-            }
-        }
-
-        guard allCount > 0, seamCount > 0 else { return false }
-        let averageDelta = Double(allDelta) / Double(allCount)
-        let averageSeamDelta = Double(seamDelta) / Double(seamCount)
-        return averageSeamDelta > max(55, averageDelta * 2.7)
-    }
-
-    private static func writePNG(_ image: NSImage, to url: URL) throws {
-        var proposedRect = CGRect(origin: .zero, size: image.size)
-        guard
-            let cgImage = image.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil),
-            let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil)
-        else {
-            throw UpscaleError.inputEncodingFailed
-        }
-
-        CGImageDestinationAddImage(destination, cgImage, nil)
-        guard CGImageDestinationFinalize(destination) else {
-            throw UpscaleError.inputEncodingFailed
-        }
     }
 
     private static func preserveTextUpscale(_ image: NSImage, to targetSize: CGSize) -> NSImage {
@@ -597,129 +361,6 @@ enum ImageUpscaleService {
     ])
 }
 
-private func installUpscaleRuntime(from archiveURL: URL, modelsArchiveURL: URL) throws {
-    let fileManager = FileManager.default
-    let runtimeDirectory = UpscaleRuntimeConfiguration.runtimeDirectory
-    let parentDirectory = runtimeDirectory.deletingLastPathComponent()
-    let extractionDirectory = fileManager.temporaryDirectory
-        .appendingPathComponent("ImageKidUpscaleRuntime-\(UUID().uuidString)", isDirectory: true)
-
-    try fileManager.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
-    try fileManager.createDirectory(at: extractionDirectory, withIntermediateDirectories: true)
-    defer { try? fileManager.removeItem(at: extractionDirectory) }
-
-    try runUnzip(archiveURL: archiveURL, destinationURL: extractionDirectory)
-
-    let executableURL = try findExecutable(named: UpscaleRuntimeConfiguration.executableName, under: extractionDirectory)
-    let extractedRoot = executableURL.deletingLastPathComponent()
-
-    if fileManager.fileExists(atPath: runtimeDirectory.path) {
-        try fileManager.removeItem(at: runtimeDirectory)
-    }
-    try fileManager.moveItem(at: extractedRoot, to: runtimeDirectory)
-
-    let installedExecutable = UpscaleRuntimeConfiguration.executableURL
-    try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: installedExecutable.path)
-
-    try installUpscaleModels(from: modelsArchiveURL)
-}
-
-private func installUpscaleModels(from archiveURL: URL) throws {
-    let fileManager = FileManager.default
-    let extractionDirectory = fileManager.temporaryDirectory
-        .appendingPathComponent("ImageKidUpscaleModels-\(UUID().uuidString)", isDirectory: true)
-
-    try fileManager.createDirectory(at: extractionDirectory, withIntermediateDirectories: true)
-    defer { try? fileManager.removeItem(at: extractionDirectory) }
-
-    try runUnzip(archiveURL: archiveURL, destinationURL: extractionDirectory)
-    let sourceModelDirectory = try findDirectory(named: "models", under: extractionDirectory)
-    let targetModelDirectory = UpscaleRuntimeConfiguration.modelDirectoryURL
-
-    if fileManager.fileExists(atPath: targetModelDirectory.path) {
-        try fileManager.removeItem(at: targetModelDirectory)
-    }
-    try fileManager.copyItem(at: sourceModelDirectory, to: targetModelDirectory)
-
-    let missingFiles = UpscaleRuntimeConfiguration.requiredModelFiles.filter {
-        !fileManager.fileExists(atPath: targetModelDirectory.appendingPathComponent($0).path)
-    }
-    if !missingFiles.isEmpty {
-        throw UpscaleError.installFailed("The detail pack was missing \(missingFiles.joined(separator: ", ")).")
-    }
-}
-
-private func runUnzip(archiveURL: URL, destinationURL: URL) throws {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-    process.arguments = ["-q", archiveURL.path, "-d", destinationURL.path]
-
-    let errorPipe = Pipe()
-    process.standardError = errorPipe
-    try process.run()
-    process.waitUntilExit()
-
-    guard process.terminationStatus == 0 else {
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-        let message = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        throw UpscaleError.installFailed(message ?? "unzip exited with status \(process.terminationStatus).")
-    }
-}
-
-private func findExecutable(named name: String, under root: URL) throws -> URL {
-    guard let enumerator = FileManager.default.enumerator(
-        at: root,
-        includingPropertiesForKeys: [.isRegularFileKey],
-        options: [.skipsHiddenFiles]
-    ) else {
-        throw UpscaleError.installFailed("The add-on could not be checked.")
-    }
-
-    for case let url as URL in enumerator where url.lastPathComponent == name {
-        return url
-    }
-
-    throw UpscaleError.installFailed("The add-on was missing \(name).")
-}
-
-private func findDirectory(named name: String, under root: URL) throws -> URL {
-    guard let enumerator = FileManager.default.enumerator(
-        at: root,
-        includingPropertiesForKeys: [.isDirectoryKey],
-        options: [.skipsHiddenFiles]
-    ) else {
-        throw UpscaleError.installFailed("The detail pack could not be checked.")
-    }
-
-    for case let url as URL in enumerator where url.lastPathComponent == name {
-        let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
-        if values?.isDirectory == true {
-            return url
-        }
-    }
-
-    throw UpscaleError.installFailed("The detail pack was incomplete.")
-}
-
-private func directorySize(at url: URL) -> Int? {
-    guard
-        FileManager.default.fileExists(atPath: url.path),
-        let enumerator = FileManager.default.enumerator(
-            at: url,
-            includingPropertiesForKeys: [.fileSizeKey],
-            options: [.skipsHiddenFiles]
-        )
-    else {
-        return nil
-    }
-
-    var size = 0
-    for case let fileURL as URL in enumerator {
-        size += (try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-    }
-    return size
-}
-
 private struct SampledBitmap {
     let width: Int
     let height: Int
@@ -733,19 +374,6 @@ private struct SampledBitmap {
             b: Int(data[index + 2]),
             a: Int(data[index + 3])
         )
-    }
-}
-
-private struct RealESRGANRunConfiguration {
-    let tileSize: Int
-    let threadPlan: String
-
-    var outputSuffix: String {
-        tileSize == 0 ? "untiled" : "tile-\(tileSize)"
-    }
-
-    var progressLabel: String {
-        tileSize == 0 ? "Stretching it up carefully" : "Trying a lighter stretch"
     }
 }
 
