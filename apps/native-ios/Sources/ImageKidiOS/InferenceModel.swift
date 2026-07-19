@@ -48,6 +48,14 @@ final class InferenceModel: ObservableObject {
         statusText = "Cropped"
     }
 
+    /// Replaces the working image with an already-rendered edit (e.g. flattened
+    /// annotations).
+    func applyEditedImage(_ image: CGImage, status: String) {
+        resultImage = UIImage(cgImage: image)
+        resultShareURL = ShareFile.makePNG(from: image)
+        statusText = status
+    }
+
     /// Resizes the working image to an exact pixel size.
     func applyResize(width: Int, height: Int) {
         guard let source = workingImage?.normalizedCGImage() else { return }

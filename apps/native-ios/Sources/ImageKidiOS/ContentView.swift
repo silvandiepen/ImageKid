@@ -7,6 +7,7 @@ struct ContentView: View {
     @State private var isExporting = false
     @State private var isCropping = false
     @State private var isResizing = false
+    @State private var isAnnotating = false
 
     var body: some View {
         NavigationStack {
@@ -53,6 +54,13 @@ struct ContentView: View {
                 if let cgImage = model.workingImage?.normalizedCGImage() {
                     ResizeView(pixelSize: CGSize(width: cgImage.width, height: cgImage.height)) { width, height in
                         model.applyResize(width: width, height: height)
+                    }
+                }
+            }
+            .sheet(isPresented: $isAnnotating) {
+                if let image = model.workingImage {
+                    AnnotateView(image: image) { rendered in
+                        model.applyEditedImage(rendered, status: "Annotated")
                     }
                 }
             }
@@ -125,6 +133,10 @@ struct ContentView: View {
             section("Transform") {
                 actionButton("Crop", systemImage: "crop") { isCropping = true }
                 actionButton("Resize", systemImage: "arrow.up.left.and.arrow.down.right.square") { isResizing = true }
+            }
+
+            section("Annotate") {
+                actionButton("Draw & shapes", systemImage: "pencil.tip.crop.circle") { isAnnotating = true }
             }
 
             if !model.bestQualityBackgroundAvailable || !model.bestQualityUpscaleAvailable {
