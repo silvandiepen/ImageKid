@@ -154,6 +154,17 @@ final class InferenceModel: ObservableObject {
         }
     }
 
+    /// Prompted editing via OpenAI. Sends the working image and prompt only when
+    /// the user starts this action, using their own key.
+    func promptEdit(prompt: String, apiKey: String) {
+        run(status: "AI edit") { _ in
+            guard let source = self.workingImage?.normalizedCGImage() else {
+                throw InferenceError.inputPreparationFailed
+            }
+            return try await OpenAIImageEditProvider(apiKey: apiKey).edit(source, prompt: prompt)
+        }
+    }
+
     /// Runs an inference operation, wiring progress and committing the result.
     private func run(
         status: String,

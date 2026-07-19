@@ -13,6 +13,7 @@ struct ContentView: View {
     @State private var isAnnotating = false
     @State private var isSampling = false
     @State private var isRefining = false
+    @State private var isPromptEditing = false
 
     var body: some View {
         NavigationStack {
@@ -88,6 +89,11 @@ struct ContentView: View {
                     RefineView(original: original, current: current) { rendered in
                         model.applyEditedImage(rendered, status: "Refined")
                     }
+                }
+            }
+            .sheet(isPresented: $isPromptEditing) {
+                PromptEditView { prompt, apiKey in
+                    model.promptEdit(prompt: prompt, apiKey: apiKey)
                 }
             }
             .alert(
@@ -171,6 +177,10 @@ struct ContentView: View {
 
             section("Inspect") {
                 actionButton("Colour picker", systemImage: "eyedropper") { isSampling = true }
+            }
+
+            section("AI") {
+                actionButton("Prompt edit", systemImage: "wand.and.stars") { isPromptEditing = true }
             }
 
             if !model.bestQualityBackgroundAvailable || !model.bestQualityUpscaleAvailable {
