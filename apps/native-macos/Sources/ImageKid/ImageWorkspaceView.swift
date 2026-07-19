@@ -49,6 +49,11 @@ struct ImageWorkspaceView: View {
                             style: .continuous
                         )
                     )
+                    .scaleEffect(
+                        x: rotatePreviewActive && session.rotationFlipHorizontal ? -1 : 1,
+                        y: rotatePreviewActive && session.rotationFlipVertical ? -1 : 1
+                    )
+                    .rotationEffect(rotatePreviewActive ? .degrees(session.rotationDraft) : .zero)
                     .position(x: imageRect.midX, y: imageRect.midY)
 
                 annotations(in: imageRect)
@@ -134,6 +139,9 @@ struct ImageWorkspaceView: View {
                 if tool == .resize, session.draftOutputSize == nil {
                     session.beginResize()
                 }
+                if tool == .rotate {
+                    session.beginRotation()
+                }
                 if tool != .view {
                     session.selectedAnnotationID = nil
                 }
@@ -158,6 +166,10 @@ struct ImageWorkspaceView: View {
                         }
                         if appModel.activeTool == .resize {
                             applyResize()
+                            return true
+                        }
+                        if appModel.activeTool == .rotate {
+                            applyRotate()
                             return true
                         }
                         return false
@@ -197,6 +209,14 @@ struct ImageWorkspaceView: View {
                         onCancel: cancelResize,
                         onApply: applyResize,
                         onApplyUpscale: applyUpscale
+                    )
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                } else if appModel.activeTool == .rotate {
+                    RotateControls(
+                        session: session,
+                        offset: $panelOffset,
+                        onCancel: cancelRotate,
+                        onApply: applyRotate
                     )
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                 } else if showsBackgroundRefinementControls,
@@ -240,7 +260,7 @@ struct ImageWorkspaceView: View {
         VStack(spacing: 10) {
             Spacer()
 
-            if appModel.activeTool != .crop && appModel.activeTool != .resize {
+            if appModel.activeTool != .crop && appModel.activeTool != .resize && appModel.activeTool != .rotate {
                 FloatingToolbar(canExport: true)
                     .opacity(
                         hoverControls
@@ -591,6 +611,9 @@ struct ImageWorkspaceView: View {
                     rect: rect
                 )
             }
+            return .pan(start: session.pan)
+
+        case .rotate:
             return .pan(start: session.pan)
 
         case .refineBackground:
@@ -1314,6 +1337,19 @@ struct ImageWorkspaceView: View {
     private func applyCrop() {
         session.applyDraftCrop()
         appModel.activeTool = .view
+    }
+
+    private var rotatePreviewActive: Bool {
+        appModel.activeTool == .rotate
+    }
+
+    private func cancelRotate() {
+        session.beginRotation()
+        appModel.activeTool = .view
+    }
+
+    private func applyRotate() {
+        appModel.applyRotationToCurrentImage()
     }
 
     private func cancelResize() {

@@ -11,6 +11,7 @@ public enum Tool: String, CaseIterable, Identifiable {
     case pickColor
     case crop
     case resize
+    case rotate
     case refineBackground
     case draw
     case text
@@ -24,6 +25,7 @@ public enum Tool: String, CaseIterable, Identifiable {
         case .pickColor: "Pick"
         case .crop: "Crop"
         case .resize: "Resize"
+        case .rotate: "Rotate"
         case .refineBackground: "Refine"
         case .draw: "Draw"
         case .text: "Text"
@@ -37,6 +39,7 @@ public enum Tool: String, CaseIterable, Identifiable {
         case .pickColor: "eyedropper"
         case .crop: "crop"
         case .resize: "arrow.up.left.and.arrow.down.right"
+        case .rotate: "rotate.right"
         case .refineBackground: "paintbrush.pointed"
         case .draw: "pencil.tip.crop.circle"
         case .text: "textformat"
@@ -50,6 +53,7 @@ public enum Tool: String, CaseIterable, Identifiable {
         case .pickColor: "p"
         case .crop: "c"
         case .resize: "r"
+        case .rotate: "r"
         case .refineBackground: "b"
         case .draw: "d"
         case .text: "t"
@@ -432,6 +436,15 @@ final class ImageSession: ObservableObject {
     @Published var backgroundBrushSize: CGFloat = 36
     @Published var backgroundBrushSoftness: CGFloat = 0.45
     @Published var backgroundBrushStrength: CGFloat = 1
+
+    // Rotate tool — draft state; applied by baking a rotated image.
+    @Published var rotationDraft: Double = 0            // degrees, clockwise
+    @Published var rotationFlipHorizontal = false
+    @Published var rotationFlipVertical = false
+    @Published var rotationResizesCanvas = true
+    @Published var rotationFillsGaps = false
+    @Published var rotationFillColor: NSColor = .white
+
     @Published var isDirty = false
 
     init(sourceURL: URL?, sourceImage: NSImage) {
@@ -576,6 +589,17 @@ final class ImageSession: ObservableObject {
 
     func cancelDraftResize() {
         draftOutputSize = nil
+    }
+
+    /// Reset the in-progress rotation (angle and flips); keeps canvas/fill preferences.
+    func beginRotation() {
+        rotationDraft = 0
+        rotationFlipHorizontal = false
+        rotationFlipVertical = false
+    }
+
+    var hasRotationEdits: Bool {
+        rotationDraft != 0 || rotationFlipHorizontal || rotationFlipVertical
     }
 }
 
