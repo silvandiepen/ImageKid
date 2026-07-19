@@ -941,7 +941,7 @@ final class AppModel: ObservableObject {
                         rawValue: UserDefaults.standard.string(forKey: "backgroundRemovalEngine")
                             ?? BackgroundRemovalEngine.builtIn.rawValue
                     ) ?? .builtIn
-                    return try BackgroundRemovalService.removeBackground(from: source, engine: engine)
+                    return try await BackgroundRemovalService.removeBackground(from: source, engine: engine)
                 }.value
 
                 session.backgroundRemovedImage = NSImage(

@@ -11,7 +11,16 @@ deploy/
 apps/native-macos/.build/
 apps/native-macos/.swiftpm/
 apps/native-macos/ImageKid.xcodeproj/
+apps/native-ios/.build/
+apps/native-ios/.swiftpm/
+apps/native-ios/ImageKidiOS.xcodeproj/
+# Generated Core ML models are bundled locally, never committed (see tools/coreml-conversion).
+apps/native-ios/Models/*.mlpackage
+apps/native-ios/Models/*.mlmodelc
 .build/
 .swiftpm/
 *.xcodeproj/xcuserdata/
 *.xcworkspace/xcuserdata/
+
+# xcodegen-generated Info.plist
+apps/native-ios/Sources/ImageKidiOS/Info.plist

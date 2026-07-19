@@ -10,9 +10,15 @@ let package = Package(
     products: [
         .executable(name: "ImageKid", targets: ["ImageKid"])
     ],
+    dependencies: [
+        .package(path: "../../packages/ImageKidInference")
+    ],
     targets: [
         .executableTarget(
             name: "ImageKid",
+            dependencies: [
+                .product(name: "ImageKidInference", package: "ImageKidInference")
+            ],
             path: "Sources/ImageKid",
             resources: [
                 .process("Resources")

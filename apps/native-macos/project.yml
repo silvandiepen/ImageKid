@@ -8,6 +8,9 @@ settings:
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
+packages:
+  ImageKidInference:
+    path: ../../packages/ImageKidInference
 targets:
   ImageKid:
     type: application
@@ -17,6 +20,8 @@ targets:
     resources:
       - path: Sources/ImageKid/Resources/Assets.xcassets
       - path: Sources/ImageKid/Resources
+    dependencies:
+      - package: ImageKidInference
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hakobs.imagekid
