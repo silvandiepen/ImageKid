@@ -10,6 +10,7 @@ import UIKit
 final class InferenceModel: ObservableObject {
     @Published private(set) var sourceImage: UIImage?
     @Published private(set) var current: UIImage?
+    @Published private(set) var videoURL: URL?
     @Published var statusText: String?
     @Published var progress: Double?
     @Published var isBusy = false
@@ -42,12 +43,25 @@ final class InferenceModel: ObservableObject {
     // MARK: Source and history
 
     func setSource(_ image: UIImage) {
+        videoURL = nil
         sourceImage = image
         current = image
         undoStack.removeAll()
         redoStack.removeAll()
         errorMessage = nil
         statusText = nil
+        progress = nil
+    }
+
+    /// Switches to video mode (playback only — the image tools do not apply).
+    func setVideo(_ url: URL) {
+        videoURL = url
+        sourceImage = nil
+        current = nil
+        undoStack.removeAll()
+        redoStack.removeAll()
+        errorMessage = nil
+        statusText = "Video loaded"
         progress = nil
     }
 

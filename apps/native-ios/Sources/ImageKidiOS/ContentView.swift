@@ -1,9 +1,12 @@
+import AVKit
 import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @StateObject private var model = InferenceModel()
     @State private var pickerItem: PhotosPickerItem?
+    @State private var player: AVPlayer?
     @State private var isExporting = false
     @State private var isCropping = false
     @State private var isResizing = false
@@ -15,8 +18,15 @@ struct ContentView: View {
         NavigationStack {
             VStack(spacing: 16) {
                 preview
-                ScrollView { controls }
-                    .frame(maxHeight: 340)
+                if model.workingImage != nil {
+                    ScrollView { controls }
+                        .frame(maxHeight: 340)
+                } else if model.videoURL != nil {
+                    Text("Video playback only. Editing tools apply to images.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
                 statusRow
             }
             .padding()
@@ -24,7 +34,7 @@ struct ContentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    PhotosPicker(selection: $pickerItem, matching: .images) {
+                    PhotosPicker(selection: $pickerItem, matching: .any(of: [.images, .videos])) {
                         Label("Choose", systemImage: "photo.on.rectangle")
                     }
                 }
@@ -95,14 +105,17 @@ struct ContentView: View {
     private var preview: some View {
         ZStack {
             CheckerboardBackground()
-            if let display = model.workingImage {
+            if let player {
+                VideoPlayer(player: player)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+            } else if let display = model.workingImage {
                 ZoomableImageView(image: display)
                     .padding(8)
             } else {
                 ContentUnavailableView(
-                    "No image",
+                    "No media",
                     systemImage: "photo",
-                    description: Text("Choose a photo to upscale or remove its background.")
+                    description: Text("Choose a photo to edit, or a video to play.")
                 )
             }
         }
@@ -218,9 +231,16 @@ struct ContentView: View {
 
     private func loadPickedImage(_ item: PhotosPickerItem?) {
         guard let item else { return }
+        let isVideo = item.supportedContentTypes.contains { $0.conforms(to: .movie) }
         Task { @MainActor in
-            if let data = try? await item.loadTransferable(type: Data.self),
-               let image = UIImage(data: data) {
+            if isVideo {
+                if let movie = try? await item.loadTransferable(type: Movie.self) {
+                    model.setVideo(movie.url)
+                    player = AVPlayer(url: movie.url)
+                }
+            } else if let data = try? await item.loadTransferable(type: Data.self),
+                      let image = UIImage(data: data) {
+                player = nil
                 model.setSource(image)
             }
         }
