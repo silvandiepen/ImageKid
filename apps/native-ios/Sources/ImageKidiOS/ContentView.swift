@@ -8,12 +8,14 @@ struct ContentView: View {
     @State private var isCropping = false
     @State private var isResizing = false
     @State private var isAnnotating = false
+    @State private var isSampling = false
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
                 preview
-                controls
+                ScrollView { controls }
+                    .frame(maxHeight: 340)
                 statusRow
             }
             .padding()
@@ -62,6 +64,11 @@ struct ContentView: View {
                     AnnotateView(image: image) { rendered in
                         model.applyEditedImage(rendered, status: "Annotated")
                     }
+                }
+            }
+            .sheet(isPresented: $isSampling) {
+                if let cgImage = model.workingImage?.normalizedCGImage() {
+                    ColorSampleView(image: cgImage)
                 }
             }
             .alert(
@@ -136,7 +143,11 @@ struct ContentView: View {
             }
 
             section("Annotate") {
-                actionButton("Draw & shapes", systemImage: "pencil.tip.crop.circle") { isAnnotating = true }
+                actionButton("Draw, shapes, text", systemImage: "pencil.tip.crop.circle") { isAnnotating = true }
+            }
+
+            section("Inspect") {
+                actionButton("Colour picker", systemImage: "eyedropper") { isSampling = true }
             }
 
             if !model.bestQualityBackgroundAvailable || !model.bestQualityUpscaleAvailable {
