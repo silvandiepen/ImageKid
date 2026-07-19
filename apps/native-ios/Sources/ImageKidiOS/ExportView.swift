@@ -11,6 +11,7 @@ struct ExportView: View {
     @State private var shareURL: URL?
     @State private var isSaving = false
     @State private var message: String?
+    @State private var encodeTask: Task<Void, Never>?
 
     var body: some View {
         NavigationStack {
@@ -68,11 +69,33 @@ struct ExportView: View {
             .onAppear { regenerateShareURL() }
             .onChange(of: format) { _, _ in regenerateShareURL() }
             .onChange(of: quality) { _, _ in regenerateShareURL() }
+            .onDisappear { encodeTask?.cancel() }
         }
     }
 
+    /// Encodes the share file off the main actor, debounced so dragging the quality
+    /// slider doesn't block the UI or pile up temporary files.
     private func regenerateShareURL() {
-        shareURL = ImageExporter.writeTemporary(image, format: format, quality: CGFloat(quality))
+        encodeTask?.cancel()
+        let source = image
+        let fmt = format
+        let quality = CGFloat(quality)
+        let previousURL = shareURL
+        encodeTask = Task {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            if Task.isCancelled { return }
+            let url = await Task.detached(priority: .userInitiated) {
+                ImageExporter.writeTemporary(source, format: fmt, quality: quality)
+            }.value
+            if Task.isCancelled {
+                if let url { try? FileManager.default.removeItem(at: url) }
+                return
+            }
+            if let previousURL, previousURL != url {
+                try? FileManager.default.removeItem(at: previousURL)
+            }
+            shareURL = url
+        }
     }
 
     private func save() {

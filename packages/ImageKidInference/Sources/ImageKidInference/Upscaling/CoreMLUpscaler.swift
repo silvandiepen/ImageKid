@@ -23,6 +23,11 @@ public struct CoreMLUpscalerConfiguration: Sendable {
     /// to it before inference. Leave `nil` for a flexible-shape model (preferred),
     /// which is fed each tile at its native pixel size.
     public var fixedInputSize: CGSize?
+    /// The model's minimum spatial input (Real-ESRGAN x4plus declares 64). On the
+    /// flexible-shape path, undersized edge tiles are lifted to this size before
+    /// inference and the output is restored afterwards, so the model never rejects
+    /// an otherwise-valid image.
+    public var minimumInputSize: Int
 
     public init(
         inputFeatureName: String = "input",
@@ -30,7 +35,8 @@ public struct CoreMLUpscalerConfiguration: Sendable {
         nativeScale: Int = 4,
         tileSize: Int = 256,
         tileOverlap: Int = 16,
-        fixedInputSize: CGSize? = nil
+        fixedInputSize: CGSize? = nil,
+        minimumInputSize: Int = 64
     ) {
         self.inputFeatureName = inputFeatureName
         self.outputFeatureName = outputFeatureName
@@ -38,6 +44,7 @@ public struct CoreMLUpscalerConfiguration: Sendable {
         self.tileSize = tileSize
         self.tileOverlap = tileOverlap
         self.fixedInputSize = fixedInputSize
+        self.minimumInputSize = minimumInputSize
     }
 }
 
@@ -150,9 +157,17 @@ public actor CoreMLUpscaler: ImageUpscaler {
             inputHeight = Int(fixed.height)
             modelInput = ImageConversion.resize(tile, width: inputWidth, height: inputHeight) ?? tile
         } else {
-            inputWidth = tile.width
-            inputHeight = tile.height
-            modelInput = tile
+            // Lift undersized edge tiles to the model's minimum so `prediction`
+            // doesn't reject them; the output is restored to the tile's true scale
+            // below. (Production uses a fixed input size, so this is a safety net
+            // for flexible-shape models.)
+            inputWidth = max(tile.width, configuration.minimumInputSize)
+            inputHeight = max(tile.height, configuration.minimumInputSize)
+            if inputWidth != tile.width || inputHeight != tile.height {
+                modelInput = ImageConversion.resize(tile, width: inputWidth, height: inputHeight) ?? tile
+            } else {
+                modelInput = tile
+            }
         }
 
         guard let buffer = ImageConversion.makeBGRAPixelBuffer(
@@ -179,14 +194,13 @@ public actor CoreMLUpscaler: ImageUpscaler {
             throw InferenceError.outputDecodingFailed
         }
 
-        // A fixed-size model returns a fixed output; restore native tile scale.
-        if configuration.fixedInputSize != nil {
-            let expectedWidth = tile.width * configuration.nativeScale
-            let expectedHeight = tile.height * configuration.nativeScale
-            if upscaled.width != expectedWidth || upscaled.height != expectedHeight,
-               let restored = ImageConversion.resize(upscaled, width: expectedWidth, height: expectedHeight) {
-                upscaled = restored
-            }
+        // Restore the tile's true scale: fixed-size models emit a fixed output,
+        // and undersized flexible tiles were lifted to the minimum above.
+        let expectedWidth = tile.width * configuration.nativeScale
+        let expectedHeight = tile.height * configuration.nativeScale
+        if upscaled.width != expectedWidth || upscaled.height != expectedHeight,
+           let restored = ImageConversion.resize(upscaled, width: expectedWidth, height: expectedHeight) {
+            upscaled = restored
         }
         return upscaled
     }

@@ -120,7 +120,7 @@ struct ContentView: View {
                 }
             }
             .sheet(isPresented: $isRefining) {
-                if let original = model.sourceImage?.normalizedCGImage(),
+                if let original = model.refineRestoreImage?.normalizedCGImage(),
                    let current = model.workingImage?.normalizedCGImage() {
                     RefineView(original: original, current: current) { rendered in
                         model.applyEditedImage(rendered, status: "Refined")

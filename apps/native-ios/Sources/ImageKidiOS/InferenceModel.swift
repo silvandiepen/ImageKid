@@ -58,6 +58,9 @@ struct EditorItem: Identifiable {
     var undoStack: [UIImage] = []
     var redoStack: [UIImage] = []
     var sampledColors: [SampledColor] = []
+    /// The working image captured immediately before the last background removal,
+    /// used as the restore source in Refine (may be cropped, unlike `sourceImage`).
+    var preRemovalImage: UIImage?
 
     init(source: UIImage) {
         self.sourceImage = source
@@ -165,6 +168,10 @@ final class InferenceModel: ObservableObject {
     /// Saved colour swatches for the selected picture (persist across sheets).
     var sampledColors: [SampledColor] { active?.sampledColors ?? [] }
 
+    /// Restore source for Refine: the working image just before background removal
+    /// (falls back to the original if none was captured).
+    var refineRestoreImage: UIImage? { active?.preRemovalImage ?? active?.sourceImage }
+
     // MARK: Workspace (list of pictures)
 
     /// Adds a picture to the workspace and selects it for editing.
@@ -231,13 +238,18 @@ final class InferenceModel: ObservableObject {
 
     // MARK: History
 
-    /// Commits a new working image and records the previous one for undo.
-    private func commit(_ image: CGImage, status: String) {
-        guard let index = activeIndex else { return }
+    /// Commits a new working image to a specific picture (defaults to the selected
+    /// one). Async operations pass the id captured when they started so a result
+    /// never lands on a picture the user selected while it was running.
+    private func commit(_ image: CGImage, status: String, to itemID: UUID? = nil) {
+        let targetID = itemID ?? selectedItemID
+        guard let index = items.firstIndex(where: { $0.id == targetID }) else { return }
         items[index].undoStack.append(items[index].current)
         items[index].redoStack.removeAll()
         items[index].current = UIImage(cgImage: image)
-        statusText = status
+        if selectedItemID == targetID {
+            statusText = status
+        }
     }
 
     func undo() {
@@ -293,6 +305,11 @@ final class InferenceModel: ObservableObject {
     // MARK: Inference edits
 
     func removeBackground(engine: BackgroundEngine) {
+        // Capture the working image now so Refine can restore from the exact
+        // pre-removal pixels (which may already be cropped), not the full original.
+        if let index = activeIndex {
+            items[index].preRemovalImage = items[index].current
+        }
         run(status: "Background removed") { [self] progress in
             guard let source = workingImage?.normalizedCGImage() else {
                 throw InferenceError.inputPreparationFailed
@@ -346,6 +363,9 @@ final class InferenceModel: ObservableObject {
         _ work: @escaping (@escaping InferenceProgressHandler) async throws -> CGImage
     ) {
         guard !isBusy else { return }
+        // Remember which picture this operation belongs to; the user may select a
+        // different one before it finishes.
+        let targetID = selectedItemID
         isBusy = true
         errorMessage = nil
         progress = nil
@@ -353,6 +373,7 @@ final class InferenceModel: ObservableObject {
 
         let handler: InferenceProgressHandler = { [weak self] update in
             Task { @MainActor in
+                guard self?.selectedItemID == targetID else { return }
                 self?.statusText = update.detail
                 self?.progress = update.fraction
             }
@@ -361,10 +382,12 @@ final class InferenceModel: ObservableObject {
         Task {
             do {
                 let output = try await work(handler)
-                commit(output, status: status)
+                commit(output, status: status, to: targetID)
             } catch {
-                errorMessage = error.localizedDescription
-                statusText = nil
+                if selectedItemID == targetID {
+                    errorMessage = error.localizedDescription
+                    statusText = nil
+                }
             }
             progress = nil
             isBusy = false
