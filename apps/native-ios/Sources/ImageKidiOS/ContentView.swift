@@ -216,7 +216,7 @@ struct ContentView: View {
 
     private func loadPickedImage(_ item: PhotosPickerItem?) {
         guard let item else { return }
-        Task {
+        Task { @MainActor in
             if let data = try? await item.loadTransferable(type: Data.self),
                let image = UIImage(data: data) {
                 model.setSource(image)

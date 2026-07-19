@@ -4,18 +4,26 @@ A SwiftUI iOS app (iOS 17+) that runs ImageKid's upscaling and background
 removal through the shared [`ImageKidInference`](../../packages/ImageKidInference)
 package — entirely on-device, no subprocess, no downloaded executable.
 
-This is a focused first target: pick a photo, remove its background or upscale
-it, and share the result. It deliberately does not reimplement the macOS app's
-viewer, crop, resize, or annotation tools yet, and it does not touch
-`apps/native-macos`.
+Pick a photo, edit it, and export. It does not touch `apps/native-macos`.
 
 ## What it does
 
 - **Remove background** — Built-in (Apple Vision) always; Best Quality (ISNet
   via Core ML) when the model is bundled.
+- **Refine cutout** — Erase / Restore brushes to fix a mask by hand (also a
+  plain eraser).
 - **Upscale** — 2× Standard (Core Image) always; 4× Best Quality (Real-ESRGAN
   via Core ML) when the model is bundled.
-- **Share** the result as a PNG (alpha preserved).
+- **Crop** — draggable handles, movable region, aspect presets.
+- **Resize** — exact width/height with aspect lock, percentage presets.
+- **Annotate** — rectangle, ellipse, line, arrow, freehand, and text with
+  colour and thickness.
+- **Colour picker** — sample pixels, save swatches, copy HEX / RGB.
+- **View** — pinch zoom, pan, double-tap reset, checkerboard for transparency.
+- **Export** — PNG / JPEG / HEIC with quality, Save to Photos, or Share.
+
+Edits compose: each operation acts on the current working image, and Reset
+returns to the original photo.
 
 ## Requirements
 
@@ -56,7 +64,17 @@ apps/native-ios/
 ├── project.yml                       # XcodeGen project (local package dependency)
 └── Sources/ImageKidiOS/
     ├── ImageKidApp.swift             # @main App entry
-    ├── ContentView.swift             # photo picker, actions, preview, share
-    ├── InferenceModel.swift          # wires the UI to ImageKidInference
-    └── ImageIO.swift                 # UIImage <-> CGImage, PNG share file
+    ├── ContentView.swift             # tool sections, preview, sheets
+    ├── InferenceModel.swift          # working-image state and edit pipeline
+    ├── ImageIO.swift                 # UIImage <-> CGImage, resize, share file
+    ├── ZoomableImageView.swift       # pinch zoom / pan viewer
+    ├── ImageExport.swift             # encode PNG/JPEG/HEIC, save to Photos
+    ├── ExportView.swift              # export sheet
+    ├── CropView.swift                # crop editor
+    ├── ResizeView.swift              # resize editor
+    ├── Annotation.swift              # annotation model + rasterizer
+    ├── AnnotateView.swift            # annotation editor
+    ├── ColorSample.swift             # pixel sampler + colour model
+    ├── ColorSampleView.swift         # colour picker
+    └── RefineView.swift              # cutout refinement brushes
 ```
