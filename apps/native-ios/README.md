@@ -19,11 +19,14 @@ Pick a photo, edit it, and export. It does not touch `apps/native-macos`.
 - **Annotate** — rectangle, ellipse, line, arrow, freehand, and text with
   colour and thickness.
 - **Colour picker** — sample pixels, save swatches, copy HEX / RGB.
+- **Prompt edit** — OpenAI image editing with a user-supplied key (Keychain);
+  the image and prompt are sent only when you tap Generate.
+- **Video** — basic local playback (playback only, like the macOS app).
 - **View** — pinch zoom, pan, double-tap reset, checkerboard for transparency.
 - **Export** — PNG / JPEG / HEIC with quality, Save to Photos, or Share.
 
-Edits compose: each operation acts on the current working image, and Reset
-returns to the original photo.
+Edits compose and are non-destructive: each operation acts on the current
+working image, with **undo/redo** and **Revert** to the original.
 
 ## Requirements
 
@@ -76,5 +79,9 @@ apps/native-ios/
     ├── AnnotateView.swift            # annotation editor
     ├── ColorSample.swift             # pixel sampler + colour model
     ├── ColorSampleView.swift         # colour picker
-    └── RefineView.swift              # cutout refinement brushes
+    ├── RefineView.swift              # cutout refinement brushes
+    ├── Movie.swift                   # picked-video transferable
+    ├── KeychainStore.swift           # user API key storage
+    ├── PromptEditService.swift       # OpenAI image-edit provider
+    └── PromptEditView.swift          # prompt-edit sheet
 ```
