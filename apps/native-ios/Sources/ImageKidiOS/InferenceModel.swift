@@ -3,17 +3,20 @@ import Foundation
 import ImageKidInference
 import UIKit
 
-/// Drives the ImageKidInference engines for the iOS UI. All published state is
-/// main-actor isolated; the heavy model work runs inside the engine actors.
+/// Drives the ImageKidInference engines and holds the editable working image
+/// with an undo/redo history. All published state is main-actor isolated; the
+/// heavy model work runs inside the engine actors.
 @MainActor
 final class InferenceModel: ObservableObject {
-    @Published var sourceImage: UIImage?
-    @Published var resultImage: UIImage?
-    @Published var resultShareURL: URL?
+    @Published private(set) var sourceImage: UIImage?
+    @Published private(set) var current: UIImage?
     @Published var statusText: String?
     @Published var progress: Double?
     @Published var isBusy = false
     @Published var errorMessage: String?
+
+    private var undoStack: [UIImage] = []
+    private var redoStack: [UIImage] = []
 
     // Built-in engines: always available, no model download.
     private let visionRemover = VisionBackgroundRemover()
@@ -29,11 +32,58 @@ final class InferenceModel: ObservableObject {
     var bestQualityBackgroundAvailable: Bool { isnetProvider.isAvailable }
     var bestQualityUpscaleAvailable: Bool { realESRGANProvider.isAvailable }
 
-    /// The image currently shown and acted on: the latest result, or the source.
-    var workingImage: UIImage? { resultImage ?? sourceImage }
+    /// The image currently shown and acted on.
+    var workingImage: UIImage? { current }
 
-    /// Applies a crop expressed as a normalised rectangle (top-left origin) to
-    /// the current working image, making the result the new working image.
+    var canUndo: Bool { !undoStack.isEmpty }
+    var canRedo: Bool { !redoStack.isEmpty }
+    var isEdited: Bool { canUndo || canRedo }
+
+    // MARK: Source and history
+
+    func setSource(_ image: UIImage) {
+        sourceImage = image
+        current = image
+        undoStack.removeAll()
+        redoStack.removeAll()
+        errorMessage = nil
+        statusText = nil
+        progress = nil
+    }
+
+    /// Commits a new working image and records the previous one for undo.
+    private func commit(_ image: CGImage, status: String) {
+        if let current { undoStack.append(current) }
+        redoStack.removeAll()
+        current = UIImage(cgImage: image)
+        statusText = status
+    }
+
+    func undo() {
+        guard let previous = undoStack.popLast() else { return }
+        if let current { redoStack.append(current) }
+        current = previous
+        statusText = "Undo"
+    }
+
+    func redo() {
+        guard let next = redoStack.popLast() else { return }
+        if let current { undoStack.append(current) }
+        current = next
+        statusText = "Redo"
+    }
+
+    func revertToOriginal() {
+        guard let sourceImage, let current, current !== sourceImage else { return }
+        undoStack.append(current)
+        redoStack.removeAll()
+        self.current = sourceImage
+        statusText = "Reverted"
+    }
+
+    // MARK: Transform edits
+
+    /// Applies a crop expressed as a normalised rectangle (top-left origin).
     func applyCrop(normalizedRect: CGRect) {
         guard let source = workingImage?.normalizedCGImage() else { return }
         let pixelRect = CGRect(
@@ -43,40 +93,27 @@ final class InferenceModel: ObservableObject {
             height: normalizedRect.height * CGFloat(source.height)
         ).integral
         guard let cropped = source.cropping(to: pixelRect) else { return }
-        resultImage = UIImage(cgImage: cropped)
-        resultShareURL = ShareFile.makePNG(from: cropped)
-        statusText = "Cropped"
-    }
-
-    /// Replaces the working image with an already-rendered edit (e.g. flattened
-    /// annotations).
-    func applyEditedImage(_ image: CGImage, status: String) {
-        resultImage = UIImage(cgImage: image)
-        resultShareURL = ShareFile.makePNG(from: image)
-        statusText = status
+        commit(cropped, status: "Cropped")
     }
 
     /// Resizes the working image to an exact pixel size.
     func applyResize(width: Int, height: Int) {
         guard let source = workingImage?.normalizedCGImage() else { return }
         guard let resized = source.resizedExact(width: width, height: height) else { return }
-        resultImage = UIImage(cgImage: resized)
-        resultShareURL = ShareFile.makePNG(from: resized)
-        statusText = "Resized to \(width)×\(height)"
+        commit(resized, status: "Resized to \(width)×\(height)")
     }
 
-    func setSource(_ image: UIImage) {
-        sourceImage = image
-        resultImage = nil
-        resultShareURL = nil
-        errorMessage = nil
-        statusText = nil
-        progress = nil
+    /// Replaces the working image with an already-rendered edit (annotations,
+    /// refinement).
+    func applyEditedImage(_ image: CGImage, status: String) {
+        commit(image, status: status)
     }
+
+    // MARK: Inference edits
 
     func removeBackground(bestQuality: Bool) {
-        run { [self] progress in
-            guard let source = sourceImage?.normalizedCGImage() else {
+        run(status: "Done") { [self] progress in
+            guard let source = workingImage?.normalizedCGImage() else {
                 throw InferenceError.inputPreparationFailed
             }
             if bestQuality {
@@ -87,8 +124,8 @@ final class InferenceModel: ObservableObject {
     }
 
     func upscale(scale: CGFloat, bestQuality: Bool) {
-        run { [self] progress in
-            guard let source = sourceImage?.normalizedCGImage() else {
+        run(status: "Upscaled") { [self] progress in
+            guard let source = workingImage?.normalizedCGImage() else {
                 throw InferenceError.inputPreparationFailed
             }
             let target = CGSize(
@@ -103,13 +140,14 @@ final class InferenceModel: ObservableObject {
         }
     }
 
-    /// Runs an inference operation, wiring progress and results back to the UI.
-    private func run(_ work: @escaping (@escaping InferenceProgressHandler) async throws -> CGImage) {
+    /// Runs an inference operation, wiring progress and committing the result.
+    private func run(
+        status: String,
+        _ work: @escaping (@escaping InferenceProgressHandler) async throws -> CGImage
+    ) {
         guard !isBusy else { return }
         isBusy = true
         errorMessage = nil
-        resultImage = nil
-        resultShareURL = nil
         progress = nil
         statusText = "Working…"
 
@@ -123,9 +161,7 @@ final class InferenceModel: ObservableObject {
         Task {
             do {
                 let output = try await work(handler)
-                resultImage = UIImage(cgImage: output)
-                resultShareURL = ShareFile.makePNG(from: output)
-                statusText = "Done"
+                commit(output, status: status)
             } catch {
                 errorMessage = error.localizedDescription
                 statusText = nil

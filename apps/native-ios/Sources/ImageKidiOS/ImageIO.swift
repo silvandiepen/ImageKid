@@ -42,20 +42,3 @@ extension CGImage {
         return context.makeImage()
     }
 }
-
-enum ShareFile {
-    /// Writes a `CGImage` to a temporary PNG (preserving alpha) and returns the
-    /// URL, suitable for a `ShareLink`.
-    static func makePNG(from image: CGImage, name: String = "ImageKid") -> URL? {
-        let data = UIImage(cgImage: image).pngData()
-        guard let data else { return nil }
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(name)-\(UUID().uuidString).png")
-        do {
-            try data.write(to: url, options: .atomic)
-            return url
-        } catch {
-            return nil
-        }
-    }
-}

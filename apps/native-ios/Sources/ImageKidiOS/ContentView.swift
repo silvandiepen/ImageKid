@@ -170,20 +170,22 @@ struct ContentView: View {
     }
 
     private var statusRow: some View {
-        HStack {
+        HStack(spacing: 16) {
             if let statusText = model.statusText {
                 Text(statusText)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            if model.resultImage != nil {
-                Button("Reset") {
-                    if let source = model.sourceImage {
-                        model.setSource(source)
-                    }
+            if model.sourceImage != nil {
+                Button { model.undo() } label: { Image(systemName: "arrow.uturn.backward") }
+                    .disabled(!model.canUndo)
+                Button { model.redo() } label: { Image(systemName: "arrow.uturn.forward") }
+                    .disabled(!model.canRedo)
+                if model.isEdited {
+                    Button("Revert") { model.revertToOriginal() }
+                        .font(.subheadline)
                 }
-                .font(.subheadline)
             }
         }
         .frame(minHeight: 20)
