@@ -432,6 +432,9 @@ final class AppModel: ObservableObject {
             if activeTool == .resize {
                 session.cancelDraftResize()
             }
+            if activeTool == .rotate {
+                session.beginRotation()
+            }
             session.liveSampleColor = nil
             session.liveSampleLocation = nil
         }
@@ -605,6 +608,66 @@ final class AppModel: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
             operationProgress = nil
+        }
+    }
+
+    /// Quick 90° rotation from the Image menu (no empty corners, so no fill needed).
+    func rotate90(clockwise: Bool) {
+        bakeRotation(degrees: clockwise ? 90 : -90, flipHorizontal: false, flipVertical: false, resizeCanvas: true, fill: nil)
+    }
+
+    /// Flip from the Image menu. `horizontal == true` mirrors left↔right, otherwise top↔bottom.
+    func flipImage(horizontal: Bool) {
+        bakeRotation(degrees: 0, flipHorizontal: horizontal, flipVertical: !horizontal, resizeCanvas: true, fill: nil)
+    }
+
+    /// Apply the rotate tool's draft (arbitrary angle + flips) using its canvas/fill options.
+    func applyRotationToCurrentImage() {
+        guard case .image(let session) = media else {
+            errorMessage = "Open an image first."
+            return
+        }
+        let fill: NSColor? = session.rotationFillsGaps ? session.rotationFillColor : nil
+        bakeRotation(
+            degrees: session.rotationDraft,
+            flipHorizontal: session.rotationFlipHorizontal,
+            flipVertical: session.rotationFlipVertical,
+            resizeCanvas: session.rotationResizesCanvas,
+            fill: fill
+        )
+        activeTool = .view
+    }
+
+    private func bakeRotation(degrees: Double, flipHorizontal: Bool, flipVertical: Bool, resizeCanvas: Bool, fill: NSColor?) {
+        guard let itemID = selectedItemID, case .image(let session) = media else {
+            errorMessage = "Open an image first."
+            return
+        }
+        guard degrees != 0 || flipHorizontal || flipVertical else { return }
+
+        guard let rendered = ImageRenderer.render(session) else {
+            errorMessage = "Couldn't render the image to rotate."
+            return
+        }
+        // render() bakes at the screen backing scale; normalize to the true pixel
+        // size so rotating doesn't silently inflate the image (e.g. 2× on Retina).
+        let flattened = ImageUpscaleService.imageWithExactPixelSize(rendered, size: session.effectivePixelSize)
+        guard let rotated = ImageRotator.rotate(
+            flattened,
+            degrees: degrees,
+            flipHorizontal: flipHorizontal,
+            flipVertical: flipVertical,
+            resizeCanvas: resizeCanvas,
+            fillColor: fill
+        ) else {
+            errorMessage = "Rotation failed."
+            return
+        }
+
+        let rotatedSession = ImageSession(sourceURL: session.sourceURL, sourceImage: rotated)
+        rotatedSession.isDirty = true
+        if !replaceMedia(.image(rotatedSession), for: itemID) {
+            errorMessage = "That image was closed before the rotation finished."
         }
     }
 
@@ -1049,6 +1112,19 @@ struct AppCommands: Commands {
             Button("Resize…") { currentAppModel?.activeTool = .resize }
                 .keyboardShortcut(Tool.resize.menuShortcutKey, modifiers: Tool.resize.menuShortcutModifiers)
                 .disabled(currentAppModel == nil)
+
+            Menu("Rotate") {
+                Button("Rotate 90° Clockwise") { currentAppModel?.rotate90(clockwise: true) }
+                    .keyboardShortcut("r", modifiers: .command)
+                Button("Rotate 90° Counterclockwise") { currentAppModel?.rotate90(clockwise: false) }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                Divider()
+                Button("Flip Horizontal") { currentAppModel?.flipImage(horizontal: true) }
+                Button("Flip Vertical") { currentAppModel?.flipImage(horizontal: false) }
+                Divider()
+                Button("Rotate…") { currentAppModel?.activeTool = .rotate }
+            }
+            .disabled(currentAppModel == nil)
 
             Divider()
 
