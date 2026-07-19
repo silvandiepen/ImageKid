@@ -29,6 +29,9 @@ final class InferenceModel: ObservableObject {
     var bestQualityBackgroundAvailable: Bool { isnetProvider.isAvailable }
     var bestQualityUpscaleAvailable: Bool { realESRGANProvider.isAvailable }
 
+    /// The image currently shown and acted on: the latest result, or the source.
+    var workingImage: UIImage? { resultImage ?? sourceImage }
+
     func setSource(_ image: UIImage) {
         sourceImage = image
         resultImage = nil

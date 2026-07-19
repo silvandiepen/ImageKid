@@ -4,6 +4,7 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var model = InferenceModel()
     @State private var pickerItem: PhotosPickerItem?
+    @State private var isExporting = false
 
     var body: some View {
         NavigationStack {
@@ -22,15 +23,22 @@ struct ContentView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    if let url = model.resultShareURL {
-                        ShareLink(item: url) {
-                            Label("Share", systemImage: "square.and.arrow.up")
+                    if model.workingImage != nil {
+                        Button {
+                            isExporting = true
+                        } label: {
+                            Label("Export", systemImage: "square.and.arrow.up")
                         }
                     }
                 }
             }
             .onChange(of: pickerItem) { _, newValue in
                 loadPickedImage(newValue)
+            }
+            .sheet(isPresented: $isExporting) {
+                if let cgImage = model.workingImage?.normalizedCGImage() {
+                    ExportView(image: cgImage)
+                }
             }
             .alert(
                 "Something went wrong",
@@ -47,10 +55,8 @@ struct ContentView: View {
     private var preview: some View {
         ZStack {
             CheckerboardBackground()
-            if let display = model.resultImage ?? model.sourceImage {
-                Image(uiImage: display)
-                    .resizable()
-                    .scaledToFit()
+            if let display = model.workingImage {
+                ZoomableImageView(image: display)
                     .padding(8)
             } else {
                 ContentUnavailableView(
