@@ -9,6 +9,7 @@ struct ContentView: View {
     @State private var isResizing = false
     @State private var isAnnotating = false
     @State private var isSampling = false
+    @State private var isRefining = false
 
     var body: some View {
         NavigationStack {
@@ -71,6 +72,14 @@ struct ContentView: View {
                     ColorSampleView(image: cgImage)
                 }
             }
+            .sheet(isPresented: $isRefining) {
+                if let original = model.sourceImage?.normalizedCGImage(),
+                   let current = model.workingImage?.normalizedCGImage() {
+                    RefineView(original: original, current: current) { rendered in
+                        model.applyEditedImage(rendered, status: "Refined")
+                    }
+                }
+            }
             .alert(
                 "Something went wrong",
                 isPresented: Binding(
@@ -122,6 +131,7 @@ struct ContentView: View {
                 ) {
                     model.removeBackground(bestQuality: true)
                 }
+                actionButton("Refine cutout", systemImage: "lasso") { isRefining = true }
             }
 
             section("Upscale") {
