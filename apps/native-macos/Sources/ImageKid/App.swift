@@ -1044,6 +1044,26 @@ struct AppCommands: Commands {
             .disabled(currentAppModel?.canDeleteSelection != true)
         }
 
+        // Whole-image operations live under a dedicated "Image" menu.
+        CommandMenu("Image") {
+            Button("Resize…") { currentAppModel?.activeTool = .resize }
+                .keyboardShortcut(Tool.resize.menuShortcutKey, modifiers: Tool.resize.menuShortcutModifiers)
+                .disabled(currentAppModel == nil)
+
+            Divider()
+
+            Button(currentAppModel?.hasRemovedBackground == true ? "Restore Background" : "Remove Background") {
+                currentAppModel?.removeBackground()
+            }
+            .keyboardShortcut(Tool.refineBackground.menuShortcutKey, modifiers: Tool.refineBackground.menuShortcutModifiers)
+            .disabled(currentAppModel?.canRemoveBackground != true)
+
+            Button("Magic Edit…") { currentAppModel?.requestPromptEdit() }
+                .keyboardShortcut("m", modifiers: [.command, .option])
+                .disabled(currentAppModel == nil)
+        }
+
+        // Interactive tools only.
         CommandMenu("Tools") {
             Button("View") { currentAppModel?.activeTool = .view }
                 .keyboardShortcut(Tool.view.menuShortcutKey, modifiers: Tool.view.menuShortcutModifiers)
@@ -1065,14 +1085,6 @@ struct AppCommands: Commands {
                 .keyboardShortcut(Tool.text.menuShortcutKey, modifiers: Tool.text.menuShortcutModifiers)
                 .disabled(currentAppModel == nil)
             Divider()
-            Button("Resize") { currentAppModel?.activeTool = .resize }
-                .keyboardShortcut(Tool.resize.menuShortcutKey, modifiers: Tool.resize.menuShortcutModifiers)
-                .disabled(currentAppModel == nil)
-            Button(currentAppModel?.hasRemovedBackground == true ? "Restore Background" : "Remove Background") {
-                currentAppModel?.removeBackground()
-            }
-            .keyboardShortcut(Tool.refineBackground.menuShortcutKey, modifiers: Tool.refineBackground.menuShortcutModifiers)
-            .disabled(currentAppModel?.canRemoveBackground != true)
             Button("Cancel Current Tool") { currentAppModel?.cancelCurrentTool() }
                 .keyboardShortcut(.cancelAction)
                 .disabled(currentAppModel == nil)
