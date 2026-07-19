@@ -21,6 +21,28 @@ extension UIImage {
     }
 }
 
+extension CGImage {
+    /// High-quality resize to an exact pixel size.
+    func resizedExact(width: Int, height: Int) -> CGImage? {
+        let targetWidth = max(1, width)
+        let targetHeight = max(1, height)
+        guard let context = CGContext(
+            data: nil,
+            width: targetWidth,
+            height: targetHeight,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return nil
+        }
+        context.interpolationQuality = .high
+        context.draw(self, in: CGRect(x: 0, y: 0, width: targetWidth, height: targetHeight))
+        return context.makeImage()
+    }
+}
+
 enum ShareFile {
     /// Writes a `CGImage` to a temporary PNG (preserving alpha) and returns the
     /// URL, suitable for a `ShareLink`.

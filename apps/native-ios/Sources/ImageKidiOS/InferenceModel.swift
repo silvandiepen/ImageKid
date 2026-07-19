@@ -48,6 +48,15 @@ final class InferenceModel: ObservableObject {
         statusText = "Cropped"
     }
 
+    /// Resizes the working image to an exact pixel size.
+    func applyResize(width: Int, height: Int) {
+        guard let source = workingImage?.normalizedCGImage() else { return }
+        guard let resized = source.resizedExact(width: width, height: height) else { return }
+        resultImage = UIImage(cgImage: resized)
+        resultShareURL = ShareFile.makePNG(from: resized)
+        statusText = "Resized to \(width)×\(height)"
+    }
+
     func setSource(_ image: UIImage) {
         sourceImage = image
         resultImage = nil
