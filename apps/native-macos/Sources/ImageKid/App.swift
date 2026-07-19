@@ -1134,8 +1134,8 @@ struct AppCommands: Commands {
             .keyboardShortcut(Tool.refineBackground.menuShortcutKey, modifiers: Tool.refineBackground.menuShortcutModifiers)
             .disabled(currentAppModel?.canRemoveBackground != true)
 
+            // No key equivalent: ⌥⌘M is the system "Minimize All" shortcut.
             Button("Magic Edit…") { currentAppModel?.requestPromptEdit() }
-                .keyboardShortcut("m", modifiers: [.command, .option])
                 .disabled(currentAppModel == nil)
         }
 
