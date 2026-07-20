@@ -6,7 +6,7 @@ options:
 settings:
   base:
     MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    CURRENT_PROJECT_VERSION: "2"
     SWIFT_VERSION: "5.0"
 packages:
   ImageKidInference:
@@ -30,4 +30,5 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: ImageKid
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.graphics-design
         ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_ENTITLEMENTS: Sources/ImageKid/ImageKid.entitlements
         CODE_SIGN_STYLE: Automatic
