@@ -8,6 +8,7 @@ struct ColorPalettePanel: View {
     let onClose: () -> Void
 
     @State private var expandedColorIDs: Set<UUID> = []
+    @State private var swipeOffsets: [UUID: CGFloat] = [:]
 
     var body: some View {
         FloatingToolPanel(
@@ -95,85 +96,108 @@ struct ColorPalettePanel: View {
 
     @ViewBuilder
     private func colorRow(_ sample: SampledColor) -> some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Button {
-                    toggleSelection(sample.id)
-                } label: {
-                    Image(systemName: session.selectedColorIDs.contains(sample.id) ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(session.selectedColorIDs.contains(sample.id) ? Color.accentColor : .white.opacity(0.48))
-                }
-                .buttonStyle(.plain)
-                .help(session.selectedColorIDs.contains(sample.id) ? "Deselect Colour" : "Select Colour")
-                .accessibilityLabel(session.selectedColorIDs.contains(sample.id) ? "Deselect Colour" : "Select Colour")
-
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(Color(nsColor: sample.sRGB))
-                    .frame(width: 50, height: 38)
-                    .overlay(RoundedRectangle(cornerRadius: 11).stroke(.white.opacity(0.16)))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(sample.hex)
-                        .font(.system(.body, design: .monospaced, weight: .semibold))
-                    Text(sample.rgb)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.white.opacity(0.52))
-                }
-
-                Spacer()
-
-                Button {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        toggleExpanded(sample.id)
-                    }
-                } label: {
-                    Image(systemName: expandedColorIDs.contains(sample.id) ? "chevron.up" : "chevron.down")
-                        .frame(width: 26, height: 26)
-                        .background(.white.opacity(0.08), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .help(expandedColorIDs.contains(sample.id) ? "Collapse Colour Details" : "Expand Colour Details")
-                .accessibilityLabel(expandedColorIDs.contains(sample.id) ? "Collapse Colour Details" : "Expand Colour Details")
-            }
-            .padding(10)
-
-            if expandedColorIDs.contains(sample.id) {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("Adjust")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.62))
-                        Spacer()
-                        ColorPicker(
-                            "Adjust colour",
-                            selection: colorBinding(for: sample.id),
-                            supportsOpacity: true
-                        )
-                        .labelsHidden()
-                    }
-
-                    valueRow("HEX", sample.hex)
-                    valueRow("RGB", sample.rgb)
-                    valueRow("RGBA", sample.rgba)
-                    valueRow("HSL", sample.hsl)
-                    valueRow("SwiftUI", sample.swiftUIColor)
-
+        ZStack(alignment: .trailing) {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.red.opacity(swipeOffset(for: sample.id) < -12 ? 0.82 : 0))
+                .overlay(alignment: .trailing) {
                     Button(role: .destructive) {
                         withAnimation(.easeInOut(duration: 0.15)) {
                             removeSample(sample.id)
                         }
                     } label: {
-                        Label("Remove Colour", systemImage: "trash")
-                            .frame(maxWidth: .infinity)
+                        Image(systemName: "trash.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 46, height: 44)
                     }
-                    .buttonStyle(.bordered)
-                    .padding(.top, 2)
+                    .buttonStyle(.plain)
+                    .help("Remove Colour")
+                    .accessibilityLabel("Remove Colour")
                 }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 12)
+
+            VStack(spacing: 0) {
+                HStack(spacing: 10) {
+                    Button {
+                        toggleSelection(sample.id)
+                    } label: {
+                        Image(systemName: session.selectedColorIDs.contains(sample.id) ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(session.selectedColorIDs.contains(sample.id) ? Color.accentColor : .white.opacity(0.48))
+                    }
+                    .buttonStyle(.plain)
+                    .help(session.selectedColorIDs.contains(sample.id) ? "Deselect Colour" : "Select Colour")
+                    .accessibilityLabel(session.selectedColorIDs.contains(sample.id) ? "Deselect Colour" : "Select Colour")
+
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .fill(Color(nsColor: sample.sRGB))
+                        .frame(width: 50, height: 38)
+                        .overlay(RoundedRectangle(cornerRadius: 11).stroke(.white.opacity(0.16)))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(sample.hex)
+                            .font(.system(.body, design: .monospaced, weight: .semibold))
+                        Text(sample.rgb)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.white.opacity(0.52))
+                    }
+
+                    Spacer()
+
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            toggleExpanded(sample.id)
+                        }
+                    } label: {
+                        Image(systemName: expandedColorIDs.contains(sample.id) ? "chevron.up" : "chevron.down")
+                            .frame(width: 26, height: 26)
+                            .background(.white.opacity(0.08), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(expandedColorIDs.contains(sample.id) ? "Collapse Colour Details" : "Expand Colour Details")
+                    .accessibilityLabel(expandedColorIDs.contains(sample.id) ? "Collapse Colour Details" : "Expand Colour Details")
+                }
+                .padding(10)
+
+                if expandedColorIDs.contains(sample.id) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("Adjust")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.62))
+                            Spacer()
+                            ColorPicker(
+                                "Adjust colour",
+                                selection: colorBinding(for: sample.id),
+                                supportsOpacity: true
+                            )
+                            .labelsHidden()
+                        }
+
+                        valueRow("HEX", sample.hex)
+                        valueRow("RGB", sample.rgb)
+                        valueRow("RGBA", sample.rgba)
+                        valueRow("HSL", sample.hsl)
+                        valueRow("SwiftUI", sample.swiftUIColor)
+
+                        Button(role: .destructive) {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                removeSample(sample.id)
+                            }
+                        } label: {
+                            Label("Remove Colour", systemImage: "trash")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .padding(.top, 2)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
+                }
             }
+            .background(.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .offset(x: swipeOffset(for: sample.id))
+            .simultaneousGesture(colorSwipeGesture(for: sample.id))
         }
-        .background(.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipped()
     }
 
     private func valueRow(_ label: String, _ value: String) -> some View {
@@ -230,6 +254,38 @@ struct ColorPalettePanel: View {
     private func removeSample(_ id: UUID) {
         session.removeSamples([id])
         expandedColorIDs.remove(id)
+        swipeOffsets[id] = nil
+    }
+
+    private func swipeOffset(for id: UUID) -> CGFloat {
+        swipeOffsets[id] ?? 0
+    }
+
+    private func colorSwipeGesture(for id: UUID) -> some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                let offset = min(0, max(-86, value.translation.width))
+                swipeOffsets[id] = offset
+            }
+            .onEnded { value in
+                guard abs(value.translation.width) > abs(value.translation.height) else {
+                    withAnimation(.easeOut(duration: 0.16)) {
+                        swipeOffsets[id] = nil
+                    }
+                    return
+                }
+
+                if value.translation.width < -72 {
+                    withAnimation(.easeInOut(duration: 0.16)) {
+                        removeSample(id)
+                    }
+                } else {
+                    withAnimation(.easeOut(duration: 0.16)) {
+                        swipeOffsets[id] = value.translation.width < -30 ? -58 : nil
+                    }
+                }
+            }
     }
 
     private func colorBinding(for id: UUID) -> Binding<Color> {
