@@ -25,8 +25,9 @@ pip install -r requirements.txt
 python convert_realesrgan.py --output ./out/RealESRGAN.mlpackage --fixed-size 256
 
 # AuraSR-v2 (GigaGAN) -> AuraSR.mlpackage (fixed 64x64 image in -> 256x256 out, 4x).
-# Higher-quality photo detail than Real-ESRGAN (~390 MB). A fixed noise latent is
-# baked in so the Core ML model stays single-image-input. Set
+# Higher-quality photo detail than Real-ESRGAN. int8-quantized to ~196 MB
+# (visually lossless, fits a single-shot R2 upload). A fixed noise latent is baked
+# in so the Core ML model stays single-image-input. Set
 # CoreMLUpscalerConfiguration(fixedInputSize: 64) on the Swift side. Apache-2.0.
 python convert_aurasr.py --output ./out/AuraSR.mlpackage
 

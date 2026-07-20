@@ -122,6 +122,18 @@ def convert(args: argparse.Namespace) -> None:
         minimum_deployment_target=ct.target.iOS17,
     )
 
+    # 8-bit linear weight quantization: ~390 MB fp16 -> ~196 MB, visually
+    # lossless here, and keeps the download (and single-shot R2 upload) small.
+    import numpy as np
+    import coremltools.optimize.coreml as cto
+
+    quant_config = cto.OptimizationConfig(
+        global_config=cto.OpLinearQuantizerConfig(
+            mode="linear_symmetric", dtype=np.int8, weight_threshold=512
+        )
+    )
+    mlmodel = cto.linear_quantize_weights(mlmodel, quant_config)
+
     mlmodel.short_description = "AuraSR-v2 (GigaGAN) 4x quality upscaler for ImageKid"
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
