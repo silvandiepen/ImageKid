@@ -6,10 +6,8 @@ struct ResizeControls: View {
     let isApplying: Bool
     let onCancel: () -> Void
     let onApply: () -> Void
-    let onApplyUpscale: (CGFloat) -> Void
 
     @State private var customPercent = 100
-    @State private var selectedUpscale: CGFloat = 2
 
     var body: some View {
         FloatingToolPanel(
@@ -73,34 +71,11 @@ struct ResizeControls: View {
                         .buttonStyle(.borderedProminent)
                         .frame(maxWidth: .infinity)
                         .disabled(isApplying)
-                }
 
-                Rectangle()
-                    .fill(.white.opacity(0.09))
-                    .frame(height: 1)
-
-                field("Upscale") {
-                    Picker("Upscale", selection: $selectedUpscale) {
-                        Text("2×").tag(CGFloat(2))
-                        Text("4×").tag(CGFloat(4))
-                        Text("8×").tag(CGFloat(8))
-                    }
-                    .pickerStyle(.segmented)
-
-                    let outputSize = CGSize(
-                        width: session.croppedPixelSize.width * selectedUpscale,
-                        height: session.croppedPixelSize.height * selectedUpscale
-                    )
-                    Text("\(Int(outputSize.width.rounded())) × \(Int(outputSize.height.rounded())) px")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.58))
-
-                    Button(isApplying ? "Upscaling…" : "Apply Upscale") {
-                        onApplyUpscale(selectedUpscale)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .frame(maxWidth: .infinity)
-                    .disabled(isApplying)
+                    Text("Want to enlarge with more detail? Use Magic ▸ Enhance Image.")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.55))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 Button("Cancel", action: onCancel)

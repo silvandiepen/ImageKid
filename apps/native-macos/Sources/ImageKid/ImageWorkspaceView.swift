@@ -207,8 +207,7 @@ struct ImageWorkspaceView: View {
                         offset: $panelOffset,
                         isApplying: appModel.isApplyingResize,
                         onCancel: cancelResize,
-                        onApply: applyResize,
-                        onApplyUpscale: applyUpscale
+                        onApply: applyResize
                     )
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                 } else if appModel.activeTool == .rotate {
@@ -1362,18 +1361,6 @@ struct ImageWorkspaceView: View {
         appModel.applyResizeToCurrentImage(
             targetSize: targetSize,
             upscaleEngine: .standard,
-            upscaleContentMode: settings.upscaleContentMode
-        )
-    }
-
-    private func applyUpscale(_ scale: CGFloat) {
-        let targetSize = CGSize(
-            width: session.croppedPixelSize.width * scale,
-            height: session.croppedPixelSize.height * scale
-        )
-        appModel.applyResizeToCurrentImage(
-            targetSize: targetSize,
-            upscaleEngine: .bestQuality,
             upscaleContentMode: settings.upscaleContentMode
         )
     }

@@ -7,6 +7,7 @@ enum CoreMLModel: String, CaseIterable, Identifiable {
     case birefnet = "BiRefNet"
     case u2net = "U2Net"
     case realESRGAN = "RealESRGAN"
+    case auraSR = "AuraSR"
 
     var id: String { rawValue }
 
@@ -15,6 +16,7 @@ enum CoreMLModel: String, CaseIterable, Identifiable {
         case .birefnet: "BiRefNet — best background"
         case .u2net: "U²-Net — background"
         case .realESRGAN: "Real-ESRGAN — 4× upscale"
+        case .auraSR: "AuraSR — best quality"
         }
     }
 
@@ -23,6 +25,7 @@ enum CoreMLModel: String, CaseIterable, Identifiable {
         case .birefnet: "179 MB"
         case .u2net: "88 MB"
         case .realESRGAN: "33 MB"
+        case .auraSR: "196 MB"
         }
     }
 

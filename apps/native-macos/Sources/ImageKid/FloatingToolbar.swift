@@ -28,12 +28,28 @@ struct FloatingToolbar: View {
             .help(appModel.hasRemovedBackground ? "Restore Background" : "Remove Background")
             .accessibilityLabel(appModel.hasRemovedBackground ? "Restore Background" : "Remove Background")
 
-            Button {
-                appModel.requestPromptEdit()
+            Menu {
+                Button {
+                    appModel.requestEnhance()
+                } label: {
+                    Label("Enhance Image", systemImage: "wand.and.stars")
+                }
+                Button {
+                    appModel.requestPromptEdit()
+                } label: {
+                    Label("AI Edit…", systemImage: "text.bubble")
+                }
             } label: {
-                toolbarIcon("sparkles", selected: appModel.isShowingPromptEdit || appModel.isApplyingPromptEdit)
+                toolbarIcon(
+                    "wand.and.stars",
+                    selected: appModel.isShowingPromptEdit || appModel.isApplyingPromptEdit
+                        || appModel.isShowingEnhance || appModel.isApplyingEnhance
+                )
             }
-            .disabled(appModel.isApplyingPromptEdit)
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(width: 42)
+            .disabled(appModel.isApplyingPromptEdit || appModel.isApplyingEnhance)
             .help("Magic")
             .accessibilityLabel("Magic")
 

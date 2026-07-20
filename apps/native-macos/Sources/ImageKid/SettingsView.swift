@@ -29,9 +29,9 @@ struct SettingsView: View {
                     Label("Background", systemImage: "eraser")
                 }
 
-            upscalePane
+            enhancePane
                 .tabItem {
-                    Label("Upscale", systemImage: "arrow.up.left.and.arrow.down.right")
+                    Label("Enhance", systemImage: "wand.and.stars")
                 }
 
             magicPane
@@ -298,55 +298,58 @@ struct SettingsView: View {
         }
     }
 
-    private var upscalePane: some View {
+    private var enhancePane: some View {
         Form {
-            Picker("Engine", selection: upscaleEngineBinding) {
-                ForEach(UpscaleEngine.allCases) { engine in
-                    Text(engine.label).tag(engine)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            Picker("Content", selection: upscaleContentModeBinding) {
-                ForEach(UpscaleContentMode.allCases) { mode in
-                    Text(mode.label).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Standard")
-                    .font(.headline)
-                Text("Quick stretch for drafts, icons, and tiny changes.")
+            Section {
+                Text("Enhance improves detail — and can enlarge — right on your Mac. Quick is built in. Higher grades use an on-device AI model you download once.")
                     .foregroundStyle(.secondary)
             }
 
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Best Quality")
-                            .font(.headline)
-                        Text(settings.upscaleContentMode == .automatic
-                             ? "Lets ImageKid pick the gentlest stretch for each picture."
-                             : settings.upscaleContentMode == .photoArtwork
-                             ? "Gives photos and artwork more room without turning them crunchy."
-                             : "Keeps screenshots, text, and icons crisp instead of mushy.")
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Text(CoreMLModel.realESRGAN.approxSize)
-                        .foregroundStyle(.secondary)
-                }
-
-                modelDownloadRow(.realESRGAN)
-
-                Text("Auto looks at the image and chooses the stretch that keeps it feeling like itself.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            Section("Quality grades") {
+                enhanceGradeRow(
+                    title: "Quick",
+                    detail: "Instant, built-in sharpening. No download.",
+                    model: nil
+                )
+                enhanceGradeRow(
+                    title: "High",
+                    detail: "Sharper AI detail.",
+                    model: .realESRGAN
+                )
+                enhanceGradeRow(
+                    title: "Max",
+                    detail: "Richest, most realistic detail.",
+                    model: .auraSR
+                )
             }
         }
         .formStyle(.grouped)
         .padding(20)
+    }
+
+    @ViewBuilder
+    private func enhanceGradeRow(title: String, detail: String, model: CoreMLModel?) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(title)
+                        .font(.headline)
+                    Text(detail)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if let model {
+                    Text(model.approxSize)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Label("Built in", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                }
+            }
+            if let model {
+                modelDownloadRow(model)
+            }
+        }
     }
 
     private var magicPane: some View {
@@ -432,20 +435,6 @@ struct SettingsView: View {
         Binding(
             get: { settings.backgroundRemovalEngine },
             set: { settings.backgroundRemovalEngine = $0 }
-        )
-    }
-
-    private var upscaleEngineBinding: Binding<UpscaleEngine> {
-        Binding(
-            get: { settings.upscaleEngine },
-            set: { settings.upscaleEngine = $0 }
-        )
-    }
-
-    private var upscaleContentModeBinding: Binding<UpscaleContentMode> {
-        Binding(
-            get: { settings.upscaleContentMode },
-            set: { settings.upscaleContentMode = $0 }
         )
     }
 
