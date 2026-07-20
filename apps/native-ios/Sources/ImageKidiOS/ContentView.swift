@@ -5,7 +5,9 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @EnvironmentObject private var settings: AppSettings
     @ObservedObject var model: InferenceModel
+    @State private var isShowingSettings = false
     @State private var pickerItem: PhotosPickerItem?
     @State private var player: AVPlayer?
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
@@ -74,6 +76,7 @@ struct ContentView: View {
                     .disabled(!model.canRedo)
                 Button { isExporting = true } label: { Image(systemName: "square.and.arrow.up") }
             }
+            Button { isShowingSettings = true } label: { Image(systemName: "gearshape") }
         }
     }
 
@@ -135,6 +138,9 @@ struct ContentView: View {
             .sheet(isPresented: $isBackgroundTool) {
                 BackgroundToolSheet(model: model) { isRefining = true }
             }
+            .sheet(isPresented: $isShowingSettings) {
+                SettingsView()
+            }
             .alert(
                 "Something went wrong",
                 isPresented: Binding(
@@ -148,31 +154,23 @@ struct ContentView: View {
 
     private var isRegularWidth: Bool { horizontalSizeClass == .regular }
 
-    /// On iPad the canvas is framed and centred instead of stretching edge-to-edge.
-    private var canvasMaxWidth: CGFloat { isRegularWidth ? 1000 : .infinity }
-
+    /// The canvas fills the whole editor area; the image sits on top with a border
+    /// that marks its exact bounds (like the macOS viewport).
     private var preview: some View {
         ZStack {
-            Color(.systemGroupedBackground).ignoresSafeArea()
+            canvasBackground.ignoresSafeArea()
 
             if let player {
                 VideoPlayer(player: player)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .padding(isRegularWidth ? 24 : 10)
-                    .frame(maxWidth: canvasMaxWidth)
+                    .ignoresSafeArea(edges: .bottom)
             } else if let display = model.workingImage {
-                // Checkerboard only sits behind an actual image (transparency read-out).
-                ZStack {
-                    CheckerboardBackground()
-                    ZoomableImageView(image: display).padding(8)
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .strokeBorder(Color(.separator), lineWidth: 1)
+                ZoomableImageView(
+                    image: display,
+                    cornerRadius: settings.imageCornerRadius,
+                    borderColor: settings.canvasBorderColor,
+                    showBorder: settings.showCanvasBorder
                 )
-                .padding(isRegularWidth ? 24 : 8)
-                .frame(maxWidth: canvasMaxWidth)
+                .padding(isRegularWidth ? 16 : 8)
             } else {
                 emptyState
             }
@@ -185,6 +183,16 @@ struct ContentView: View {
                     .padding()
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
             }
+        }
+    }
+
+    /// Full-bleed canvas backdrop: checkerboard or a solid colour, from Settings.
+    @ViewBuilder
+    private var canvasBackground: some View {
+        if settings.canvasBackground == .checkerboard {
+            CheckerboardBackground()
+        } else {
+            settings.canvasColor
         }
     }
 
@@ -374,4 +382,5 @@ private struct CheckerboardBackground: View {
 
 #Preview {
     ContentView(model: InferenceModel())
+        .environmentObject(AppSettings())
 }

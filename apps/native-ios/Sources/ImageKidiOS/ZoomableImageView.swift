@@ -1,9 +1,13 @@
 import SwiftUI
 
 /// A fit-to-view image that supports pinch zoom and pan, with double-tap to
-/// reset. Zoom is clamped so the image cannot be flung off screen.
+/// reset. Draws a border that hugs the *actual* image bounds (so the canvas is
+/// clear even against a matching background) and moves with the image.
 struct ZoomableImageView: View {
     let image: UIImage
+    var cornerRadius: CGFloat = 10
+    var borderColor: Color = .primary.opacity(0.3)
+    var showBorder: Bool = true
 
     @State private var scale: CGFloat = 1
     @State private var lastScale: CGFloat = 1
@@ -14,14 +18,37 @@ struct ZoomableImageView: View {
     private let maxScale: CGFloat = 6
 
     var body: some View {
-        Image(uiImage: image)
-            .resizable()
-            .scaledToFit()
-            .scaleEffect(scale)
-            .offset(offset)
-            .gesture(magnification.simultaneously(with: drag))
-            .onTapGesture(count: 2) { withAnimation(.spring(duration: 0.25)) { reset() } }
-            .animation(.interactiveSpring, value: scale)
+        GeometryReader { geo in
+            let fitted = Self.aspectFitSize(image.size, in: geo.size)
+            let radius = min(cornerRadius, min(fitted.width, fitted.height) / 2)
+
+            Image(uiImage: image)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: fitted.width, height: fitted.height)
+                .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+                .overlay {
+                    if showBorder {
+                        RoundedRectangle(cornerRadius: radius, style: .continuous)
+                            // Counter-scale so the border stays visually thin at any zoom.
+                            .strokeBorder(borderColor, lineWidth: 1 / scale)
+                    }
+                }
+                .scaleEffect(scale)
+                .offset(offset)
+                .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                .gesture(magnification.simultaneously(with: drag))
+                .onTapGesture(count: 2) { withAnimation(.spring(duration: 0.25)) { reset() } }
+                .animation(.interactiveSpring, value: scale)
+        }
+    }
+
+    private static func aspectFitSize(_ imageSize: CGSize, in bounds: CGSize) -> CGSize {
+        guard imageSize.width > 0, imageSize.height > 0, bounds.width > 0, bounds.height > 0 else {
+            return bounds
+        }
+        let ratio = min(bounds.width / imageSize.width, bounds.height / imageSize.height)
+        return CGSize(width: imageSize.width * ratio, height: imageSize.height * ratio)
     }
 
     private var magnification: some Gesture {
