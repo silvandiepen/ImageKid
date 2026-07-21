@@ -16,6 +16,19 @@ struct LayersPanel: View {
     /// Front-most first (last in the draw array renders on top).
     private var orderedLayers: [Annotation] { session.annotations.reversed() }
 
+    private var ungroupedLayers: [ImageLayer] {
+        session.imageLayers.reversed().filter { session.groupID(forLayer: $0.id) == nil }
+    }
+
+    private func members(of group: LayerGroup) -> [ImageLayer] {
+        group.memberIDs.reversed().compactMap { id in session.imageLayers.first { $0.id == id } }
+    }
+
+    private var canGroupSelection: Bool {
+        let ids = session.selectedLayerIDs.isEmpty ? Set([session.selectedLayerID].compactMap { $0 }) : session.selectedLayerIDs
+        return ids.contains { session.groupID(forLayer: $0) == nil }
+    }
+
     var body: some View {
         FloatingToolPanel(
             title: "Layers",
@@ -41,7 +54,15 @@ struct LayersPanel: View {
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 4) {
-                            ForEach(session.imageLayers.reversed()) { layer in
+                            ForEach(session.layerGroups) { group in
+                                groupHeader(group)
+                                if !group.isCollapsed {
+                                    ForEach(members(of: group)) { layer in
+                                        imageLayerRow(layer).padding(.leading, 18)
+                                    }
+                                }
+                            }
+                            ForEach(ungroupedLayers) { layer in
                                 imageLayerRow(layer)
                             }
                             ForEach(orderedLayers) { layer in
@@ -89,7 +110,7 @@ struct LayersPanel: View {
     }
 
     private func imageLayerRow(_ layer: ImageLayer) -> some View {
-        let isSelected = session.selectedLayerID == layer.id
+        let isSelected = session.selectedLayerID == layer.id || session.selectedLayerIDs.contains(layer.id)
         return HStack(spacing: 10) {
             Image(nsImage: layer.image)
                 .resizable()
@@ -114,8 +135,47 @@ struct LayersPanel: View {
         )
         .contentShape(Rectangle())
         .onTapGesture {
+            if NSEvent.modifierFlags.contains(.command) {
+                if session.selectedLayerIDs.contains(layer.id) {
+                    session.selectedLayerIDs.remove(layer.id)
+                } else {
+                    session.selectedLayerIDs.insert(layer.id)
+                }
+            } else {
+                session.selectedLayerIDs = [layer.id]
+            }
             session.selectedLayerID = layer.id
             session.selectedAnnotationID = nil
+        }
+    }
+
+    private func groupHeader(_ group: LayerGroup) -> some View {
+        HStack(spacing: 8) {
+            Button {
+                session.toggleGroupCollapsed(id: group.id)
+            } label: {
+                Image(systemName: group.isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 10, weight: .bold))
+                    .frame(width: 14)
+            }
+            .buttonStyle(.plain)
+            Image(systemName: "folder")
+                .font(.system(size: 12))
+                .opacity(group.isVisible ? 1 : 0.4)
+            nameLabel(id: group.id, text: group.name, isSelected: false) {
+                session.renameGroup(id: group.id, to: $0)
+            }
+            Spacer()
+            visibilityButton(isOn: group.isVisible) {
+                session.toggleGroupVisibility(id: group.id)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .contextMenu {
+            Button("Ungroup") { session.ungroup(id: group.id) }
         }
     }
 
@@ -161,6 +221,10 @@ struct LayersPanel: View {
                 else if let id = session.selectedAnnotationID { session.moveAnnotation(id: id, forward: false) }
             }
             Spacer()
+            control("folder.badge.plus", help: "Group selected layers") {
+                session.groupSelectedLayers()
+            }
+            .disabled(!canGroupSelection)
             control("plus.square.on.square", help: "Duplicate") {
                 if let id = session.selectedAnnotationID { session.duplicateAnnotation(id: id) }
             }
@@ -170,7 +234,7 @@ struct LayersPanel: View {
                 else if let id = session.selectedAnnotationID { session.removeAnnotation(id: id) }
             }
         }
-        .disabled(session.selectedAnnotationID == nil && session.selectedLayerID == nil)
+        .disabled(session.selectedAnnotationID == nil && session.selectedLayerID == nil && session.selectedLayerIDs.isEmpty)
         .padding(.top, 2)
     }
 

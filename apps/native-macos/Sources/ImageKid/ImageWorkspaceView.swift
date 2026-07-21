@@ -455,7 +455,7 @@ struct ImageWorkspaceView: View {
     @ViewBuilder
     private func imageLayers(in imageRect: CGRect) -> some View {
         ForEach(session.imageLayers) { layer in
-            if layer.isVisible, let displayedFrame = displayedAnnotationFrame(layer.frame) {
+            if session.isLayerEffectivelyVisible(layer), let displayedFrame = displayedAnnotationFrame(layer.frame) {
                 let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
                 Image(nsImage: layer.image)
                     .resizable()
@@ -1117,7 +1117,7 @@ struct ImageWorkspaceView: View {
 
     private func hitLayer(at point: CGPoint, imageRect: CGRect) -> ImageLayer? {
         session.imageLayers.reversed().first { layer in
-            guard layer.isVisible, let displayed = displayedAnnotationFrame(layer.frame) else { return false }
+            guard session.isLayerEffectivelyVisible(layer), let displayed = displayedAnnotationFrame(layer.frame) else { return false }
             return GeometryMapper.viewRect(from: displayed, in: imageRect).contains(point)
         }
     }

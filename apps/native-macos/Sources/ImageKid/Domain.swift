@@ -438,6 +438,24 @@ struct ImageLayer: Identifiable {
     }
 }
 
+/// An organisational group over image layers. Toggling group visibility gates
+/// all members; members keep their own z-order in the flat layer stack.
+struct LayerGroup: Identifiable {
+    let id: UUID
+    var name: String
+    var memberIDs: [UUID]
+    var isVisible: Bool
+    var isCollapsed: Bool
+
+    init(id: UUID = UUID(), name: String, memberIDs: [UUID], isVisible: Bool = true, isCollapsed: Bool = false) {
+        self.id = id
+        self.name = name
+        self.memberIDs = memberIDs
+        self.isVisible = isVisible
+        self.isCollapsed = isCollapsed
+    }
+}
+
 @MainActor
 final class ImageSession: ObservableObject {
     let sourceURL: URL?
@@ -454,8 +472,10 @@ final class ImageSession: ObservableObject {
     @Published var resizePreservesAspect = true
     @Published var annotations: [Annotation] = []
     @Published var imageLayers: [ImageLayer] = []
+    @Published var layerGroups: [LayerGroup] = []
     @Published var selectedAnnotationID: UUID?
     @Published var selectedLayerID: UUID?
+    @Published var selectedLayerIDs: Set<UUID> = []
     @Published var selectionRect: CGRect?
     @Published var sampledColors: [SampledColor] = []
     @Published var selectedColorIDs: Set<UUID> = []
@@ -494,6 +514,7 @@ final class ImageSession: ObservableObject {
         var resizePreservesAspect: Bool
         var annotations: [Annotation]
         var imageLayers: [ImageLayer]
+        var layerGroups: [LayerGroup]
         var selectedAnnotationID: UUID?
         var selectedLayerID: UUID?
         var sampledColors: [SampledColor]
@@ -526,6 +547,7 @@ final class ImageSession: ObservableObject {
             resizePreservesAspect: resizePreservesAspect,
             annotations: annotations,
             imageLayers: imageLayers,
+            layerGroups: layerGroups,
             selectedAnnotationID: selectedAnnotationID,
             selectedLayerID: selectedLayerID,
             sampledColors: sampledColors,
@@ -541,6 +563,7 @@ final class ImageSession: ObservableObject {
         resizePreservesAspect = snapshot.resizePreservesAspect
         annotations = snapshot.annotations
         imageLayers = snapshot.imageLayers
+        layerGroups = snapshot.layerGroups
         selectedAnnotationID = snapshot.selectedAnnotationID
         selectedLayerID = snapshot.selectedLayerID
         sampledColors = snapshot.sampledColors
@@ -816,7 +839,64 @@ final class ImageSession: ObservableObject {
     func removeImageLayer(id: UUID) {
         imageLayers.removeAll(where: { $0.id == id })
         if selectedLayerID == id { selectedLayerID = nil }
+        selectedLayerIDs.remove(id)
+        for i in layerGroups.indices { layerGroups[i].memberIDs.removeAll { $0 == id } }
+        layerGroups.removeAll { $0.memberIDs.isEmpty }
         record("Delete layer", systemImage: "trash")
+    }
+
+    // MARK: - Layer groups
+
+    func groupID(forLayer id: UUID) -> UUID? {
+        layerGroups.first(where: { $0.memberIDs.contains(id) })?.id
+    }
+
+    /// A layer draws only if it is visible and its group (if any) is visible.
+    func isLayerEffectivelyVisible(_ layer: ImageLayer) -> Bool {
+        guard layer.isVisible else { return false }
+        if let group = layerGroups.first(where: { $0.memberIDs.contains(layer.id) }) {
+            return group.isVisible
+        }
+        return true
+    }
+
+    /// Group the current multi-selection (or the single selected layer) of image layers.
+    @discardableResult
+    func groupSelectedLayers() -> UUID? {
+        var ids = selectedLayerIDs
+        if ids.isEmpty, let single = selectedLayerID { ids = [single] }
+        // Keep only real, not-already-grouped layers, in stack order.
+        let ordered = imageLayers.map(\.id).filter { ids.contains($0) && groupID(forLayer: $0) == nil }
+        guard ordered.count >= 1 else { return nil }
+        let group = LayerGroup(name: "Group \(layerGroups.count + 1)", memberIDs: ordered)
+        layerGroups.append(group)
+        record("Group layers", systemImage: "folder")
+        return group.id
+    }
+
+    func ungroup(id: UUID) {
+        guard layerGroups.contains(where: { $0.id == id }) else { return }
+        layerGroups.removeAll { $0.id == id }
+        record("Ungroup", systemImage: "folder.badge.minus")
+    }
+
+    func toggleGroupVisibility(id: UUID) {
+        guard let index = layerGroups.firstIndex(where: { $0.id == id }) else { return }
+        layerGroups[index].isVisible.toggle()
+        record(layerGroups[index].isVisible ? "Show group" : "Hide group", systemImage: "eye")
+    }
+
+    func toggleGroupCollapsed(id: UUID) {
+        guard let index = layerGroups.firstIndex(where: { $0.id == id }) else { return }
+        layerGroups[index].isCollapsed.toggle()
+    }
+
+    func renameGroup(id: UUID, to name: String) {
+        guard let index = layerGroups.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        layerGroups[index].name = trimmed
+        record("Rename group", systemImage: "pencil")
     }
 
     func toggleImageLayerVisibility(id: UUID) {

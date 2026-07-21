@@ -497,7 +497,7 @@ enum ImageRenderer {
 
     private static func drawImageLayers(session: ImageSession, targetSize: CGSize) {
         let crop = session.cropRect
-        for layer in session.imageLayers where layer.isVisible {
+        for layer in session.imageLayers where session.isLayerEffectivelyVisible(layer) {
             let relativeFrame = CGRect(
                 x: (layer.frame.minX - crop.minX) / crop.width,
                 y: (layer.frame.minY - crop.minY) / crop.height,
