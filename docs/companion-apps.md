@@ -7,7 +7,7 @@ ImageKid now has initial macOS targets for the two companion apps:
 - `ImageKidUpscale` / display name `ImageKid Upscale` / bundle id `com.hakobs.imagekid.upscale`.
 - `ImageKidCutout` / display name `ImageKid Cutout` / bundle id `com.hakobs.imagekid.cutout`.
 
-Both apps currently share lightweight batch UI and file I/O helpers under `apps/native-macos/Sources/CompanionSupport`. They can open or accept dropped image files, show a queue with thumbnails and per-file status, process files serially on device, and write outputs to a sibling folder or a user-chosen folder. Upscale uses the always-available Core Image path. Cutout uses Apple Vision background removal. Best Quality model install/download UI, richer output controls, retry/reveal actions, and release packaging are still planned work.
+Both apps currently share lightweight batch UI and file I/O helpers under `apps/native-macos/Sources/CompanionSupport`. They can open or accept dropped image files, show a queue with thumbnails and per-file status, process files serially on device, and write outputs to a sibling folder or a user-chosen folder. Upscale supports the always-available Core Image path and a Best Quality Core ML path. Cutout supports Apple Vision background removal and a Best Quality Core ML path. The companion apps include model install controls and reuse ImageKid's shared App Group model cache when signed with `group.com.hakobs.imagekid`. Richer output controls, retry/reveal actions, and release packaging are still planned work.
 
 ImageKid remains the full editor and the product where the complete toolset keeps growing. The companion apps are deliberately smaller, cheaper, single-purpose batch utilities built from the same local processing foundation:
 
@@ -57,6 +57,7 @@ The apps should feel simpler than ImageKid:
 - Source files are never overwritten unless the user explicitly chooses overwrite mode.
 - Output naming must avoid collisions unless overwrite mode is active.
 - Errors are shown per file without aborting the full queue unless the user stops it.
+- Optional Best Quality models are stored under the shared ImageKid App Group when available, so ImageKid, ImageKid Upscale, and ImageKid Cutout do not each download their own copy.
 
 ## ImageKid Upscale
 
@@ -66,7 +67,7 @@ The apps should feel simpler than ImageKid:
 2. Choose scale: `2x`, `4x`, `8x`, or custom percentage.
 3. Choose quality engine:
    - **Standard**: always available, fast, deterministic Core Image path.
-   - **Best Quality**: Core ML upscaler when bundled or installed.
+   - **Best Quality**: Core ML upscaler when installed in the shared model cache.
 4. Choose content mode:
    - Automatic.
    - Photos/artwork.
@@ -123,7 +124,7 @@ The queue runner must capture immutable inputs before processing starts: source 
 1. Drop images into the queue.
 2. Choose background removal quality:
    - **Built-in**: Apple Vision, always available.
-   - **Best Quality**: Core ML cutout model when bundled or installed.
+   - **Best Quality**: Core ML cutout model when installed in the shared model cache.
 3. Choose edge treatment:
    - Clean.
    - Soft edge.
@@ -247,8 +248,8 @@ The companion apps should never force users into ImageKid for their core promise
 1. Add shared batch/image I/O helpers for the companion app targets. Done for the initial macOS implementation under `apps/native-macos/Sources/CompanionSupport`; promote to `ImageKidBatch` if/when more targets need it.
 2. Build `ImageKid Upscale` with Standard upscaling only. Done for the initial macOS implementation.
 3. Build `ImageKid Cutout` with Built-in Vision removal only. Done for the initial macOS implementation.
-4. Add Best Quality Core ML upscaling and model availability UI.
-5. Add Best Quality Core ML background removal and model availability UI.
+4. Add Best Quality Core ML upscaling and model availability UI. Done for the initial macOS implementation.
+5. Add Best Quality Core ML background removal and model availability UI. Done for the initial macOS implementation.
 6. Add shared queue tests for output planning, overwrite behavior, cancellation, and per-file error handling.
 7. Add signed archive/export configuration for all three macOS apps.
 8. Decide whether the companion apps ship as separate App Store apps, separate direct-download apps, or a bundle.

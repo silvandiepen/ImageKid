@@ -107,12 +107,14 @@ enum CompanionProcessingError: LocalizedError {
     case unreadableImage
     case cannotWriteImage
     case cancelled
+    case modelMissing(String)
 
     var errorDescription: String? {
         switch self {
         case .unreadableImage: "That image could not be opened."
         case .cannotWriteImage: "The finished image could not be written."
         case .cancelled: "The batch was stopped."
+        case .modelMissing(let message): message
         }
     }
 }

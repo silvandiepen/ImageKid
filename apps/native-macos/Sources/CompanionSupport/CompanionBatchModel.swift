@@ -1,13 +1,42 @@
 import AppKit
+import CoreML
 import Foundation
 import ImageKidInference
 import UniformTypeIdentifiers
 
 @MainActor
 final class CompanionBatchModel: ObservableObject {
+    enum UpscaleEngine: String, CaseIterable, Identifiable {
+        case standard
+        case bestQuality
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .standard: "Standard"
+            case .bestQuality: "Best Quality"
+            }
+        }
+    }
+
+    enum CutoutEngine: String, CaseIterable, Identifiable {
+        case builtIn
+        case bestQuality
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .builtIn: "Built-in"
+            case .bestQuality: "Best Quality"
+            }
+        }
+    }
+
     enum Operation {
-        case upscale(scale: Int, contentMode: UpscaleContentMode)
-        case cutout
+        case upscale(scale: Int, contentMode: UpscaleContentMode, engine: UpscaleEngine)
+        case cutout(engine: CutoutEngine)
     }
 
     @Published var items: [BatchItem] = []
@@ -115,14 +144,30 @@ final class CompanionBatchModel: ObservableObject {
             let source = try CompanionImageIO.loadImage(at: sourceURL)
 
             switch operation {
-            case .upscale(let scale, let contentMode):
+            case .upscale(let scale, let contentMode, let engine):
                 let target = CGSize(width: source.width * scale, height: source.height * scale)
                 let resolved = UpscaleContentMode.resolved(contentMode, for: source)
-                let sharpening: CoreImageUpscaler.Sharpening = resolved == .textAndUI ? .textAndUI : .photoArtwork
-                let upscaler = CoreImageUpscaler(sharpening: sharpening)
-                let output = try await upscaler.upscale(source, to: target) { progress in
-                    Task { @MainActor in
-                        self.update(index: index, state: .processing(progress.detail, progress.fraction))
+                let output: CGImage
+                if engine == .bestQuality && resolved != .textAndUI {
+                    guard CoreMLModel.realESRGAN.isDownloaded else {
+                        throw CompanionProcessingError.modelMissing("Install Best Quality first.")
+                    }
+                    let upscaler = CoreMLUpscaler(
+                        modelProvider: PackageModelProvider(packageURL: CoreMLModel.realESRGAN.localPackageURL),
+                        configuration: CoreMLUpscalerConfiguration(fixedInputSize: CGSize(width: 256, height: 256))
+                    )
+                    output = try await upscaler.upscale(source, to: target) { progress in
+                        Task { @MainActor in
+                            self.update(index: index, state: .processing(progress.detail, progress.fraction))
+                        }
+                    }
+                } else {
+                    let sharpening: CoreImageUpscaler.Sharpening = resolved == .textAndUI ? .textAndUI : .photoArtwork
+                    let upscaler = CoreImageUpscaler(sharpening: sharpening)
+                    output = try await upscaler.upscale(source, to: target) { progress in
+                        Task { @MainActor in
+                            self.update(index: index, state: .processing(progress.detail, progress.fraction))
+                        }
                     }
                 }
                 let url = try CompanionImageIO.destinationURL(
@@ -136,11 +181,31 @@ final class CompanionBatchModel: ObservableObject {
                 try CompanionImageIO.writeImagePreservingPreferredFormat(output, to: url)
                 return url
 
-            case .cutout:
-                let remover = VisionBackgroundRemover()
-                let output = try await remover.removeBackground(from: source) { progress in
-                    Task { @MainActor in
-                        self.update(index: index, state: .processing(progress.detail, progress.fraction))
+            case .cutout(let engine):
+                let output: CGImage
+                if engine == .bestQuality {
+                    guard CoreMLModel.birefnet.isDownloaded else {
+                        throw CompanionProcessingError.modelMissing("Install Best Quality first.")
+                    }
+                    let configuration = MLModelConfiguration()
+                    configuration.computeUnits = .cpuOnly
+                    let remover = CoreMLBackgroundRemover(
+                        modelProvider: PackageModelProvider(
+                            packageURL: CoreMLModel.birefnet.localPackageURL,
+                            configuration: configuration
+                        )
+                    )
+                    output = try await remover.removeBackground(from: source) { progress in
+                        Task { @MainActor in
+                            self.update(index: index, state: .processing(progress.detail, progress.fraction))
+                        }
+                    }
+                } else {
+                    let remover = VisionBackgroundRemover()
+                    output = try await remover.removeBackground(from: source) { progress in
+                        Task { @MainActor in
+                            self.update(index: index, state: .processing(progress.detail, progress.fraction))
+                        }
                     }
                 }
                 let url = try CompanionImageIO.destinationURL(

@@ -1,39 +1,29 @@
 import Foundation
 
-/// The optional Core ML models ImageKid downloads on demand (never shipped in the
-/// binary), cached in the shared ImageKid App Group when available. Mirrors the
-/// iOS app so both platforms use the same models and the same R2 layout
-/// (`v1/<Name>/…`).
+/// Companion-app copy of the model registry. It intentionally mirrors ImageKid's
+/// main target so separate app modules can share the same App Group cache.
 enum CoreMLModel: String, CaseIterable, Identifiable {
     case birefnet = "BiRefNet"
-    case u2net = "U2Net"
     case realESRGAN = "RealESRGAN"
-    case auraSR = "AuraSR"
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .birefnet: "BiRefNet — best background"
-        case .u2net: "U²-Net — background"
-        case .realESRGAN: "Real-ESRGAN — 4× upscale"
-        case .auraSR: "AuraSR — best quality"
+        case .birefnet: "Best Cutout"
+        case .realESRGAN: "Best Upscale"
         }
     }
 
     var approxSize: String {
         switch self {
         case .birefnet: "179 MB"
-        case .u2net: "88 MB"
         case .realESRGAN: "33 MB"
-        case .auraSR: "196 MB"
         }
     }
 
-    /// Public R2 custom domain. Models live under `v1/<Name>/…`.
     static let baseURL = URL(string: "https://models-data.hakobs.com/v1")!
 
-    /// Each single-model `.mlpackage` is these three files (remote → local path).
     static let files: [(remote: String, local: String)] = [
         ("Manifest.json", "Manifest.json"),
         ("model.mlmodel", "Data/com.apple.CoreML/model.mlmodel"),
@@ -55,8 +45,6 @@ enum CoreMLModel: String, CaseIterable, Identifiable {
         Self.modelsDirectory.appendingPathComponent("\(rawValue).mlpackage", isDirectory: true)
     }
 
-    /// A model is usable once all of its files are on disk. Pure filesystem check,
-    /// safe to call from any thread (the background-removal/upscale services do).
     var isDownloaded: Bool {
         Self.files.allSatisfy {
             FileManager.default.fileExists(atPath: localPackageURL.appendingPathComponent($0.local).path)
@@ -64,8 +52,6 @@ enum CoreMLModel: String, CaseIterable, Identifiable {
     }
 }
 
-/// Downloads and manages the optional Core ML models, publishing progress for the
-/// Settings UI.
 @MainActor
 final class ModelDownloader: ObservableObject {
     enum State: Equatable {
@@ -110,7 +96,6 @@ final class ModelDownloader: ObservableObject {
                 }
                 states[model] = .ready
             } catch {
-                // Drop a partial download so `isDownloaded` stays honest.
                 try? FileManager.default.removeItem(at: model.localPackageURL)
                 states[model] = .failed(error.localizedDescription)
             }

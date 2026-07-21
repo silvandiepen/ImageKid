@@ -3,8 +3,10 @@ import SwiftUI
 
 struct ImageKidUpscaleView: View {
     @ObservedObject var model: CompanionBatchModel
+    @StateObject private var downloader = ModelDownloader()
     @State private var scale = 2
     @State private var contentMode = UpscaleContentMode.automatic
+    @State private var engine = CompanionBatchModel.UpscaleEngine.standard
 
     var body: some View {
         CompanionBatchShell(
@@ -18,10 +20,25 @@ struct ImageKidUpscaleView: View {
             openFiles: model.openFiles,
             clearCompleted: model.clearCompleted,
             removeItem: model.removeItem,
-            primaryAction: { model.generate(operation: .upscale(scale: scale, contentMode: contentMode)) },
+            primaryAction: { model.generate(operation: .upscale(scale: scale, contentMode: contentMode, engine: engine)) },
             cancelAction: model.cancel
         ) {
             VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Quality")
+                        .font(.headline)
+                    Picker("Quality", selection: $engine) {
+                        ForEach(CompanionBatchModel.UpscaleEngine.allCases) { option in
+                            Text(option.label).tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    if engine == .bestQuality {
+                        ModelInstallRow(downloader: downloader, model: .realESRGAN)
+                    }
+                }
+
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Scale")
                         .font(.headline)
