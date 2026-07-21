@@ -19,6 +19,8 @@ struct ImageWorkspaceView: View {
     @State private var isViewportToolbarCollapsed = false
     @State private var panelOffset: CGSize = .zero
     @State private var progressBarOffset: CGSize = .zero
+    @State private var editingTextID: UUID?
+    @FocusState private var inlineTextFocused: Bool
 
     var body: some View {
         GeometryReader { proxy in
@@ -82,6 +84,11 @@ struct ImageWorkspaceView: View {
                     .fill(.clear)
                     .contentShape(Rectangle())
                     .gesture(interactionGesture(in: imageRect))
+                    .simultaneousGesture(
+                        SpatialTapGesture(count: 2).onEnded { value in
+                            beginTextEditing(at: value.location, imageRect: imageRect)
+                        }
+                    )
                     .contextMenu {
                         if appModel.activeTool == .select {
                             Button("Copy Image") { appModel.copyImageSelectionToClipboard() }
@@ -96,6 +103,8 @@ struct ImageWorkspaceView: View {
                             Button("Export…") { appModel.requestExport() }
                         }
                     }
+
+                inlineTextEditor(in: imageRect)
 
                 TrackpadGestureMonitor(
                     onPan: { delta in
@@ -480,16 +489,65 @@ struct ImageWorkspaceView: View {
             if annotation.isVisible, let displayedFrame = displayedAnnotationFrame(annotation.frame) {
                 let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
 
-                annotationContent(annotation)
-                    .frame(width: rect.width, height: rect.height)
-                    .position(x: rect.midX, y: rect.midY)
-                    .opacity(annotation.opacity)
+                if editingTextID != annotation.id {
+                    annotationContent(annotation)
+                        .frame(width: rect.width, height: rect.height)
+                        .position(x: rect.midX, y: rect.midY)
+                        .opacity(annotation.opacity)
+                }
 
                 if session.selectedAnnotationID == annotation.id {
                     selectionOverlay(for: rect)
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func inlineTextEditor(in imageRect: CGRect) -> some View {
+        if let id = editingTextID,
+           let annotation = session.annotations.first(where: { $0.id == id }),
+           let displayedFrame = displayedAnnotationFrame(annotation.frame) {
+            let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
+            TextEditor(text: inlineTextBinding(id))
+                .font(annotationFont(annotation))
+                .foregroundStyle(Color(nsColor: annotation.strokeColor))
+                .multilineTextAlignment(textAlignment(annotation.textAlignment))
+                .scrollContentBackground(.hidden)
+                .scrollDisabled(true)
+                .focused($inlineTextFocused)
+                .padding(0)
+                .frame(width: max(rect.width, 24), height: max(rect.height, 24))
+                .background(Color.accentColor.opacity(0.10))
+                .overlay(RoundedRectangle(cornerRadius: 2).stroke(Color.accentColor, lineWidth: 1))
+                .position(x: rect.midX, y: rect.midY)
+                .onExitCommand { endTextEditing() }
+        }
+    }
+
+    private func inlineTextBinding(_ id: UUID) -> Binding<String> {
+        Binding(
+            get: { session.annotations.first(where: { $0.id == id })?.textValue ?? "" },
+            set: { value in session.updateAnnotation(id: id) { $0.textValue = value } }
+        )
+    }
+
+    private func beginTextEditing(at point: CGPoint, imageRect: CGRect) {
+        guard let hit = session.annotations.reversed().first(where: { annotation in
+            guard annotation.isText, annotation.isVisible,
+                  let frame = displayedAnnotationFrame(annotation.frame) else { return false }
+            return GeometryMapper.viewRect(from: frame, in: imageRect).insetBy(dx: -6, dy: -6).contains(point)
+        }) else { return }
+        appModel.activeTool = .select
+        session.selectedAnnotationID = hit.id
+        session.selectedLayerID = nil
+        editingTextID = hit.id
+        inlineTextFocused = true
+    }
+
+    private func endTextEditing() {
+        editingTextID = nil
+        inlineTextFocused = false
     }
 
     @ViewBuilder
@@ -628,6 +686,8 @@ struct ImageWorkspaceView: View {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 if dragMode == nil {
+                    // A click on the canvas (outside the inline editor) commits editing.
+                    if editingTextID != nil { editingTextID = nil }
                     dragMode = resolveDragMode(at: value.startLocation, imageRect: imageRect)
                 }
                 updateDrag(value, imageRect: imageRect)
@@ -1046,7 +1106,10 @@ struct ImageWorkspaceView: View {
         session.annotations.append(annotation)
         session.selectedAnnotationID = annotation.id
         session.record("Add text", systemImage: "textformat")
-        appModel.activeTool = .view
+        appModel.activeTool = .select
+        // Immediately edit the new text in place.
+        editingTextID = annotation.id
+        inlineTextFocused = true
     }
 
     private func updateLiveSample(at point: CGPoint, imageRect: CGRect) {
