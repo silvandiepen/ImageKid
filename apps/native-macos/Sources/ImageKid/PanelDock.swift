@@ -11,17 +11,23 @@ enum DockablePanel: String, CaseIterable, Identifiable, Hashable {
 
     static let gridStep: CGFloat = 20
 
+    /// Consistent width for all panels.
+    static let panelWidth: CGFloat = 280
+
     var spec: DockPanelSpec<DockablePanel> {
         switch self {
         case .files:
             DockPanelSpec(id: self, title: "Files", systemImage: "photo.on.rectangle.angled",
-                          defaultPosition: CGSize(width: 0, height: 0), defaultSize: CGSize(width: 260, height: 360))
+                          defaultPosition: CGSize(width: 0, height: 0),
+                          defaultSize: CGSize(width: Self.panelWidth, height: 220))
         case .layers:
             DockPanelSpec(id: self, title: "Layers", systemImage: "square.3.layers.3d",
-                          defaultPosition: CGSize(width: 300, height: 0), defaultSize: CGSize(width: 280, height: 360))
+                          defaultPosition: CGSize(width: 0, height: 240),
+                          defaultSize: CGSize(width: Self.panelWidth, height: 420))
         case .history:
             DockPanelSpec(id: self, title: "History", systemImage: "clock.arrow.circlepath",
-                          defaultPosition: CGSize(width: 300, height: 400), defaultSize: CGSize(width: 280, height: 420))
+                          defaultPosition: CGSize(width: 300, height: 0),
+                          defaultSize: CGSize(width: Self.panelWidth, height: 340))
         }
     }
 

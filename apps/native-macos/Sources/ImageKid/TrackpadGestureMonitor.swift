@@ -45,6 +45,10 @@ struct TrackpadGestureMonitor: NSViewRepresentable {
                 let location = view.convert(event.locationInWindow, from: nil)
                 guard view.bounds.contains(location) else { return event }
 
+                // If the cursor is over a scrollable panel list, let it scroll
+                // instead of panning/zooming the canvas underneath.
+                if self.isOverScrollableContent(event) { return event }
+
                 switch event.type {
                 case .scrollWheel:
                     guard event.phase != .cancelled else { return event }
@@ -56,6 +60,19 @@ struct TrackpadGestureMonitor: NSViewRepresentable {
                 }
                 return event
             }
+        }
+
+        /// True when the event lands inside an NSScrollView (a panel's list),
+        /// so canvas pan/zoom should defer to that scroll view.
+        private func isOverScrollableContent(_ event: NSEvent) -> Bool {
+            guard let content = view?.window?.contentView,
+                  let hit = content.hitTest(event.locationInWindow) else { return false }
+            var candidate: NSView? = hit
+            while let current = candidate {
+                if current is NSScrollView { return true }
+                candidate = current.superview
+            }
+            return false
         }
 
         func stop() {

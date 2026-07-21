@@ -111,7 +111,7 @@ public struct FloatingToolPanel<Content: View>: View {
                 #endif
             }
             .gesture(
-                DragGesture()
+                DragGesture(coordinateSpace: .global)
                     .updating($resizeTranslation) { value, state, _ in
                         state = value.translation
                     }
@@ -168,7 +168,8 @@ public struct FloatingToolPanel<Content: View>: View {
         .padding(.vertical, 13)
         .contentShape(Rectangle())
         .gesture(
-            DragGesture()
+            // Global space so the moving panel doesn't distort the translation (true 1:1).
+            DragGesture(coordinateSpace: .global)
                 .updating($dragTranslation) { value, state, _ in
                     state = value.translation
                 }

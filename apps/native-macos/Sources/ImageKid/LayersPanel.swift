@@ -40,40 +40,28 @@ struct LayersPanel: View {
             size: $size
         ) {
             VStack(alignment: .leading, spacing: 10) {
-                if session.annotations.isEmpty && session.imageLayers.isEmpty {
-                    VStack(spacing: 10) {
-                        Image(systemName: "square.3.layers.3d")
-                            .font(.system(size: 28, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.5))
-                        Text("Drag an image in, or add annotations — they appear here as layers.")
-                            .font(.caption)
-                            .multilineTextAlignment(.center)
-                            .foregroundStyle(.white.opacity(0.55))
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 120)
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 4) {
-                            ForEach(session.layerGroups) { group in
-                                groupHeader(group)
-                                if !group.isCollapsed {
-                                    ForEach(members(of: group)) { layer in
-                                        imageLayerRow(layer).padding(.leading, 18)
-                                    }
+                ScrollView {
+                    LazyVStack(spacing: 4) {
+                        ForEach(session.layerGroups) { group in
+                            groupHeader(group)
+                            if !group.isCollapsed {
+                                ForEach(members(of: group)) { layer in
+                                    imageLayerRow(layer).padding(.leading, 18)
                                 }
                             }
-                            ForEach(ungroupedLayers) { layer in
-                                imageLayerRow(layer)
-                            }
-                            ForEach(orderedLayers) { layer in
-                                row(layer)
-                            }
                         }
+                        ForEach(ungroupedLayers) { layer in
+                            imageLayerRow(layer)
+                        }
+                        ForEach(orderedLayers) { layer in
+                            row(layer)
+                        }
+                        backgroundRow
                     }
-                    .frame(maxHeight: .infinity)
-
-                    controlBar
                 }
+                .frame(maxHeight: .infinity)
+
+                controlBar
             }
         }
     }
@@ -171,6 +159,40 @@ struct LayersPanel: View {
                 }
                 Button("Delete Mask") { session.removeLayerMask(id: layer.id) }
             }
+        }
+    }
+
+    /// The open image itself, shown as the locked bottom layer.
+    private var backgroundRow: some View {
+        HStack(spacing: 10) {
+            Image(nsImage: session.workingSourceImage)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 24, height: 24)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+            Text("Background")
+                .font(.system(size: 13))
+                .foregroundStyle(.white.opacity(0.85))
+                .lineLimit(1)
+            Spacer()
+            if session.backgroundRemovedImage != nil {
+                Image(systemName: "theatermask.and.paintbrush")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.6))
+            }
+            Image(systemName: "lock.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(.white.opacity(0.35))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+        .contextMenu {
+            Button(session.backgroundRemovedImage != nil ? "Restore Background" : "Remove Background") {
+                appModel.removeBackground()
+            }
+            .disabled(!appModel.canRemoveBackground)
         }
     }
 
