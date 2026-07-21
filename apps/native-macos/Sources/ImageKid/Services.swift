@@ -497,7 +497,7 @@ enum ImageRenderer {
 
     private static func drawImageLayers(session: ImageSession, targetSize: CGSize) {
         let crop = session.cropRect
-        for layer in session.imageLayers where layer.isVisible {
+        for layer in session.imageLayers where session.isLayerEffectivelyVisible(layer) {
             let relativeFrame = CGRect(
                 x: (layer.frame.minX - crop.minX) / crop.width,
                 y: (layer.frame.minY - crop.minY) / crop.height,
@@ -550,7 +550,7 @@ enum ImageRenderer {
     }
 
     private static func drawAnnotations(session: ImageSession, targetSize: CGSize) {
-        for annotation in session.annotations {
+        for annotation in session.annotations where annotation.isVisible {
             draw(annotation, cropRect: session.cropRect, sourceSize: session.pixelSize, targetSize: targetSize)
         }
     }

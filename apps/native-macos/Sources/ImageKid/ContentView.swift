@@ -71,7 +71,7 @@ struct ContentView: View {
         Group {
                 switch appModel.media {
                 case .image(let session):
-                    ImageWorkspaceView(session: session)
+                    ImageWorkspaceView(session: session, panelDock: appModel.panelDock)
                 case .video(let session):
                     VideoWorkspaceView(session: session)
                 case nil:

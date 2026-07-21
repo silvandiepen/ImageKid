@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageKidKit
 
 struct BackgroundRefinementControls: View {
     @ObservedObject var session: ImageSession

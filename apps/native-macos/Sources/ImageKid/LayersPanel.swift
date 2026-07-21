@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageKidKit
 
 /// Lists annotation layers front-to-back, with selection, reordering,
 /// duplication and deletion. Front-most layer sits at the top of the list.
@@ -9,8 +10,25 @@ struct LayersPanel: View {
     @Binding var size: CGSize
     let onMinimize: () -> Void
 
+    @State private var editingID: UUID?
+    @State private var editingText: String = ""
+    @FocusState private var nameFieldFocused: Bool
+
     /// Front-most first (last in the draw array renders on top).
     private var orderedLayers: [Annotation] { session.annotations.reversed() }
+
+    private var ungroupedLayers: [ImageLayer] {
+        session.imageLayers.reversed().filter { session.groupID(forLayer: $0.id) == nil }
+    }
+
+    private func members(of group: LayerGroup) -> [ImageLayer] {
+        group.memberIDs.reversed().compactMap { id in session.imageLayers.first { $0.id == id } }
+    }
+
+    private var canGroupSelection: Bool {
+        let ids = session.selectedLayerIDs.isEmpty ? Set([session.selectedLayerID].compactMap { $0 }) : session.selectedLayerIDs
+        return ids.contains { session.groupID(forLayer: $0) == nil }
+    }
 
     var body: some View {
         FloatingToolPanel(
@@ -18,7 +36,6 @@ struct LayersPanel: View {
             systemImage: "square.3.layers.3d",
             offset: $offset,
             onMinimize: onMinimize,
-            snapStep: AppModel.panelGridStep,
             resizable: true,
             size: $size
         ) {
@@ -37,7 +54,15 @@ struct LayersPanel: View {
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 4) {
-                            ForEach(session.imageLayers.reversed()) { layer in
+                            ForEach(session.layerGroups) { group in
+                                groupHeader(group)
+                                if !group.isCollapsed {
+                                    ForEach(members(of: group)) { layer in
+                                        imageLayerRow(layer).padding(.leading, 18)
+                                    }
+                                }
+                            }
+                            ForEach(ungroupedLayers) { layer in
                                 imageLayerRow(layer)
                             }
                             ForEach(orderedLayers) { layer in
@@ -55,54 +80,18 @@ struct LayersPanel: View {
 
     private func row(_ layer: Annotation) -> some View {
         let isSelected = session.selectedAnnotationID == layer.id
-        return Button {
-            session.selectedAnnotationID = layer.id
-            session.selectedLayerID = nil
-            session.selectionRect = nil
-            if appModel.activeTool == .view { appModel.activeTool = .select }
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: icon(for: layer))
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(width: 22)
-                Text(label(for: layer))
-                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
-                    .lineLimit(1)
-                Spacer()
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                isSelected ? Color.accentColor.opacity(0.30) : Color.white.opacity(0.05),
-                in: RoundedRectangle(cornerRadius: 8)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func imageLayerRow(_ layer: ImageLayer) -> some View {
-        let isSelected = session.selectedLayerID == layer.id
         return HStack(spacing: 10) {
-            Image(nsImage: layer.image)
-                .resizable()
-                .scaledToFill()
-                .frame(width: 24, height: 24)
-                .clipShape(RoundedRectangle(cornerRadius: 5))
-                .opacity(layer.isVisible ? 1 : 0.35)
-            Text(layer.name)
-                .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
-                .lineLimit(1)
-            Spacer()
-            Button {
-                session.toggleImageLayerVisibility(id: layer.id)
-            } label: {
-                Image(systemName: layer.isVisible ? "eye" : "eye.slash")
-                    .font(.system(size: 12))
+            Image(systemName: icon(for: layer))
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 22)
+                .opacity(layer.isVisible ? 1 : 0.4)
+            nameLabel(id: layer.id, text: label(for: layer), isSelected: isSelected) {
+                session.renameAnnotation(id: layer.id, to: $0)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white.opacity(0.7))
+            Spacer()
+            visibilityButton(isOn: layer.isVisible) {
+                session.toggleAnnotationVisibility(id: layer.id)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
@@ -113,9 +102,112 @@ struct LayersPanel: View {
         )
         .contentShape(Rectangle())
         .onTapGesture {
+            session.selectedAnnotationID = layer.id
+            session.selectedLayerID = nil
+            session.selectionRect = nil
+            if appModel.activeTool == .view { appModel.activeTool = .select }
+        }
+    }
+
+    private func imageLayerRow(_ layer: ImageLayer) -> some View {
+        let isSelected = session.selectedLayerID == layer.id || session.selectedLayerIDs.contains(layer.id)
+        return HStack(spacing: 10) {
+            Image(nsImage: layer.image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 24, height: 24)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .opacity(layer.isVisible ? 1 : 0.35)
+            nameLabel(id: layer.id, text: layer.name, isSelected: isSelected) {
+                session.renameImageLayer(id: layer.id, to: $0)
+            }
+            Spacer()
+            visibilityButton(isOn: layer.isVisible) {
+                session.toggleImageLayerVisibility(id: layer.id)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            isSelected ? Color.accentColor.opacity(0.30) : Color.white.opacity(0.05),
+            in: RoundedRectangle(cornerRadius: 8)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if NSEvent.modifierFlags.contains(.command) {
+                if session.selectedLayerIDs.contains(layer.id) {
+                    session.selectedLayerIDs.remove(layer.id)
+                } else {
+                    session.selectedLayerIDs.insert(layer.id)
+                }
+            } else {
+                session.selectedLayerIDs = [layer.id]
+            }
             session.selectedLayerID = layer.id
             session.selectedAnnotationID = nil
         }
+    }
+
+    private func groupHeader(_ group: LayerGroup) -> some View {
+        HStack(spacing: 8) {
+            Button {
+                session.toggleGroupCollapsed(id: group.id)
+            } label: {
+                Image(systemName: group.isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 10, weight: .bold))
+                    .frame(width: 14)
+            }
+            .buttonStyle(.plain)
+            Image(systemName: "folder")
+                .font(.system(size: 12))
+                .opacity(group.isVisible ? 1 : 0.4)
+            nameLabel(id: group.id, text: group.name, isSelected: false) {
+                session.renameGroup(id: group.id, to: $0)
+            }
+            Spacer()
+            visibilityButton(isOn: group.isVisible) {
+                session.toggleGroupVisibility(id: group.id)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .contextMenu {
+            Button("Ungroup") { session.ungroup(id: group.id) }
+        }
+    }
+
+    @ViewBuilder
+    private func nameLabel(id: UUID, text: String, isSelected: Bool, commit: @escaping (String) -> Void) -> some View {
+        if editingID == id {
+            TextField("", text: $editingText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .focused($nameFieldFocused)
+                .onSubmit { commit(editingText); editingID = nil }
+                .onExitCommand { editingID = nil }
+        } else {
+            Text(text)
+                .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                .lineLimit(1)
+                .onTapGesture(count: 2) {
+                    editingText = text
+                    editingID = id
+                    nameFieldFocused = true
+                }
+        }
+    }
+
+    private func visibilityButton(isOn: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: isOn ? "eye" : "eye.slash")
+                .font(.system(size: 12))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white.opacity(0.7))
+        .help(isOn ? "Hide" : "Show")
     }
 
     private var controlBar: some View {
@@ -129,6 +221,10 @@ struct LayersPanel: View {
                 else if let id = session.selectedAnnotationID { session.moveAnnotation(id: id, forward: false) }
             }
             Spacer()
+            control("folder.badge.plus", help: "Group selected layers") {
+                session.groupSelectedLayers()
+            }
+            .disabled(!canGroupSelection)
             control("plus.square.on.square", help: "Duplicate") {
                 if let id = session.selectedAnnotationID { session.duplicateAnnotation(id: id) }
             }
@@ -138,7 +234,7 @@ struct LayersPanel: View {
                 else if let id = session.selectedAnnotationID { session.removeAnnotation(id: id) }
             }
         }
-        .disabled(session.selectedAnnotationID == nil && session.selectedLayerID == nil)
+        .disabled(session.selectedAnnotationID == nil && session.selectedLayerID == nil && session.selectedLayerIDs.isEmpty)
         .padding(.top, 2)
     }
 
@@ -159,6 +255,7 @@ struct LayersPanel: View {
     }
 
     private func label(for layer: Annotation) -> String {
+        if let custom = layer.customName, !custom.isEmpty { return custom }
         if layer.isText {
             let text = layer.textValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return text.isEmpty ? "Text" : text

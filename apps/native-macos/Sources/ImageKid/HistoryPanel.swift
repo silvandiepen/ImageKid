@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageKidKit
 
 /// A named, jump-to-any-step history timeline (Photoshop-style). The current
 /// step is highlighted; steps after it are dimmed and redoable.
@@ -14,7 +15,6 @@ struct HistoryPanel: View {
             systemImage: "clock.arrow.circlepath",
             offset: $offset,
             onMinimize: onMinimize,
-            snapStep: AppModel.panelGridStep,
             resizable: true,
             size: $size
         ) {

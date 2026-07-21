@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageKidKit
 
 struct RotateControls: View {
     @ObservedObject var session: ImageSession

@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageKidKit
 
 struct CropControls: View {
     @ObservedObject var session: ImageSession

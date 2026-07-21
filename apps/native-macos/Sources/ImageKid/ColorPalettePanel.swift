@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import ImageKidKit
 
 struct ColorPalettePanel: View {
     @ObservedObject var session: ImageSession

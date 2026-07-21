@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import ImageKidKit
 
 struct TextInspector: View {
     @ObservedObject var session: ImageSession

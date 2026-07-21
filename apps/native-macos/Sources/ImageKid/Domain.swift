@@ -330,6 +330,8 @@ struct Annotation: Identifiable {
     var fontWeight: AnnotationFontWeight
     var lineHeight: CGFloat
     var textAlignment: AnnotationTextAlignment
+    var customName: String?
+    var isVisible: Bool
 
     init(
         id: UUID = UUID(),
@@ -343,7 +345,9 @@ struct Annotation: Identifiable {
         fontSize: CGFloat = 48,
         fontWeight: AnnotationFontWeight = .semibold,
         lineHeight: CGFloat = 1.1,
-        textAlignment: AnnotationTextAlignment = .leading
+        textAlignment: AnnotationTextAlignment = .leading,
+        customName: String? = nil,
+        isVisible: Bool = true
     ) {
         self.id = id
         self.kind = kind
@@ -357,6 +361,8 @@ struct Annotation: Identifiable {
         self.fontWeight = fontWeight
         self.lineHeight = lineHeight
         self.textAlignment = textAlignment
+        self.customName = customName
+        self.isVisible = isVisible
     }
 
     var textValue: String? {
@@ -432,6 +438,24 @@ struct ImageLayer: Identifiable {
     }
 }
 
+/// An organisational group over image layers. Toggling group visibility gates
+/// all members; members keep their own z-order in the flat layer stack.
+struct LayerGroup: Identifiable {
+    let id: UUID
+    var name: String
+    var memberIDs: [UUID]
+    var isVisible: Bool
+    var isCollapsed: Bool
+
+    init(id: UUID = UUID(), name: String, memberIDs: [UUID], isVisible: Bool = true, isCollapsed: Bool = false) {
+        self.id = id
+        self.name = name
+        self.memberIDs = memberIDs
+        self.isVisible = isVisible
+        self.isCollapsed = isCollapsed
+    }
+}
+
 @MainActor
 final class ImageSession: ObservableObject {
     let sourceURL: URL?
@@ -448,8 +472,10 @@ final class ImageSession: ObservableObject {
     @Published var resizePreservesAspect = true
     @Published var annotations: [Annotation] = []
     @Published var imageLayers: [ImageLayer] = []
+    @Published var layerGroups: [LayerGroup] = []
     @Published var selectedAnnotationID: UUID?
     @Published var selectedLayerID: UUID?
+    @Published var selectedLayerIDs: Set<UUID> = []
     @Published var selectionRect: CGRect?
     @Published var sampledColors: [SampledColor] = []
     @Published var selectedColorIDs: Set<UUID> = []
@@ -488,6 +514,7 @@ final class ImageSession: ObservableObject {
         var resizePreservesAspect: Bool
         var annotations: [Annotation]
         var imageLayers: [ImageLayer]
+        var layerGroups: [LayerGroup]
         var selectedAnnotationID: UUID?
         var selectedLayerID: UUID?
         var sampledColors: [SampledColor]
@@ -520,6 +547,7 @@ final class ImageSession: ObservableObject {
             resizePreservesAspect: resizePreservesAspect,
             annotations: annotations,
             imageLayers: imageLayers,
+            layerGroups: layerGroups,
             selectedAnnotationID: selectedAnnotationID,
             selectedLayerID: selectedLayerID,
             sampledColors: sampledColors,
@@ -535,6 +563,7 @@ final class ImageSession: ObservableObject {
         resizePreservesAspect = snapshot.resizePreservesAspect
         annotations = snapshot.annotations
         imageLayers = snapshot.imageLayers
+        layerGroups = snapshot.layerGroups
         selectedAnnotationID = snapshot.selectedAnnotationID
         selectedLayerID = snapshot.selectedLayerID
         sampledColors = snapshot.sampledColors
@@ -693,6 +722,26 @@ final class ImageSession: ObservableObject {
         record("Delete", systemImage: "trash")
     }
 
+    func toggleAnnotationVisibility(id: UUID) {
+        guard let index = annotations.firstIndex(where: { $0.id == id }) else { return }
+        annotations[index].isVisible.toggle()
+        record(annotations[index].isVisible ? "Show layer" : "Hide layer", systemImage: "eye")
+    }
+
+    func renameAnnotation(id: UUID, to name: String) {
+        guard let index = annotations.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        annotations[index].customName = trimmed.isEmpty ? nil : trimmed
+        record("Rename layer", systemImage: "pencil")
+    }
+
+    func renameImageLayer(id: UUID, to name: String) {
+        guard let index = imageLayers.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        imageLayers[index].name = trimmed.isEmpty ? imageLayers[index].name : trimmed
+        record("Rename layer", systemImage: "pencil")
+    }
+
     /// Duplicate an annotation, offset slightly so it is visible, and select the copy.
     @discardableResult
     func duplicateAnnotation(id: UUID) -> UUID? {
@@ -716,7 +765,9 @@ final class ImageSession: ObservableObject {
             fontSize: copy.fontSize,
             fontWeight: copy.fontWeight,
             lineHeight: copy.lineHeight,
-            textAlignment: copy.textAlignment
+            textAlignment: copy.textAlignment,
+            customName: copy.customName,
+            isVisible: copy.isVisible
         )
         annotations.insert(copy, at: index + 1)
         selectedAnnotationID = copy.id
@@ -788,7 +839,64 @@ final class ImageSession: ObservableObject {
     func removeImageLayer(id: UUID) {
         imageLayers.removeAll(where: { $0.id == id })
         if selectedLayerID == id { selectedLayerID = nil }
+        selectedLayerIDs.remove(id)
+        for i in layerGroups.indices { layerGroups[i].memberIDs.removeAll { $0 == id } }
+        layerGroups.removeAll { $0.memberIDs.isEmpty }
         record("Delete layer", systemImage: "trash")
+    }
+
+    // MARK: - Layer groups
+
+    func groupID(forLayer id: UUID) -> UUID? {
+        layerGroups.first(where: { $0.memberIDs.contains(id) })?.id
+    }
+
+    /// A layer draws only if it is visible and its group (if any) is visible.
+    func isLayerEffectivelyVisible(_ layer: ImageLayer) -> Bool {
+        guard layer.isVisible else { return false }
+        if let group = layerGroups.first(where: { $0.memberIDs.contains(layer.id) }) {
+            return group.isVisible
+        }
+        return true
+    }
+
+    /// Group the current multi-selection (or the single selected layer) of image layers.
+    @discardableResult
+    func groupSelectedLayers() -> UUID? {
+        var ids = selectedLayerIDs
+        if ids.isEmpty, let single = selectedLayerID { ids = [single] }
+        // Keep only real, not-already-grouped layers, in stack order.
+        let ordered = imageLayers.map(\.id).filter { ids.contains($0) && groupID(forLayer: $0) == nil }
+        guard ordered.count >= 1 else { return nil }
+        let group = LayerGroup(name: "Group \(layerGroups.count + 1)", memberIDs: ordered)
+        layerGroups.append(group)
+        record("Group layers", systemImage: "folder")
+        return group.id
+    }
+
+    func ungroup(id: UUID) {
+        guard layerGroups.contains(where: { $0.id == id }) else { return }
+        layerGroups.removeAll { $0.id == id }
+        record("Ungroup", systemImage: "folder.badge.minus")
+    }
+
+    func toggleGroupVisibility(id: UUID) {
+        guard let index = layerGroups.firstIndex(where: { $0.id == id }) else { return }
+        layerGroups[index].isVisible.toggle()
+        record(layerGroups[index].isVisible ? "Show group" : "Hide group", systemImage: "eye")
+    }
+
+    func toggleGroupCollapsed(id: UUID) {
+        guard let index = layerGroups.firstIndex(where: { $0.id == id }) else { return }
+        layerGroups[index].isCollapsed.toggle()
+    }
+
+    func renameGroup(id: UUID, to name: String) {
+        guard let index = layerGroups.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        layerGroups[index].name = trimmed
+        record("Rename group", systemImage: "pencil")
     }
 
     func toggleImageLayerVisibility(id: UUID) {

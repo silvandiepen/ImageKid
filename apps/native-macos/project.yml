@@ -11,6 +11,8 @@ settings:
 packages:
   ImageKidInference:
     path: ../../packages/ImageKidInference
+  ImageKidKit:
+    path: ../../packages/ImageKidKit
 targets:
   ImageKid:
     type: application
@@ -22,6 +24,7 @@ targets:
       - path: Sources/ImageKid/Resources
     dependencies:
       - package: ImageKidInference
+      - package: ImageKidKit
     entitlements:
       path: Sources/ImageKid/ImageKid.entitlements
       properties:
