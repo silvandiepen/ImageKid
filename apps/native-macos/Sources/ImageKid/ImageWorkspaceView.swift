@@ -288,6 +288,7 @@ struct ImageWorkspaceView: View {
                         size: panelDock.sizeBinding(.files),
                         onMinimize: { panelDock.minimize(.files) }
                     )
+                    .transition(panelCollapse)
                 }
                 if panelDock.isExpanded(.layers) {
                     LayersPanel(
@@ -297,6 +298,7 @@ struct ImageWorkspaceView: View {
                         size: panelDock.sizeBinding(.layers),
                         onMinimize: { panelDock.minimize(.layers) }
                     )
+                    .transition(panelCollapse)
                 }
                 if panelDock.isExpanded(.history) {
                     HistoryPanel(
@@ -305,9 +307,17 @@ struct ImageWorkspaceView: View {
                         size: panelDock.sizeBinding(.history),
                         onMinimize: { panelDock.minimize(.history) }
                     )
+                    .transition(panelCollapse)
                 }
             }
+            .animation(.spring(response: 0.34, dampingFraction: 0.82), value: panelDock.presented)
+            .animation(.spring(response: 0.34, dampingFraction: 0.82), value: panelDock.minimized)
         }
+    }
+
+    /// Panels collapse toward their top-left corner (where the rail buttons sit).
+    private var panelCollapse: AnyTransition {
+        .scale(scale: 0.06, anchor: .topLeading).combined(with: .opacity)
     }
 
     private var controls: some View {

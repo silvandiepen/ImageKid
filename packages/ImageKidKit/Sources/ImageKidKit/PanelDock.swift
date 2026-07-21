@@ -139,7 +139,7 @@ public struct PanelDockRail<ID: Hashable>: View {
         VStack(spacing: 8) {
             ForEach(model.order, id: \.self) { id in
                 if let spec = model.spec(id) {
-                    let isActive = model.presented.contains(id)
+                    let isActive = model.isExpanded(id)
                     Button {
                         model.railToggle(id)
                     } label: {
