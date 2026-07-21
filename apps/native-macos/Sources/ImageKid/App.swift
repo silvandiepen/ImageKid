@@ -812,6 +812,12 @@ final class AppModel: ObservableObject {
         isShowingEnhance = true
     }
 
+    /// Direct Smart Upscale from the Resize panel — uses the saved quality grade.
+    func smartUpscale(_ size: EnhanceSize) {
+        let quality = EnhanceQuality(rawValue: UserDefaults.standard.string(forKey: "enhanceQuality") ?? "") ?? .high
+        applyEnhance(quality: quality, size: size)
+    }
+
     /// Magic ▸ Enhance Image. Improves detail (and optionally enlarges) with the
     /// chosen quality grade, running the engine off the main thread.
     func applyEnhance(quality: EnhanceQuality, size: EnhanceSize) {

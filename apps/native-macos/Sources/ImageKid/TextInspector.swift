@@ -40,21 +40,29 @@ struct TextInspector: View {
 
                 field("Size") {
                     HStack(spacing: 10) {
-                        Slider(value: fontSizeBinding, in: 8...240, step: 1)
-                        Text("\(Int(fontSizeBinding.wrappedValue))")
-                            .font(.system(.caption, design: .monospaced, weight: .semibold))
-                            .frame(width: 36, alignment: .trailing)
+                        Slider(value: fontSizeBinding, in: 0...400, step: 1)
+                        TextField("", value: fontSizeBinding, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 52)
                     }
                 }
 
                 field("Line height") {
                     HStack(spacing: 10) {
-                        Slider(value: lineHeightBinding, in: 0.8...2.4, step: 0.05)
-                        Text(String(format: "%.2f", lineHeightBinding.wrappedValue))
-                            .font(.system(.caption, design: .monospaced, weight: .semibold))
-                            .frame(width: 44, alignment: .trailing)
+                        Slider(value: lineHeightBinding, in: 0...4, step: 0.05)
+                        TextField("", value: lineHeightBinding, format: .number.precision(.fractionLength(2)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 52)
                     }
                 }
+
+                Button {
+                    session.fitAnnotationToText(id: annotationID)
+                } label: {
+                    Label("Fit box to text", systemImage: "arrow.down.right.and.arrow.up.left")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
 
                 field("Weight") {
                     Picker("Weight", selection: fontWeightBinding) {

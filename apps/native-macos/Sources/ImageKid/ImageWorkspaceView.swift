@@ -234,7 +234,7 @@ struct ImageWorkspaceView: View {
                 isApplying: appModel.isApplyingResize,
                 onCancel: cancelResize,
                 onApply: applyResize,
-                onEnhance: { appModel.requestEnhance() }
+                onSmartUpscale: { appModel.smartUpscale($0) }
             )
             .transition(.move(edge: .trailing).combined(with: .opacity))
         } else if appModel.activeTool == .rotate {

@@ -19,15 +19,15 @@ enum DockablePanel: String, CaseIterable, Identifiable, Hashable {
         case .files:
             DockPanelSpec(id: self, title: "Files", systemImage: "photo.on.rectangle.angled",
                           defaultPosition: CGSize(width: 0, height: 0),
-                          defaultSize: CGSize(width: Self.panelWidth, height: 220))
+                          defaultSize: CGSize(width: Self.panelWidth, height: 200))
         case .layers:
             DockPanelSpec(id: self, title: "Layers", systemImage: "square.3.layers.3d",
-                          defaultPosition: CGSize(width: 0, height: 240),
-                          defaultSize: CGSize(width: Self.panelWidth, height: 420))
+                          defaultPosition: CGSize(width: 0, height: 216),
+                          defaultSize: CGSize(width: Self.panelWidth, height: 400))
         case .history:
             DockPanelSpec(id: self, title: "History", systemImage: "clock.arrow.circlepath",
-                          defaultPosition: CGSize(width: 300, height: 0),
-                          defaultSize: CGSize(width: Self.panelWidth, height: 340))
+                          defaultPosition: CGSize(width: 0, height: 632),
+                          defaultSize: CGSize(width: Self.panelWidth, height: 240))
         }
     }
 
@@ -41,7 +41,7 @@ extension PanelDockModel where ID == DockablePanel {
             gridStep: DockablePanel.gridStep,
             minSize: CGSize(width: 220, height: 200),
             maxSize: CGSize(width: 520, height: 900),
-            initiallyPresented: [.files]
+            initiallyPresented: [.files, .layers, .history]
         )
     }
 }

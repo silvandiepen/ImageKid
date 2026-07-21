@@ -744,6 +744,33 @@ final class ImageSession: ObservableObject {
         record(annotations[index].isVisible ? "Show layer" : "Hide layer", systemImage: "eye")
     }
 
+    /// Resize a text annotation's box to fit its content at the current font.
+    func fitAnnotationToText(id: UUID) {
+        guard let index = annotations.firstIndex(where: { $0.id == id }),
+              case .text(let text) = annotations[index].kind else { return }
+        let a = annotations[index]
+        let content = text.isEmpty ? " " : text
+        let baseFont = NSFont(name: a.fontFamily, size: max(a.fontSize, 1))
+            ?? NSFont.systemFont(ofSize: max(a.fontSize, 1), weight: a.fontWeight.appKitWeight)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = a.textAlignment.paragraphAlignment
+        paragraph.lineHeightMultiple = max(a.lineHeight, 0.01)
+        let attrs: [NSAttributedString.Key: Any] = [.font: baseFont, .paragraphStyle: paragraph]
+        let bounds = (content as NSString).boundingRect(
+            with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: attrs
+        )
+        let pad = max(a.fontSize * 0.18, 4)
+        let px = pixelSize
+        let w = min((bounds.width + pad * 2) / max(px.width, 1), 1)
+        let h = min((bounds.height + pad * 2) / max(px.height, 1), 1)
+        var frame = a.frame
+        frame.size = CGSize(width: max(w, 0.01), height: max(h, 0.01))
+        annotations[index].frame = GeometryMapper.clampedNormalizedRect(frame)
+        record("Fit to text", systemImage: "arrow.down.right.and.arrow.up.left")
+    }
+
     func renameAnnotation(id: UUID, to name: String) {
         guard let index = annotations.firstIndex(where: { $0.id == id }) else { return }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
