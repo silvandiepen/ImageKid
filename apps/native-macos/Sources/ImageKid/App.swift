@@ -53,7 +53,7 @@ final class AppModel: ObservableObject {
     @Published var selectedItemID: UUID?
     @Published var selectedItemIDs: Set<UUID> = []
     @Published var activeTool: Tool = .view
-    @Published var presentedPanels: Set<DockablePanel> = []
+    @Published var presentedPanels: Set<DockablePanel> = [.files]
     @Published var minimizedPanels: Set<DockablePanel> = []
     @Published var panelPositions: [DockablePanel: CGSize] = [:]
     @Published var panelSizes: [DockablePanel: CGSize] = [:]
@@ -1292,6 +1292,12 @@ struct AppCommands: Commands {
         }
 
         CommandGroup(after: .sidebar) {
+            Button((currentAppModel?.presentedPanels.contains(.files) == true ? "Hide" : "Show") + " Files") {
+                currentAppModel?.togglePanel(.files)
+            }
+            .keyboardShortcut("f", modifiers: [.command, .shift])
+            .disabled(currentAppModel?.imageSession == nil)
+
             Button((currentAppModel?.presentedPanels.contains(.layers) == true ? "Hide" : "Show") + " Layers") {
                 currentAppModel?.togglePanel(.layers)
             }

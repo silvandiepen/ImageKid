@@ -270,6 +270,14 @@ struct ImageWorkspaceView: View {
     @ViewBuilder
     private var dockablePanelsLayer: some View {
         ZStack(alignment: .topLeading) {
+            if appModel.isPanelExpanded(.files) {
+                FilesPanel(
+                    appModel: appModel,
+                    offset: panelBinding(.files),
+                    size: panelSizeBinding(.files),
+                    onMinimize: { appModel.minimizePanel(.files) }
+                )
+            }
             if appModel.isPanelExpanded(.layers) {
                 LayersPanel(
                     session: session,

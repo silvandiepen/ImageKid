@@ -5,11 +5,17 @@ struct ContentView: View {
     @EnvironmentObject private var appModel: AppModel
     @State private var isDropTarget = false
 
+    private var isVideoSelected: Bool {
+        if case .video = appModel.media { return true }
+        return false
+    }
+
     var body: some View {
         ZStack(alignment: .leading) {
             workspaceContent
 
-            if !appModel.items.isEmpty {
+            // Images use the dockable Files panel; video keeps the legacy sidebar.
+            if !appModel.items.isEmpty, isVideoSelected {
                 WorkspaceSidebar(isCollapsed: $appModel.isWorkspaceSidebarCollapsed)
                     .padding(.leading, 18)
                     .padding(.vertical, 18)
