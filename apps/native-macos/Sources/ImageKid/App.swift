@@ -53,12 +53,18 @@ final class AppModel: ObservableObject {
     @Published var selectedItemID: UUID?
     @Published var selectedItemIDs: Set<UUID> = []
     @Published var activeTool: Tool = .view
+    @Published var presentedPanels: Set<DockablePanel> = []
+    @Published var minimizedPanels: Set<DockablePanel> = []
+    @Published var panelPositions: [DockablePanel: CGSize] = [:]
+    @Published var panelSizes: [DockablePanel: CGSize] = [:]
     @Published var errorMessage: String?
     @Published var isShowingResize = false
     @Published var isShowingExport = false
     @Published var isShowingPromptEdit = false
+    @Published var isShowingEnhance = false
     @Published var isRemovingBackground = false
     @Published var isApplyingResize = false
+    @Published var isApplyingEnhance = false
     @Published var isApplyingPromptEdit = false
     @Published var operationProgress: OperationProgress?
     @Published var isWorkspaceSidebarCollapsed: Bool {
@@ -82,6 +88,11 @@ final class AppModel: ObservableObject {
 
     var media: MediaItem? {
         selectedItem?.media
+    }
+
+    var imageSession: ImageSession? {
+        if case .image(let session) = media { return session }
+        return nil
     }
 
     var selectedItem: WorkspaceItem? {
@@ -454,6 +465,25 @@ final class AppModel: ObservableObject {
         session.selectionRect = nil
     }
 
+    var hasSelectedAnnotation: Bool {
+        imageSession?.selectedAnnotationID != nil
+    }
+
+    func duplicateSelectedAnnotation() {
+        guard let session = imageSession, let id = session.selectedAnnotationID else { return }
+        session.duplicateAnnotation(id: id)
+    }
+
+    func moveSelectedAnnotation(toFront: Bool) {
+        guard let session = imageSession, let id = session.selectedAnnotationID else { return }
+        session.moveAnnotation(id: id, toFront: toFront)
+    }
+
+    func moveSelectedAnnotation(forward: Bool) {
+        guard let session = imageSession, let id = session.selectedAnnotationID else { return }
+        session.moveAnnotation(id: id, forward: forward)
+    }
+
     func selectAllImage() {
         guard case .image(let session) = media else { return }
         session.selectFullImage()
@@ -767,6 +797,92 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func requestEnhance() {
+        guard case .image = media else {
+            errorMessage = "Open an image first."
+            return
+        }
+        isShowingEnhance = true
+    }
+
+    /// Magic ▸ Enhance Image. Improves detail (and optionally enlarges) with the
+    /// chosen quality grade, running the engine off the main thread.
+    func applyEnhance(quality: EnhanceQuality, size: EnhanceSize) {
+        guard !isApplyingEnhance else { return }
+        guard let itemID = selectedItemID else {
+            errorMessage = "Open an image first."
+            return
+        }
+        guard case .image(let session) = media else {
+            errorMessage = "Open an image first."
+            return
+        }
+        if let model = quality.requiredModel, !model.isDownloaded {
+            errorMessage = "Download the \(quality.label) quality add-on in Settings first."
+            return
+        }
+
+        let targetSize = CGSize(
+            width: max(1, (session.croppedPixelSize.width * size.factor).rounded()),
+            height: max(1, (session.croppedPixelSize.height * size.factor).rounded())
+        )
+        let sourceURL = session.sourceURL
+        let hasAnnotations = !session.annotations.isEmpty
+
+        let baseImage: NSImage
+        do {
+            baseImage = try ImageRenderer.renderEnhanceBase(for: session)
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+
+        isShowingEnhance = false
+        activeTool = .view
+        isApplyingEnhance = true
+        operationProgress = OperationProgress(
+            title: "Enhancing",
+            detail: "Improving detail",
+            startedAt: Date(),
+            fraction: nil
+        )
+
+        Task {
+            do {
+                let progressHandler: @Sendable (UpscaleProgressUpdate) -> Void = { [weak self] update in
+                    Task { @MainActor in
+                        self?.operationProgress?.detail = update.detail
+                        self?.operationProgress?.fraction = update.fraction
+                    }
+                }
+                var image = try await Task.detached(priority: .utility) {
+                    try ImageUpscaleService.enhance(
+                        baseImage,
+                        to: targetSize,
+                        quality: quality,
+                        progress: progressHandler
+                    )
+                }.value
+
+                image = ImageUpscaleService.imageWithExactPixelSize(image, size: targetSize)
+                if hasAnnotations {
+                    image = ImageRenderer.drawAnnotationsOnImage(image, session: session, targetSize: targetSize)
+                }
+
+                let enhancedSession = ImageSession(sourceURL: sourceURL, sourceImage: image)
+                enhancedSession.isDirty = true
+                if !replaceMedia(.image(enhancedSession), for: itemID) {
+                    errorMessage = "That image was closed before Enhance finished."
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+
+            isApplyingEnhance = false
+            operationProgress = nil
+        }
+    }
+
     private static func composite(_ editedImage: NSImage, into baseImage: NSImage, normalizedRect: CGRect) -> NSImage? {
         guard let baseCGImage = baseImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             return nil
@@ -1011,7 +1127,7 @@ final class AppModel: ObservableObject {
                     cgImage: output,
                     size: CGSize(width: output.width, height: output.height)
                 )
-                session.isDirty = true
+                session.recordBackgroundRemoval()
                 if selectedItemID == itemID {
                     activeTool = .view
                 }
@@ -1066,6 +1182,16 @@ struct AppCommands: Commands {
                 .disabled(currentAppModel?.canCloseSelectedItem != true)
         }
 
+        CommandGroup(replacing: .undoRedo) {
+            Button("Undo") { currentAppModel?.imageSession?.undo() }
+                .keyboardShortcut("z", modifiers: .command)
+                .disabled(currentAppModel?.imageSession?.canUndo != true)
+
+            Button("Redo") { currentAppModel?.imageSession?.redo() }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+                .disabled(currentAppModel?.imageSession?.canRedo != true)
+        }
+
         CommandGroup(replacing: .pasteboard) {
             Button("Cut") {
                 _ = NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil)
@@ -1105,6 +1231,25 @@ struct AppCommands: Commands {
             }
             .keyboardShortcut(.delete, modifiers: [])
             .disabled(currentAppModel?.canDeleteSelection != true)
+
+            Divider()
+
+            Button("Duplicate") { currentAppModel?.duplicateSelectedAnnotation() }
+                .keyboardShortcut("d", modifiers: .command)
+                .disabled(currentAppModel?.hasSelectedAnnotation != true)
+
+            Button("Bring to Front") { currentAppModel?.moveSelectedAnnotation(toFront: true) }
+                .keyboardShortcut("]", modifiers: [.command, .shift])
+                .disabled(currentAppModel?.hasSelectedAnnotation != true)
+            Button("Bring Forward") { currentAppModel?.moveSelectedAnnotation(forward: true) }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(currentAppModel?.hasSelectedAnnotation != true)
+            Button("Send Backward") { currentAppModel?.moveSelectedAnnotation(forward: false) }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(currentAppModel?.hasSelectedAnnotation != true)
+            Button("Send to Back") { currentAppModel?.moveSelectedAnnotation(toFront: false) }
+                .keyboardShortcut("[", modifiers: [.command, .shift])
+                .disabled(currentAppModel?.hasSelectedAnnotation != true)
         }
 
         // Whole-image operations live under a dedicated "Image" menu.
@@ -1134,9 +1279,32 @@ struct AppCommands: Commands {
             .keyboardShortcut(Tool.refineBackground.menuShortcutKey, modifiers: Tool.refineBackground.menuShortcutModifiers)
             .disabled(currentAppModel?.canRemoveBackground != true)
 
-            // No key equivalent: ⌥⌘M is the system "Minimize All" shortcut.
-            Button("Magic Edit…") { currentAppModel?.requestPromptEdit() }
-                .disabled(currentAppModel == nil)
+            Divider()
+
+            Menu("Magic") {
+                Button("Enhance Image…") { currentAppModel?.requestEnhance() }
+                    .disabled(currentAppModel == nil)
+                // No key equivalent: ⌥⌘M is the system "Minimize All" shortcut.
+                Button("AI Edit…") { currentAppModel?.requestPromptEdit() }
+                    .disabled(currentAppModel == nil)
+            }
+            .disabled(currentAppModel == nil)
+        }
+
+        CommandGroup(after: .sidebar) {
+            Button((currentAppModel?.presentedPanels.contains(.layers) == true ? "Hide" : "Show") + " Layers") {
+                currentAppModel?.togglePanel(.layers)
+            }
+            .keyboardShortcut("l", modifiers: [.command, .shift])
+            .disabled(currentAppModel?.imageSession == nil)
+
+            Button((currentAppModel?.presentedPanels.contains(.history) == true ? "Hide" : "Show") + " History") {
+                currentAppModel?.togglePanel(.history)
+            }
+            .keyboardShortcut("y", modifiers: [.command, .shift])
+            .disabled(currentAppModel?.imageSession == nil)
+
+            Divider()
         }
 
         // Interactive tools only.

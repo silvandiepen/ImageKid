@@ -447,9 +447,115 @@ final class ImageSession: ObservableObject {
 
     @Published var isDirty = false
 
+    // MARK: - Undo / Redo
+
+    /// Snapshot of the reversible edit intent. View state (zoom/pan/viewport) and
+    /// transient selection are intentionally excluded so undo maps to real edits.
+    struct EditSnapshot {
+        var cropRect: CGRect
+        var cropAspectRatio: CropAspectRatio
+        var outputSize: CGSize?
+        var resizePreservesAspect: Bool
+        var annotations: [Annotation]
+        var selectedAnnotationID: UUID?
+        var sampledColors: [SampledColor]
+        var selectedColorIDs: Set<UUID>
+        var backgroundRemovedImage: NSImage?
+    }
+
+    struct HistoryEntry: Identifiable {
+        let id = UUID()
+        let name: String
+        let systemImage: String
+        let snapshot: EditSnapshot
+    }
+
+    /// Linear, named history timeline. `historyIndex` points at the current state.
+    /// Entry 0 is always the opened image. Steps after `historyIndex` are redoable.
+    @Published private(set) var history: [HistoryEntry] = []
+    @Published private(set) var historyIndex = 0
+    private var isRestoringHistory = false
+    private let historyLimit = 200
+
+    var canUndo: Bool { historyIndex > 0 }
+    var canRedo: Bool { historyIndex < history.count - 1 }
+
+    private func currentSnapshot() -> EditSnapshot {
+        EditSnapshot(
+            cropRect: cropRect,
+            cropAspectRatio: cropAspectRatio,
+            outputSize: outputSize,
+            resizePreservesAspect: resizePreservesAspect,
+            annotations: annotations,
+            selectedAnnotationID: selectedAnnotationID,
+            sampledColors: sampledColors,
+            selectedColorIDs: selectedColorIDs,
+            backgroundRemovedImage: backgroundRemovedImage
+        )
+    }
+
+    private func restore(_ snapshot: EditSnapshot) {
+        cropRect = snapshot.cropRect
+        cropAspectRatio = snapshot.cropAspectRatio
+        outputSize = snapshot.outputSize
+        resizePreservesAspect = snapshot.resizePreservesAspect
+        annotations = snapshot.annotations
+        selectedAnnotationID = snapshot.selectedAnnotationID
+        sampledColors = snapshot.sampledColors
+        selectedColorIDs = snapshot.selectedColorIDs
+        backgroundRemovedImage = snapshot.backgroundRemovedImage
+    }
+
+    /// Seed the timeline with the opened image as the first step.
+    func seedHistory() {
+        history = [HistoryEntry(name: "Open", systemImage: "photo", snapshot: currentSnapshot())]
+        historyIndex = 0
+    }
+
+    /// Record a named history step capturing the state *after* a completed edit.
+    /// Truncates any redoable steps ahead of the cursor.
+    func record(_ name: String, systemImage: String) {
+        guard !isRestoringHistory else { return }
+        if history.isEmpty { seedHistory() }
+        if historyIndex < history.count - 1 {
+            history.removeSubrange((historyIndex + 1)...)
+        }
+        history.append(HistoryEntry(name: name, systemImage: systemImage, snapshot: currentSnapshot()))
+        if history.count > historyLimit + 1 {
+            history.removeFirst(history.count - (historyLimit + 1))
+        }
+        historyIndex = history.count - 1
+        isDirty = historyIndex != 0
+    }
+
+    func undo() { jump(to: historyIndex - 1) }
+    func redo() { jump(to: historyIndex + 1) }
+
+    /// Restore the state at a given timeline index.
+    func jump(to index: Int) {
+        guard index >= 0, index < history.count, index != historyIndex else { return }
+        isRestoringHistory = true
+        restore(history[index].snapshot)
+        isRestoringHistory = false
+        historyIndex = index
+        draftCropRect = nil
+        draftOutputSize = nil
+        selectionRect = nil
+        isDirty = index != 0
+    }
+
     init(sourceURL: URL?, sourceImage: NSImage) {
         self.sourceURL = sourceURL
         self.sourceImage = sourceImage
+        seedHistory()
+        drawingStrokeColor = autoContrastColor
+    }
+
+    /// White on dark images, black on light images — a legible default for new
+    /// text and shape annotations. Computed from the image's average luminance.
+    var autoContrastColor: NSColor {
+        let luminance = PaletteExtractor.averageLuminance(of: workingSourceImage) ?? 0.5
+        return luminance < 0.5 ? .white : .black
     }
 
     var pixelSize: CGSize {
@@ -514,11 +620,24 @@ final class ImageSession: ObservableObject {
         let sample = SampledColor(color: color)
         sampledColors.append(sample)
         selectedColorIDs = [sample.id]
+        record("Pick colour", systemImage: "eyedropper")
     }
 
     func removeSamples(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
         sampledColors.removeAll(where: { ids.contains($0.id) })
         selectedColorIDs.subtract(ids)
+        record("Remove colour", systemImage: "eyedropper")
+    }
+
+    /// Extract dominant colours from the working image and append them as samples.
+    func extractPalette(count: Int = 6) {
+        let colors = PaletteExtractor.dominantColors(from: workingSourceImage, count: count)
+        guard !colors.isEmpty else { return }
+        let samples = colors.map { SampledColor(color: $0) }
+        sampledColors.append(contentsOf: samples)
+        selectedColorIDs = Set(samples.map(\.id))
+        record("Extract palette", systemImage: "paintpalette")
     }
 
     func updateSample(id: UUID, color: NSColor) {
@@ -535,7 +654,68 @@ final class ImageSession: ObservableObject {
     func removeAnnotation(id: UUID) {
         annotations.removeAll(where: { $0.id == id })
         if selectedAnnotationID == id { selectedAnnotationID = nil }
-        isDirty = true
+        record("Delete", systemImage: "trash")
+    }
+
+    /// Duplicate an annotation, offset slightly so it is visible, and select the copy.
+    @discardableResult
+    func duplicateAnnotation(id: UUID) -> UUID? {
+        guard let index = annotations.firstIndex(where: { $0.id == id }) else { return nil }
+        var copy = annotations[index]
+        let offset: CGFloat = 0.02
+        copy = Annotation(
+            id: UUID(),
+            kind: copy.kind,
+            frame: CGRect(
+                x: min(copy.frame.minX + offset, 1 - copy.frame.width),
+                y: min(copy.frame.minY + offset, 1 - copy.frame.height),
+                width: copy.frame.width,
+                height: copy.frame.height
+            ),
+            strokeColor: copy.strokeColor,
+            fillColor: copy.fillColor,
+            lineWidth: copy.lineWidth,
+            opacity: copy.opacity,
+            fontFamily: copy.fontFamily,
+            fontSize: copy.fontSize,
+            fontWeight: copy.fontWeight,
+            lineHeight: copy.lineHeight,
+            textAlignment: copy.textAlignment
+        )
+        annotations.insert(copy, at: index + 1)
+        selectedAnnotationID = copy.id
+        record("Duplicate", systemImage: "plus.square.on.square")
+        return copy.id
+    }
+
+    /// Reorder an annotation in the draw stack. Later entries render on top.
+    func moveAnnotation(id: UUID, toFront: Bool) {
+        guard let index = annotations.firstIndex(where: { $0.id == id }) else { return }
+        let annotation = annotations.remove(at: index)
+        if toFront {
+            annotations.append(annotation)
+        } else {
+            annotations.insert(annotation, at: 0)
+        }
+        record(toFront ? "Bring to front" : "Send to back", systemImage: "square.3.layers.3d")
+    }
+
+    func moveAnnotation(id: UUID, forward: Bool) {
+        guard let index = annotations.firstIndex(where: { $0.id == id }) else { return }
+        let target = forward ? index + 1 : index - 1
+        guard target >= 0, target < annotations.count else { return }
+        annotations.swapAt(index, target)
+        record(forward ? "Bring forward" : "Send backward", systemImage: "square.3.layers.3d")
+    }
+
+    /// Move an annotation to an explicit stack index (used by the Layers panel).
+    func moveAnnotation(id: UUID, toIndex destination: Int) {
+        guard let index = annotations.firstIndex(where: { $0.id == id }) else { return }
+        let clamped = max(0, min(destination, annotations.count - 1))
+        guard clamped != index else { return }
+        let annotation = annotations.remove(at: index)
+        annotations.insert(annotation, at: clamped)
+        record("Reorder layer", systemImage: "square.3.layers.3d")
     }
 
     func applyDraftCrop() {
@@ -543,7 +723,7 @@ final class ImageSession: ObservableObject {
         cropRect = GeometryMapper.clampedNormalizedRect(draftCropRect)
         self.draftCropRect = nil
         selectionRect = nil
-        isDirty = true
+        record("Crop", systemImage: "crop")
     }
 
     func cancelCrop() {
@@ -559,7 +739,12 @@ final class ImageSession: ObservableObject {
     func restoreBackground() {
         backgroundRemovedImage = nil
         backgroundRefinementUndoImage = nil
-        isDirty = true
+        record("Restore background", systemImage: "photo")
+    }
+
+    /// Record a history step for a completed background removal (called by the service).
+    func recordBackgroundRemoval() {
+        record("Remove background", systemImage: "person.crop.rectangle")
     }
 
     func undoLastBackgroundRefinement() {
@@ -584,7 +769,7 @@ final class ImageSession: ObservableObject {
         guard let draftOutputSize, draftOutputSize.width > 0, draftOutputSize.height > 0 else { return }
         outputSize = draftOutputSize
         self.draftOutputSize = nil
-        isDirty = true
+        record("Resize", systemImage: "arrow.up.left.and.arrow.down.right")
     }
 
     func cancelDraftResize() {

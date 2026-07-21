@@ -22,12 +22,88 @@ targets:
       - path: Sources/ImageKid/Resources
     dependencies:
       - package: ImageKidInference
+    entitlements:
+      path: Sources/ImageKid/ImageKid.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-write: true
+        com.apple.security.application-groups:
+          - group.com.hakobs.imagekid
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hakobs.imagekid
         PRODUCT_NAME: ImageKid
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: ImageKid
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.graphics-design
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_STYLE: Automatic
+  ImageKidUpscale:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/CompanionSupport
+      - path: Sources/ImageKidUpscale
+    resources:
+      - path: Sources/ImageKid/Resources/Assets.xcassets
+    dependencies:
+      - package: ImageKidInference
+    entitlements:
+      path: Sources/CompanionSupport/ImageKidCompanion.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-write: true
+        com.apple.security.application-groups:
+          - group.com.hakobs.imagekid
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hakobs.imagekid.upscale
+        PRODUCT_NAME: ImageKid Upscale
+        ASSETCATALOG_COMPILER_APPICON_NAME: UpscaleAppIcon
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: ImageKid Upscale
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.graphics-design
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_STYLE: Automatic
+  ImageKidCutout:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/CompanionSupport
+      - path: Sources/ImageKidCutout
+    resources:
+      - path: Sources/ImageKid/Resources/Assets.xcassets
+    dependencies:
+      - package: ImageKidInference
+    entitlements:
+      path: Sources/CompanionSupport/ImageKidCompanion.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-write: true
+        com.apple.security.application-groups:
+          - group.com.hakobs.imagekid
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hakobs.imagekid.cutout
+        PRODUCT_NAME: ImageKid Cutout
+        ASSETCATALOG_COMPILER_APPICON_NAME: CutoutAppIcon
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: ImageKid Cutout
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.graphics-design
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_STYLE: Automatic
+  ImageKidCompanionTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Sources/CompanionSupport
+      - path: Tests/ImageKidCompanionTests
+    dependencies:
+      - package: ImageKidInference
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hakobs.imagekid.companion-tests
+        PRODUCT_NAME: ImageKid Companion Tests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.0"

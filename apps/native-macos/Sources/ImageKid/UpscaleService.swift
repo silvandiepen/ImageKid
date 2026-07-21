@@ -40,21 +40,78 @@ enum ImageUpscaleService {
         return NSImage(cgImage: upscaled, size: targetSize)
     }
 
-    /// Runs the on-device Core ML Real-ESRGAN upscaler. The service API is
-    /// synchronous (callers run it off the main thread), so we bridge the async
-    /// engine with a semaphore — the same blocking contract the old ncnn
-    /// subprocess had.
+    /// Magic ▸ Enhance Image. Improves detail (and optionally enlarges) using the
+    /// chosen quality grade. Quick is built-in Core Image; High and Max are the
+    /// on-device AI models (Real-ESRGAN / AuraSR) downloaded on demand.
+    static func enhance(
+        _ image: NSImage,
+        to targetSize: CGSize,
+        quality: EnhanceQuality,
+        progress: (@Sendable (UpscaleProgressUpdate) -> Void)? = nil
+    ) throws -> NSImage {
+        switch quality {
+        case .quick:
+            progress?(UpscaleProgressUpdate(detail: "Sharpening", fraction: nil))
+            let mode = resolvedContentMode(for: image, requestedMode: .automatic)
+            return mode == .textAndUI
+                ? preserveTextUpscale(image, to: targetSize)
+                : preservePhotoUpscale(image, to: targetSize)
+        case .high:
+            return try coreMLEnhance(
+                image,
+                to: targetSize,
+                model: .realESRGAN,
+                // Fixed 256×256 input matches the reliable conversion path.
+                configuration: CoreMLUpscalerConfiguration(fixedInputSize: CGSize(width: 256, height: 256)),
+                detail: "Enhancing detail",
+                progress: progress
+            )
+        case .max:
+            return try coreMLEnhance(
+                image,
+                to: targetSize,
+                model: .auraSR,
+                // AuraSR-v2: fixed 64×64 → 256×256 tiles (tools/coreml-conversion).
+                configuration: CoreMLUpscalerConfiguration(
+                    nativeScale: 4,
+                    tileSize: 64,
+                    fixedInputSize: CGSize(width: 64, height: 64)
+                ),
+                detail: "Enhancing detail",
+                progress: progress
+            )
+        }
+    }
+
+    private static func coreMLEnhance(
+        _ image: NSImage,
+        to targetSize: CGSize,
+        model: CoreMLModel,
+        configuration: CoreMLUpscalerConfiguration,
+        detail: String,
+        progress: (@Sendable (UpscaleProgressUpdate) -> Void)?
+    ) throws -> NSImage {
+        guard model.isDownloaded else { throw UpscaleError.runtimeMissing }
+        guard let source = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            throw UpscaleError.outputMissing
+        }
+        progress?(UpscaleProgressUpdate(detail: detail, fraction: nil))
+        let upscaled = try coreMLUpscale(source, to: targetSize, model: model, configuration: configuration, progress: progress)
+        return NSImage(cgImage: upscaled, size: targetSize)
+    }
+
+    /// Runs an on-device Core ML upscaler. The service API is synchronous (callers
+    /// run it off the main thread), so we bridge the async engine with a semaphore
+    /// — the same blocking contract the old ncnn subprocess had.
     private static func coreMLUpscale(
         _ image: CGImage,
         to targetSize: CGSize,
+        model: CoreMLModel = .realESRGAN,
+        configuration: CoreMLUpscalerConfiguration = CoreMLUpscalerConfiguration(fixedInputSize: CGSize(width: 256, height: 256)),
         progress: (@Sendable (UpscaleProgressUpdate) -> Void)?
     ) throws -> CGImage {
-        let provider = PackageModelProvider(packageURL: CoreMLModel.realESRGAN.localPackageURL)
-        // Fixed 256×256 input matches the reliable conversion path (tools/coreml-conversion).
-        let upscaler = CoreMLUpscaler(
-            modelProvider: provider,
-            configuration: CoreMLUpscalerConfiguration(fixedInputSize: CGSize(width: 256, height: 256))
-        )
+        let provider = PackageModelProvider(packageURL: model.localPackageURL)
+        let upscaler = CoreMLUpscaler(modelProvider: provider, configuration: configuration)
 
         let semaphore = DispatchSemaphore(value: 0)
         let box = UpscaleResultBox()

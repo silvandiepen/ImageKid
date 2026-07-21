@@ -25,25 +25,64 @@ enum BackgroundEngine: String, CaseIterable, Identifiable {
     }
 }
 
-/// Upscale engine choice, mirroring the macOS app's Standard / Best Quality.
-enum UpscaleEngineChoice: String, CaseIterable, Identifiable {
-    case standard
-    case bestQuality
+/// Quality grade for Magic ▸ Enhance Image. We surface grades, not model names:
+/// Quick is the built-in Core Image sharpen (instant, no download); High and Max
+/// are on-device AI models downloaded on demand.
+enum EnhanceQuality: String, CaseIterable, Identifiable {
+    case quick
+    case high
+    case max
 
     var id: String { rawValue }
 
-    var title: String {
+    var label: String {
         switch self {
-        case .standard: "Standard"
-        case .bestQuality: "Best Quality"
+        case .quick: "Quick"
+        case .high: "High"
+        case .max: "Max"
         }
     }
 
-    /// Fast (Core Image) vs slow-but-best (Real-ESRGAN model).
-    var speedLabel: String {
+    var detail: String {
         switch self {
-        case .standard: "Fast"
-        case .bestQuality: "Slow"
+        case .quick: "Instant. Built-in, no download."
+        case .high: "Sharper AI detail."
+        case .max: "Richest, most realistic detail."
+        }
+    }
+
+    /// The model this grade needs downloaded (nil = built-in Core Image).
+    var requiredModel: ModelDownloader.Model? {
+        switch self {
+        case .quick: nil
+        case .high: .realESRGAN
+        case .max: .auraSR
+        }
+    }
+}
+
+/// Output size for Enhance. AI models always upscale 4×; we fit the result to
+/// the requested multiple of the source.
+enum EnhanceSize: String, CaseIterable, Identifiable {
+    case same
+    case x2
+    case x4
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .same: "Same"
+        case .x2: "2×"
+        case .x4: "4×"
+        }
+    }
+
+    var factor: CGFloat {
+        switch self {
+        case .same: 1
+        case .x2: 2
+        case .x4: 4
         }
     }
 }
@@ -133,6 +172,20 @@ final class InferenceModel: ObservableObject {
         modelProvider: realESRGANProvider,
         configuration: CoreMLUpscalerConfiguration(
             fixedInputSize: CGSize(width: 256, height: 256)
+        )
+    )
+    private lazy var auraSRProvider = PackageModelProvider(
+        packageURL: downloader.localPackageURL(for: .auraSR)
+    )
+    // AuraSR-v2 (GigaGAN) has a fixed 64×64 input → 256×256 out (native 4×). The
+    // tiler feeds 64×64 tiles. Keep in sync with tools/coreml-conversion
+    // (`convert_aurasr.py`, INPUT_SIZE = 64).
+    private lazy var auraSRUpscaler = CoreMLUpscaler(
+        modelProvider: auraSRProvider,
+        configuration: CoreMLUpscalerConfiguration(
+            nativeScale: 4,
+            tileSize: 64,
+            fixedInputSize: CGSize(width: 64, height: 64)
         )
     )
 
@@ -325,23 +378,34 @@ final class InferenceModel: ObservableObject {
         }
     }
 
-    func upscale(scale: CGFloat, engine: UpscaleEngineChoice, contentMode: UpscaleContentMode) {
-        run(status: "Upscaled") { [self] progress in
+    /// Whether a quality grade is ready to run now (built-in, or model downloaded).
+    func enhanceReady(_ quality: EnhanceQuality) -> Bool {
+        guard let model = quality.requiredModel else { return true }
+        return downloader.isDownloaded(model)
+    }
+
+    /// Magic ▸ Enhance Image. Improves detail (and optionally enlarges) using the
+    /// chosen quality grade. AI grades upscale 4× natively, then we fit to the
+    /// requested output size.
+    func enhance(quality: EnhanceQuality, size: EnhanceSize) {
+        run(status: "Enhanced") { [self] progress in
             guard let source = workingImage?.normalizedCGImage() else {
                 throw InferenceError.inputPreparationFailed
             }
             let target = CGSize(
-                width: CGFloat(source.width) * scale,
-                height: CGFloat(source.height) * scale
+                width: CGFloat(source.width) * size.factor,
+                height: CGFloat(source.height) * size.factor
             )
-            switch engine {
-            case .bestQuality:
-                return try await realESRGANUpscaler.upscale(source, to: target, progress: progress)
-            case .standard:
-                let resolved = UpscaleContentMode.resolved(contentMode, for: source)
+            switch quality {
+            case .quick:
+                let resolved = UpscaleContentMode.resolved(.automatic, for: source)
                 let sharpening: CoreImageUpscaler.Sharpening = resolved == .textAndUI ? .textAndUI : .photoArtwork
                 return try await CoreImageUpscaler(sharpening: sharpening)
                     .upscale(source, to: target, progress: progress)
+            case .high:
+                return try await realESRGANUpscaler.upscale(source, to: target, progress: progress)
+            case .max:
+                return try await auraSRUpscaler.upscale(source, to: target, progress: progress)
             }
         }
     }

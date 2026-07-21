@@ -87,6 +87,68 @@ enum UpscaleContentMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// Quality grade for Magic ▸ Enhance Image. We surface grades, not model names:
+/// Quick is the built-in Core Image sharpen (instant, no download); High and Max
+/// are on-device AI models downloaded on demand.
+enum EnhanceQuality: String, CaseIterable, Identifiable {
+    case quick
+    case high
+    case max
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .quick: "Quick"
+        case .high: "High"
+        case .max: "Max"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .quick: "Instant. Built-in, no download."
+        case .high: "Sharper AI detail."
+        case .max: "Richest, most realistic detail."
+        }
+    }
+
+    /// The model this grade needs downloaded (nil = built-in Core Image).
+    var requiredModel: CoreMLModel? {
+        switch self {
+        case .quick: nil
+        case .high: .realESRGAN
+        case .max: .auraSR
+        }
+    }
+}
+
+/// Output size for Enhance. AI models always upscale 4×; we fit the result to the
+/// requested multiple of the source.
+enum EnhanceSize: String, CaseIterable, Identifiable {
+    case same
+    case x2
+    case x4
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .same: "Same"
+        case .x2: "2×"
+        case .x4: "4×"
+        }
+    }
+
+    var factor: CGFloat {
+        switch self {
+        case .same: 1
+        case .x2: 2
+        case .x4: 4
+        }
+    }
+}
+
 @MainActor
 final class AppSettings: ObservableObject {
     @AppStorage("appearanceMode") var appearanceModeRaw = AppearanceMode.system.rawValue {

@@ -24,3 +24,7 @@ apps/native-ios/Models/*.mlmodelc
 
 # xcodegen-generated Info.plist
 apps/native-ios/Sources/ImageKidiOS/Info.plist
+
+# Build output directories (xcodebuild / packaging)
+apps/native-macos/build/
+apps/native-ios/build/

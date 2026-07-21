@@ -182,78 +182,128 @@ struct ImageWorkspaceView: View {
 
     @ViewBuilder
     private var toolPanels: some View {
-        VStack {
-            HStack(alignment: .top) {
-                Spacer()
-
-                if appModel.activeTool == .pickColor {
-                    ColorPalettePanel(
-                        session: session,
-                        offset: $panelOffset,
-                        onClose: { appModel.activeTool = .view }
-                    )
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                } else if appModel.activeTool == .crop {
-                    CropControls(
-                        session: session,
-                        offset: $panelOffset,
-                        onCancel: cancelCrop,
-                        onApply: applyCrop
-                    )
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                } else if appModel.activeTool == .resize {
-                    ResizeControls(
-                        session: session,
-                        offset: $panelOffset,
-                        isApplying: appModel.isApplyingResize,
-                        onCancel: cancelResize,
-                        onApply: applyResize,
-                        onApplyUpscale: applyUpscale
-                    )
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                } else if appModel.activeTool == .rotate {
-                    RotateControls(
-                        session: session,
-                        offset: $panelOffset,
-                        onCancel: cancelRotate,
-                        onApply: applyRotate
-                    )
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                } else if showsBackgroundRefinementControls,
-                          appModel.activeTool == .refineBackground,
-                          session.backgroundRemovedImage != nil {
-                    BackgroundRefinementControls(
-                        session: session,
-                        offset: $panelOffset,
-                        onUndo: { session.undoLastBackgroundRefinement() },
-                        onClose: { appModel.activeTool = .view }
-                    )
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                } else if appModel.activeTool == .draw || session.selectedAnnotation?.isDrawable == true {
-                    DrawingInspector(
-                        session: session,
-                        offset: $panelOffset,
-                        onClose: {
-                            session.selectedAnnotationID = nil
-                            appModel.activeTool = .view
-                        }
-                    )
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                } else if let selected = session.selectedAnnotation, selected.isText {
-                    TextInspector(
-                        session: session,
-                        annotationID: selected.id,
-                        offset: $panelOffset
-                    )
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
+        ZStack(alignment: .topLeading) {
+            // Right-side, tool-driven context panels.
+            VStack {
+                HStack(alignment: .top) {
+                    Spacer()
+                    rightToolPanels
                 }
+                Spacer()
             }
-            Spacer()
+            .padding(.top, 54)
+            .padding(.trailing, 18)
+            .animation(.easeOut(duration: 0.18), value: appModel.activeTool)
+            .animation(.easeOut(duration: 0.18), value: session.selectedAnnotationID)
+
+            // Movable, minimizable dockable panels + their minimized icon rail.
+            dockablePanelsLayer
+                .padding(.top, 54)
+                .padding(.leading, 18)
         }
-        .padding(.top, 54)
-        .padding(.trailing, 18)
-        .animation(.easeOut(duration: 0.18), value: appModel.activeTool)
-        .animation(.easeOut(duration: 0.18), value: session.selectedAnnotationID)
+    }
+
+    @ViewBuilder
+    private var rightToolPanels: some View {
+        if appModel.activeTool == .pickColor {
+            ColorPalettePanel(
+                session: session,
+                offset: $panelOffset,
+                onClose: { appModel.activeTool = .view }
+            )
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+        } else if appModel.activeTool == .crop {
+            CropControls(
+                session: session,
+                offset: $panelOffset,
+                onCancel: cancelCrop,
+                onApply: applyCrop
+            )
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+        } else if appModel.activeTool == .resize {
+            ResizeControls(
+                session: session,
+                offset: $panelOffset,
+                isApplying: appModel.isApplyingResize,
+                onCancel: cancelResize,
+                onApply: applyResize
+            )
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+        } else if appModel.activeTool == .rotate {
+            RotateControls(
+                session: session,
+                offset: $panelOffset,
+                onCancel: cancelRotate,
+                onApply: applyRotate
+            )
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+        } else if showsBackgroundRefinementControls,
+                  appModel.activeTool == .refineBackground,
+                  session.backgroundRemovedImage != nil {
+            BackgroundRefinementControls(
+                session: session,
+                offset: $panelOffset,
+                onUndo: { session.undoLastBackgroundRefinement() },
+                onClose: { appModel.activeTool = .view }
+            )
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+        } else if appModel.activeTool == .draw || session.selectedAnnotation?.isDrawable == true {
+            DrawingInspector(
+                session: session,
+                offset: $panelOffset,
+                onClose: {
+                    session.selectedAnnotationID = nil
+                    appModel.activeTool = .view
+                }
+            )
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+        } else if let selected = session.selectedAnnotation, selected.isText {
+            TextInspector(
+                session: session,
+                annotationID: selected.id,
+                offset: $panelOffset
+            )
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+        }
+    }
+
+    @ViewBuilder
+    private var dockablePanelsLayer: some View {
+        ZStack(alignment: .topLeading) {
+            if appModel.isPanelExpanded(.layers) {
+                LayersPanel(
+                    session: session,
+                    appModel: appModel,
+                    offset: panelBinding(.layers),
+                    size: panelSizeBinding(.layers),
+                    onMinimize: { appModel.minimizePanel(.layers) }
+                )
+            }
+            if appModel.isPanelExpanded(.history) {
+                HistoryPanel(
+                    session: session,
+                    offset: panelBinding(.history),
+                    size: panelSizeBinding(.history),
+                    onMinimize: { appModel.minimizePanel(.history) }
+                )
+            }
+            PanelDockRail(appModel: appModel)
+                .animation(.easeOut(duration: 0.18), value: appModel.minimizedPanelList)
+        }
+    }
+
+    private func panelBinding(_ panel: DockablePanel) -> Binding<CGSize> {
+        Binding(
+            get: { appModel.panelPosition(panel) },
+            set: { appModel.setPanelPosition(panel, to: $0) }
+        )
+    }
+
+    private func panelSizeBinding(_ panel: DockablePanel) -> Binding<CGSize> {
+        Binding(
+            get: { appModel.panelSize(panel) },
+            set: { appModel.setPanelSize(panel, to: $0) }
+        )
     }
 
     private var controls: some View {
@@ -549,6 +599,15 @@ struct ImageWorkspaceView: View {
             }
             .onEnded { value in
                 finishDrag(value, imageRect: imageRect)
+                // Record the completed gesture as a single named history step.
+                switch dragMode {
+                case .moveAnnotation:
+                    session.record("Move", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
+                case .resizeAnnotation:
+                    session.record("Resize annotation", systemImage: "arrow.up.left.and.arrow.down.right")
+                default:
+                    break
+                }
                 dragMode = nil
                 draftAnnotation = nil
                 draftFreehandPoints = []
@@ -806,7 +865,7 @@ struct ImageWorkspaceView: View {
         guard let annotation else { return }
         session.annotations.append(annotation)
         session.selectedAnnotationID = nil
-        session.isDirty = true
+        session.record("Add \(session.drawingMode.label.lowercased())", systemImage: session.drawingMode.symbolName)
     }
 
     private func makeShapeAnnotation(
@@ -910,11 +969,12 @@ struct ImageWorkspaceView: View {
             frame: WorkingImageGeometry.sourceRect(
                 fromDisplayNormalized: displayFrame,
                 cropRect: session.cropRect
-            )
+            ),
+            strokeColor: session.autoContrastColor
         )
         session.annotations.append(annotation)
         session.selectedAnnotationID = annotation.id
-        session.isDirty = true
+        session.record("Add text", systemImage: "textformat")
         appModel.activeTool = .view
     }
 
@@ -1362,18 +1422,6 @@ struct ImageWorkspaceView: View {
         appModel.applyResizeToCurrentImage(
             targetSize: targetSize,
             upscaleEngine: .standard,
-            upscaleContentMode: settings.upscaleContentMode
-        )
-    }
-
-    private func applyUpscale(_ scale: CGFloat) {
-        let targetSize = CGSize(
-            width: session.croppedPixelSize.width * scale,
-            height: session.croppedPixelSize.height * scale
-        )
-        appModel.applyResizeToCurrentImage(
-            targetSize: targetSize,
-            upscaleEngine: .bestQuality,
             upscaleContentMode: settings.upscaleContentMode
         )
     }

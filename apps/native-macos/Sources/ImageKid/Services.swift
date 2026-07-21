@@ -385,6 +385,22 @@ enum ImageRenderer {
         return image
     }
 
+    /// Renders the current image at its natural (cropped) pixel size without
+    /// annotations — the clean base an Enhance engine upscales, before annotations
+    /// are redrawn at the enlarged size.
+    static func renderEnhanceBase(for session: ImageSession, backgroundColor: NSColor = .white) throws -> NSImage {
+        let options = ImageExportOptions(format: .png, backgroundColor: backgroundColor)
+        guard let image = render(
+            session,
+            targetSize: session.croppedPixelSize,
+            options: options,
+            includesAnnotations: false
+        ) else {
+            throw ImageRenderError.renderFailed
+        }
+        return image
+    }
+
     static func drawAnnotationsOnImage(_ image: NSImage, session: ImageSession, targetSize: CGSize) -> NSImage {
         drawAnnotations(on: image, session: session, targetSize: targetSize)
     }

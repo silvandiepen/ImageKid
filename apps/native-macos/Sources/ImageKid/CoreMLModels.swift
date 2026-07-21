@@ -1,12 +1,14 @@
 import Foundation
 
 /// The optional Core ML models ImageKid downloads on demand (never shipped in the
-/// binary), cached in Application Support. Mirrors the iOS app so both platforms
-/// use the same models and the same R2 layout (`v1/<Name>/…`).
+/// binary), cached in the shared ImageKid App Group when available. Mirrors the
+/// iOS app so both platforms use the same models and the same R2 layout
+/// (`v1/<Name>/…`).
 enum CoreMLModel: String, CaseIterable, Identifiable {
     case birefnet = "BiRefNet"
     case u2net = "U2Net"
     case realESRGAN = "RealESRGAN"
+    case auraSR = "AuraSR"
 
     var id: String { rawValue }
 
@@ -15,6 +17,7 @@ enum CoreMLModel: String, CaseIterable, Identifiable {
         case .birefnet: "BiRefNet — best background"
         case .u2net: "U²-Net — background"
         case .realESRGAN: "Real-ESRGAN — 4× upscale"
+        case .auraSR: "AuraSR — best quality"
         }
     }
 
@@ -23,6 +26,7 @@ enum CoreMLModel: String, CaseIterable, Identifiable {
         case .birefnet: "179 MB"
         case .u2net: "88 MB"
         case .realESRGAN: "33 MB"
+        case .auraSR: "196 MB"
         }
     }
 
@@ -37,8 +41,14 @@ enum CoreMLModel: String, CaseIterable, Identifiable {
     ]
 
     static var modelsDirectory: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base.appendingPathComponent("Models", isDirectory: true)
+        let fileManager = FileManager.default
+        if let sharedContainer = fileManager.containerURL(forSecurityApplicationGroupIdentifier: "group.com.hakobs.imagekid") {
+            return sharedContainer.appendingPathComponent("Models", isDirectory: true)
+        }
+        let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return base
+            .appendingPathComponent("ImageKid", isDirectory: true)
+            .appendingPathComponent("Models", isDirectory: true)
     }
 
     var localPackageURL: URL {

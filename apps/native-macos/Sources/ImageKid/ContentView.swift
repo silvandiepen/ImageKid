@@ -37,6 +37,16 @@ struct ContentView: View {
                 onApply: { prompt in appModel.applyPromptEdit(prompt: prompt) }
             )
         }
+        .sheet(isPresented: $appModel.isShowingEnhance) {
+            if case .image(let session) = appModel.media {
+                EnhanceSheet(
+                    pixelSize: session.croppedPixelSize,
+                    isApplying: appModel.isApplyingEnhance,
+                    onCancel: { appModel.isShowingEnhance = false },
+                    onApply: { quality, size in appModel.applyEnhance(quality: quality, size: size) }
+                )
+            }
+        }
         .alert(
             "ImageKid",
             isPresented: Binding(
