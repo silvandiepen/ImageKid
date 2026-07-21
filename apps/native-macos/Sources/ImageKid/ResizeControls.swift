@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageKidKit
 
 struct ResizeControls: View {
     @ObservedObject var session: ImageSession

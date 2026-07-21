@@ -1,10 +1,12 @@
 import AppKit
 import SwiftUI
+import ImageKidKit
 
 struct ImageWorkspaceView: View {
     @EnvironmentObject private var appModel: AppModel
     @EnvironmentObject private var settings: AppSettings
     @ObservedObject var session: ImageSession
+    @ObservedObject var panelDock: PanelDockModel<DockablePanel>
     private let showsBackgroundRefinementControls = false
 
     @State private var hoverControls = false
@@ -275,48 +277,34 @@ struct ImageWorkspaceView: View {
     @ViewBuilder
     private var dockablePanelsLayer: some View {
         ZStack(alignment: .topLeading) {
-            if appModel.isPanelExpanded(.files) {
+            if panelDock.isExpanded(.files) {
                 FilesPanel(
                     appModel: appModel,
-                    offset: panelBinding(.files),
-                    size: panelSizeBinding(.files),
-                    onMinimize: { appModel.minimizePanel(.files) }
+                    offset: panelDock.positionBinding(.files),
+                    size: panelDock.sizeBinding(.files),
+                    onMinimize: { panelDock.minimize(.files) }
                 )
             }
-            if appModel.isPanelExpanded(.layers) {
+            if panelDock.isExpanded(.layers) {
                 LayersPanel(
                     session: session,
                     appModel: appModel,
-                    offset: panelBinding(.layers),
-                    size: panelSizeBinding(.layers),
-                    onMinimize: { appModel.minimizePanel(.layers) }
+                    offset: panelDock.positionBinding(.layers),
+                    size: panelDock.sizeBinding(.layers),
+                    onMinimize: { panelDock.minimize(.layers) }
                 )
             }
-            if appModel.isPanelExpanded(.history) {
+            if panelDock.isExpanded(.history) {
                 HistoryPanel(
                     session: session,
-                    offset: panelBinding(.history),
-                    size: panelSizeBinding(.history),
-                    onMinimize: { appModel.minimizePanel(.history) }
+                    offset: panelDock.positionBinding(.history),
+                    size: panelDock.sizeBinding(.history),
+                    onMinimize: { panelDock.minimize(.history) }
                 )
             }
-            PanelDockRail(appModel: appModel)
-                .animation(.easeOut(duration: 0.18), value: appModel.minimizedPanelList)
+            PanelDockRail(model: panelDock)
+                .animation(.easeOut(duration: 0.18), value: panelDock.minimizedList)
         }
-    }
-
-    private func panelBinding(_ panel: DockablePanel) -> Binding<CGSize> {
-        Binding(
-            get: { appModel.panelPosition(panel) },
-            set: { appModel.setPanelPosition(panel, to: $0) }
-        )
-    }
-
-    private func panelSizeBinding(_ panel: DockablePanel) -> Binding<CGSize> {
-        Binding(
-            get: { appModel.panelSize(panel) },
-            set: { appModel.setPanelSize(panel, to: $0) }
-        )
     }
 
     private var controls: some View {

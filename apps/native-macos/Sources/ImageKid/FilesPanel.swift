@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageKidKit
 
 /// The open-files list, shared by the dockable Files panel and any legacy
 /// sidebar presentation.
@@ -111,10 +112,9 @@ struct FilesPanel: View {
     var body: some View {
         FloatingToolPanel(
             title: "Files",
-            systemImage: DockablePanel.files.systemImage,
+            systemImage: DockablePanel.files.spec.systemImage,
             offset: $offset,
             onMinimize: onMinimize,
-            snapStep: AppModel.panelGridStep,
             resizable: true,
             size: $size
         ) {

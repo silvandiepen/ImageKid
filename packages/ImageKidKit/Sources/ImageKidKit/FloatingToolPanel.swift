@@ -1,6 +1,8 @@
 import SwiftUI
 
-struct FloatingToolPanel<Content: View>: View {
+/// A draggable, optionally minimizable and resizable floating panel with a dark
+/// translucent chrome. App-agnostic: pass a title, icon, bindings, and content.
+public struct FloatingToolPanel<Content: View>: View {
     let title: String
     let systemImage: String
     let width: CGFloat
@@ -10,6 +12,9 @@ struct FloatingToolPanel<Content: View>: View {
     let snapStep: CGFloat?
     let resizable: Bool
     @Binding var size: CGSize
+    let minSize: CGSize
+    let maxSize: CGSize
+    let cornerRadius: CGFloat
     let content: Content
 
     @GestureState private var dragTranslation: CGSize = .zero
@@ -17,7 +22,7 @@ struct FloatingToolPanel<Content: View>: View {
     @GestureState private var isDragging = false
     @State private var resizeHovering = false
 
-    init(
+    public init(
         title: String,
         systemImage: String,
         width: CGFloat = 300,
@@ -27,6 +32,9 @@ struct FloatingToolPanel<Content: View>: View {
         snapStep: CGFloat? = nil,
         resizable: Bool = false,
         size: Binding<CGSize> = .constant(.zero),
+        minSize: CGSize = CGSize(width: 220, height: 200),
+        maxSize: CGSize = CGSize(width: 520, height: 900),
+        cornerRadius: CGFloat = 28,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
@@ -38,20 +46,23 @@ struct FloatingToolPanel<Content: View>: View {
         self.snapStep = snapStep
         self.resizable = resizable
         self._size = size
+        self.minSize = minSize
+        self.maxSize = maxSize
+        self.cornerRadius = cornerRadius
         self.content = content()
     }
 
     private var resolvedWidth: CGFloat {
         guard resizable else { return width }
-        return max(DockablePanel.minSize.width, size.width + resizeTranslation.width)
+        return max(minSize.width, size.width + resizeTranslation.width)
     }
 
     private var resolvedHeight: CGFloat? {
         guard resizable else { return nil }
-        return max(DockablePanel.minSize.height, size.height + resizeTranslation.height)
+        return max(minSize.height, size.height + resizeTranslation.height)
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
 
@@ -67,10 +78,10 @@ struct FloatingToolPanel<Content: View>: View {
         .foregroundStyle(.white)
         .background(
             Color.black.opacity(0.80),
-            in: RoundedRectangle(cornerRadius: 28, style: .continuous)
+            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .strokeBorder(.white.opacity(0.12))
         )
         .overlay(alignment: .bottomTrailing) {
@@ -86,7 +97,7 @@ struct FloatingToolPanel<Content: View>: View {
     }
 
     private var resizeHandle: some View {
-        ResizeCornerArc(cornerRadius: 28)
+        ResizeCornerArc(cornerRadius: cornerRadius)
             .stroke(
                 Color.white.opacity(resizeHovering ? 0.65 : 0.22),
                 style: StrokeStyle(lineWidth: 2.5, lineCap: .round)
@@ -95,7 +106,9 @@ struct FloatingToolPanel<Content: View>: View {
             .contentShape(Rectangle())
             .onHover { hovering in
                 withAnimation(.easeOut(duration: 0.12)) { resizeHovering = hovering }
+                #if os(macOS)
                 if hovering { NSCursor.crosshair.push() } else { NSCursor.pop() }
+                #endif
             }
             .gesture(
                 DragGesture()
@@ -104,8 +117,8 @@ struct FloatingToolPanel<Content: View>: View {
                     }
                     .onEnded { value in
                         size = CGSize(
-                            width: min(max(size.width + value.translation.width, DockablePanel.minSize.width), DockablePanel.maxSize.width),
-                            height: min(max(size.height + value.translation.height, DockablePanel.minSize.height), DockablePanel.maxSize.height)
+                            width: min(max(size.width + value.translation.width, minSize.width), maxSize.width),
+                            height: min(max(size.height + value.translation.height, minSize.height), maxSize.height)
                         )
                     }
             )
@@ -179,29 +192,7 @@ struct FloatingToolPanel<Content: View>: View {
     }
 }
 
-/// A short arc that hugs a panel's bottom-right rounded corner — a subtle resize
-/// affordance that grows more visible on hover.
-struct ResizeCornerArc: Shape {
-    /// The panel's own corner radius; the arc is drawn concentric with it, inset.
-    var cornerRadius: CGFloat = 28
-
-    func path(in rect: CGRect) -> Path {
-        // Centre of curvature sits `cornerRadius` in from the panel's corner,
-        // which is this view's bottom-right (its frame aligns to the corner).
-        let center = CGPoint(x: rect.maxX - cornerRadius, y: rect.maxY - cornerRadius)
-        var path = Path()
-        path.addArc(
-            center: center,
-            radius: cornerRadius - 10,
-            startAngle: .degrees(16),
-            endAngle: .degrees(74),
-            clockwise: false
-        )
-        return path
-    }
-}
-
-extension View {
+public extension View {
     func darkPanelControl() -> some View {
         self
             .tint(.white)

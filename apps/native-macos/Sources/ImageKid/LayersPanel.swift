@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageKidKit
 
 /// Lists annotation layers front-to-back, with selection, reordering,
 /// duplication and deletion. Front-most layer sits at the top of the list.
@@ -35,7 +36,6 @@ struct LayersPanel: View {
             systemImage: "square.3.layers.3d",
             offset: $offset,
             onMinimize: onMinimize,
-            snapStep: AppModel.panelGridStep,
             resizable: true,
             size: $size
         ) {
