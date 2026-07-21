@@ -5,7 +5,9 @@ struct FloatingToolPanel<Content: View>: View {
     let systemImage: String
     let width: CGFloat
     @Binding var offset: CGSize
-    let onClose: () -> Void
+    let onClose: (() -> Void)?
+    let onMinimize: (() -> Void)?
+    let snapStep: CGFloat?
     let content: Content
 
     @GestureState private var dragTranslation: CGSize = .zero
@@ -15,7 +17,9 @@ struct FloatingToolPanel<Content: View>: View {
         systemImage: String,
         width: CGFloat = 300,
         offset: Binding<CGSize>,
-        onClose: @escaping () -> Void,
+        onClose: (() -> Void)? = nil,
+        onMinimize: (() -> Void)? = nil,
+        snapStep: CGFloat? = nil,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
@@ -23,6 +27,8 @@ struct FloatingToolPanel<Content: View>: View {
         self.width = width
         self._offset = offset
         self.onClose = onClose
+        self.onMinimize = onMinimize
+        self.snapStep = snapStep
         self.content = content()
     }
 
@@ -70,15 +76,27 @@ struct FloatingToolPanel<Content: View>: View {
                 .fill(.white.opacity(0.24))
                 .frame(width: 34, height: 5)
 
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .bold))
-                    .frame(width: 28, height: 28)
-                    .background(.white.opacity(0.10), in: Circle())
+            if let onMinimize {
+                Button(action: onMinimize) {
+                    Image(systemName: "minus")
+                        .font(.system(size: 12, weight: .bold))
+                        .frame(width: 24, height: 24)
+                        .background(.white.opacity(0.10), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Minimise \(title)")
+                .accessibilityLabel("Minimise \(title)")
+            } else if let onClose {
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .frame(width: 28, height: 28)
+                        .background(.white.opacity(0.10), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Close \(title)")
+                .accessibilityLabel("Close \(title)")
             }
-            .buttonStyle(.plain)
-            .help("Close \(title)")
-            .accessibilityLabel("Close \(title)")
         }
         .padding(.leading, 16)
         .padding(.trailing, 12)
@@ -90,10 +108,17 @@ struct FloatingToolPanel<Content: View>: View {
                     state = value.translation
                 }
                 .onEnded { value in
-                    offset = CGSize(
+                    var next = CGSize(
                         width: offset.width + value.translation.width,
                         height: offset.height + value.translation.height
                     )
+                    if let snapStep {
+                        next = CGSize(
+                            width: max(0, (next.width / snapStep).rounded() * snapStep),
+                            height: max(0, (next.height / snapStep).rounded() * snapStep)
+                        )
+                    }
+                    offset = next
                 }
         )
     }

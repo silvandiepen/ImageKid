@@ -7,6 +7,31 @@ import CoreGraphics
 enum PaletteExtractor {
     private struct Pixel { var r: Int; var g: Int; var b: Int }
 
+    /// Average perceptual luminance (0 = black, 1 = white) of the opaque pixels.
+    static func averageLuminance(of image: NSImage, sample: Int = 48) -> CGFloat? {
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let width = max(1, min(sample, cgImage.width))
+        let height = max(1, Int((Double(cgImage.height) / Double(cgImage.width) * Double(width)).rounded()))
+        let bytesPerRow = width * 4
+        var data = [UInt8](repeating: 0, count: bytesPerRow * height)
+        guard let ctx = CGContext(
+            data: &data, width: width, height: height, bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        var sum: Double = 0
+        var counted = 0
+        for i in stride(from: 0, to: data.count, by: 4) {
+            if data[i + 3] < 24 { continue }
+            let r = Double(data[i]), g = Double(data[i + 1]), b = Double(data[i + 2])
+            sum += (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+            counted += 1
+        }
+        guard counted > 0 else { return nil }
+        return CGFloat(sum / Double(counted))
+    }
+
     static func dominantColors(from image: NSImage, count: Int = 6, sample: Int = 96) -> [NSColor] {
         guard count > 0,
               let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {

@@ -5,7 +5,7 @@ import SwiftUI
 struct HistoryPanel: View {
     @ObservedObject var session: ImageSession
     @Binding var offset: CGSize
-    let onClose: () -> Void
+    let onMinimize: () -> Void
 
     var body: some View {
         FloatingToolPanel(
@@ -13,7 +13,8 @@ struct HistoryPanel: View {
             systemImage: "clock.arrow.circlepath",
             width: 280,
             offset: $offset,
-            onClose: onClose
+            onMinimize: onMinimize,
+            snapStep: AppModel.panelGridStep
         ) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {

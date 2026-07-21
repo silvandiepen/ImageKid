@@ -6,7 +6,7 @@ struct LayersPanel: View {
     @ObservedObject var session: ImageSession
     @ObservedObject var appModel: AppModel
     @Binding var offset: CGSize
-    let onClose: () -> Void
+    let onMinimize: () -> Void
 
     /// Front-most first (last in the draw array renders on top).
     private var orderedLayers: [Annotation] { session.annotations.reversed() }
@@ -17,7 +17,8 @@ struct LayersPanel: View {
             systemImage: "square.3.layers.3d",
             width: 280,
             offset: $offset,
-            onClose: onClose
+            onMinimize: onMinimize,
+            snapStep: AppModel.panelGridStep
         ) {
             VStack(alignment: .leading, spacing: 10) {
                 if session.annotations.isEmpty {

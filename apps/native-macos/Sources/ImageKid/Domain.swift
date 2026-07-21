@@ -548,6 +548,14 @@ final class ImageSession: ObservableObject {
         self.sourceURL = sourceURL
         self.sourceImage = sourceImage
         seedHistory()
+        drawingStrokeColor = autoContrastColor
+    }
+
+    /// White on dark images, black on light images — a legible default for new
+    /// text and shape annotations. Computed from the image's average luminance.
+    var autoContrastColor: NSColor {
+        let luminance = PaletteExtractor.averageLuminance(of: workingSourceImage) ?? 0.5
+        return luminance < 0.5 ? .white : .black
     }
 
     var pixelSize: CGSize {

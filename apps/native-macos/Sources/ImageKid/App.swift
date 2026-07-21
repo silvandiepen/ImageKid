@@ -53,8 +53,9 @@ final class AppModel: ObservableObject {
     @Published var selectedItemID: UUID?
     @Published var selectedItemIDs: Set<UUID> = []
     @Published var activeTool: Tool = .view
-    @Published var showHistoryPanel = false
-    @Published var showLayersPanel = false
+    @Published var presentedPanels: Set<DockablePanel> = []
+    @Published var minimizedPanels: Set<DockablePanel> = []
+    @Published var panelPositions: [DockablePanel: CGSize] = [:]
     @Published var errorMessage: String?
     @Published var isShowingResize = false
     @Published var isShowingExport = false
@@ -1290,14 +1291,14 @@ struct AppCommands: Commands {
         }
 
         CommandGroup(after: .sidebar) {
-            Button((currentAppModel?.showLayersPanel == true ? "Hide" : "Show") + " Layers") {
-                currentAppModel?.showLayersPanel.toggle()
+            Button((currentAppModel?.presentedPanels.contains(.layers) == true ? "Hide" : "Show") + " Layers") {
+                currentAppModel?.togglePanel(.layers)
             }
             .keyboardShortcut("l", modifiers: [.command, .shift])
             .disabled(currentAppModel?.imageSession == nil)
 
-            Button((currentAppModel?.showHistoryPanel == true ? "Hide" : "Show") + " History") {
-                currentAppModel?.showHistoryPanel.toggle()
+            Button((currentAppModel?.presentedPanels.contains(.history) == true ? "Hide" : "Show") + " History") {
+                currentAppModel?.togglePanel(.history)
             }
             .keyboardShortcut("y", modifiers: [.command, .shift])
             .disabled(currentAppModel?.imageSession == nil)
