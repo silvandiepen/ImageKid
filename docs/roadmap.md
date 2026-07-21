@@ -98,6 +98,7 @@ Exit criteria: annotation boundaries are frame-correct and exports remain synchr
 ## Future research, not commitments
 
 - Batch processing.
+- Separate companion apps for focused batch upscaling and background removal; see `companion-apps.md`.
 - Trim and simple clip extraction.
 - Screenshot and screen-recording capture.
 - Pixel-art-specific scaling.
