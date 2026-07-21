@@ -22,10 +22,16 @@ targets:
       - path: Sources/ImageKid/Resources
     dependencies:
       - package: ImageKidInference
+    entitlements:
+      path: Sources/ImageKid/ImageKid.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-write: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hakobs.imagekid
         PRODUCT_NAME: ImageKid
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: ImageKid
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.graphics-design
