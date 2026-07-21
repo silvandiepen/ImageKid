@@ -56,6 +56,7 @@ struct ImageWorkspaceView: View {
                     .rotationEffect(rotatePreviewActive ? .degrees(session.rotationDraft) : .zero)
                     .position(x: imageRect.midX, y: imageRect.midY)
 
+                imageLayers(in: imageRect)
                 annotations(in: imageRect)
                 imageSelection(in: imageRect)
                 draftDrawing(in: imageRect)
@@ -121,6 +122,10 @@ struct ImageWorkspaceView: View {
                 progressOverlay
             }
             .clipped()
+            .dropDestination(for: String.self) { payloads, _ in
+                guard let payload = payloads.first else { return false }
+                return appModel.addDraggedImageAsLayer(payload, into: session)
+            }
             .onHover { inside in
                 withAnimation(.easeOut(duration: 0.15)) {
                     hoverControls = inside
@@ -448,6 +453,27 @@ struct ImageWorkspaceView: View {
     }
 
     @ViewBuilder
+    private func imageLayers(in imageRect: CGRect) -> some View {
+        ForEach(session.imageLayers) { layer in
+            if layer.isVisible, let displayedFrame = displayedAnnotationFrame(layer.frame) {
+                let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
+                Image(nsImage: layer.image)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: rect.width, height: rect.height)
+                    .opacity(layer.opacity)
+                    .position(x: rect.midX, y: rect.midY)
+                    .allowsHitTesting(false)
+
+                if session.selectedLayerID == layer.id {
+                    selectionOverlay(for: rect)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
     private func annotations(in imageRect: CGRect) -> some View {
         ForEach(session.annotations) { annotation in
             if let displayedFrame = displayedAnnotationFrame(annotation.frame) {
@@ -613,6 +639,10 @@ struct ImageWorkspaceView: View {
                     session.record("Move", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
                 case .resizeAnnotation:
                     session.record("Resize annotation", systemImage: "arrow.up.left.and.arrow.down.right")
+                case .moveLayer:
+                    session.record("Move layer", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
+                case .resizeLayer:
+                    session.record("Resize layer", systemImage: "arrow.up.left.and.arrow.down.right")
                 default:
                     break
                 }
@@ -647,13 +677,23 @@ struct ImageWorkspaceView: View {
                 }
             }
 
+            if let mode = selectedLayerResizeMode(at: point, imageRect: imageRect) {
+                return mode
+            }
+
             if let annotation = hitAnnotation(at: point, imageRect: imageRect) {
                 session.selectionRect = nil
                 session.selectedAnnotationID = annotation.id
+                session.selectedLayerID = nil
                 return .moveAnnotation(id: annotation.id, start: annotation.frame)
             }
 
+            if let mode = layerMoveMode(at: point, imageRect: imageRect) {
+                return mode
+            }
+
             session.selectedAnnotationID = nil
+            session.selectedLayerID = nil
             return .selectRegion
 
         case .pickColor:
@@ -704,12 +744,22 @@ struct ImageWorkspaceView: View {
                 }
             }
 
+            if let mode = selectedLayerResizeMode(at: point, imageRect: imageRect) {
+                return mode
+            }
+
             if let annotation = hitAnnotation(at: point, imageRect: imageRect) {
                 session.selectedAnnotationID = annotation.id
+                session.selectedLayerID = nil
                 return .moveAnnotation(id: annotation.id, start: annotation.frame)
             }
 
+            if let mode = layerMoveMode(at: point, imageRect: imageRect) {
+                return mode
+            }
+
             session.selectedAnnotationID = nil
+            session.selectedLayerID = nil
             return .pan(start: session.pan)
     }
 
@@ -742,6 +792,18 @@ struct ImageWorkspaceView: View {
             let delta = sourceTranslation(value.translation, imageRect: imageRect)
             session.updateAnnotation(id: id) { annotation in
                 annotation.frame = resizedRect(start, handle: corner.boxHandle, delta: delta)
+            }
+
+        case .moveLayer(let id, let start):
+            let delta = sourceTranslation(value.translation, imageRect: imageRect)
+            session.updateImageLayer(id: id) { layer in
+                layer.frame = movedRect(start, by: delta)
+            }
+
+        case .resizeLayer(let id, let corner, let start):
+            let delta = sourceTranslation(value.translation, imageRect: imageRect)
+            session.updateImageLayer(id: id) { layer in
+                layer.frame = resizedRect(start, handle: corner.boxHandle, delta: delta)
             }
 
         case .moveSelection(let start):
@@ -826,7 +888,7 @@ struct ImageWorkspaceView: View {
             }
             appModel.activeTool = .select
 
-        case .pan, .moveAnnotation, .resizeAnnotation, .moveSelection, .resizeSelection, .crop, .resizeCanvas:
+        case .pan, .moveAnnotation, .resizeAnnotation, .moveLayer, .resizeLayer, .moveSelection, .resizeSelection, .crop, .resizeCanvas:
             break
         }
     }
@@ -1051,6 +1113,33 @@ struct ImageWorkspaceView: View {
                 .insetBy(dx: -6, dy: -6)
                 .contains(point)
         }
+    }
+
+    private func hitLayer(at point: CGPoint, imageRect: CGRect) -> ImageLayer? {
+        session.imageLayers.reversed().first { layer in
+            guard layer.isVisible, let displayed = displayedAnnotationFrame(layer.frame) else { return false }
+            return GeometryMapper.viewRect(from: displayed, in: imageRect).contains(point)
+        }
+    }
+
+    /// Resize handle for the currently-selected image layer, if grabbed.
+    private func selectedLayerResizeMode(at point: CGPoint, imageRect: CGRect) -> DragMode? {
+        guard let selectedID = session.selectedLayerID,
+              let selected = session.imageLayers.first(where: { $0.id == selectedID }),
+              let displayed = displayedAnnotationFrame(selected.frame) else { return nil }
+        let rect = GeometryMapper.viewRect(from: displayed, in: imageRect)
+        if let corner = cornerHandle(at: point, rect: rect) {
+            return .resizeLayer(id: selectedID, corner: corner, start: selected.frame)
+        }
+        return nil
+    }
+
+    private func layerMoveMode(at point: CGPoint, imageRect: CGRect) -> DragMode? {
+        guard let layer = hitLayer(at: point, imageRect: imageRect) else { return nil }
+        session.selectedLayerID = layer.id
+        session.selectedAnnotationID = nil
+        session.selectionRect = nil
+        return .moveLayer(id: layer.id, start: layer.frame)
     }
 
     private func displayedAnnotationFrame(_ sourceFrame: CGRect) -> CGRect? {
@@ -1454,6 +1543,8 @@ struct ImageWorkspaceView: View {
         case placeText
         case moveAnnotation(id: UUID, start: CGRect)
         case resizeAnnotation(id: UUID, corner: AnnotationCorner, start: CGRect)
+        case moveLayer(id: UUID, start: CGRect)
+        case resizeLayer(id: UUID, corner: AnnotationCorner, start: CGRect)
         case moveSelection(start: CGRect)
         case resizeSelection(handle: BoxHandle, start: CGRect)
         case crop(handle: BoxHandle, start: CGRect)

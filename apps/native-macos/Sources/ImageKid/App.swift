@@ -469,6 +469,15 @@ final class AppModel: ObservableObject {
         imageSession?.selectedAnnotationID != nil
     }
 
+    /// Add another open file's image into `session` as a new placed layer.
+    @discardableResult
+    func addDraggedImageAsLayer(_ idString: String, into session: ImageSession) -> Bool {
+        guard let item = items.first(where: { $0.id.uuidString == idString }),
+              case .image(let source) = item.media else { return false }
+        session.addImageLayer(source.workingSourceImage, name: item.title)
+        return true
+    }
+
     func duplicateSelectedAnnotation() {
         guard let session = imageSession, let id = session.selectedAnnotationID else { return }
         session.duplicateAnnotation(id: id)

@@ -404,6 +404,34 @@ struct Annotation: Identifiable {
     }
 }
 
+/// A placed raster image composited above the base image and below vector
+/// annotations. `frame` is normalised in the base-image source space (0…1),
+/// matching `Annotation.frame`.
+struct ImageLayer: Identifiable {
+    let id: UUID
+    var name: String
+    var image: NSImage
+    var frame: CGRect
+    var opacity: Double
+    var isVisible: Bool
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        image: NSImage,
+        frame: CGRect,
+        opacity: Double = 1,
+        isVisible: Bool = true
+    ) {
+        self.id = id
+        self.name = name
+        self.image = image
+        self.frame = frame
+        self.opacity = opacity
+        self.isVisible = isVisible
+    }
+}
+
 @MainActor
 final class ImageSession: ObservableObject {
     let sourceURL: URL?
@@ -419,7 +447,9 @@ final class ImageSession: ObservableObject {
     @Published var draftOutputSize: CGSize?
     @Published var resizePreservesAspect = true
     @Published var annotations: [Annotation] = []
+    @Published var imageLayers: [ImageLayer] = []
     @Published var selectedAnnotationID: UUID?
+    @Published var selectedLayerID: UUID?
     @Published var selectionRect: CGRect?
     @Published var sampledColors: [SampledColor] = []
     @Published var selectedColorIDs: Set<UUID> = []
@@ -457,7 +487,9 @@ final class ImageSession: ObservableObject {
         var outputSize: CGSize?
         var resizePreservesAspect: Bool
         var annotations: [Annotation]
+        var imageLayers: [ImageLayer]
         var selectedAnnotationID: UUID?
+        var selectedLayerID: UUID?
         var sampledColors: [SampledColor]
         var selectedColorIDs: Set<UUID>
         var backgroundRemovedImage: NSImage?
@@ -487,7 +519,9 @@ final class ImageSession: ObservableObject {
             outputSize: outputSize,
             resizePreservesAspect: resizePreservesAspect,
             annotations: annotations,
+            imageLayers: imageLayers,
             selectedAnnotationID: selectedAnnotationID,
+            selectedLayerID: selectedLayerID,
             sampledColors: sampledColors,
             selectedColorIDs: selectedColorIDs,
             backgroundRemovedImage: backgroundRemovedImage
@@ -500,7 +534,9 @@ final class ImageSession: ObservableObject {
         outputSize = snapshot.outputSize
         resizePreservesAspect = snapshot.resizePreservesAspect
         annotations = snapshot.annotations
+        imageLayers = snapshot.imageLayers
         selectedAnnotationID = snapshot.selectedAnnotationID
+        selectedLayerID = snapshot.selectedLayerID
         sampledColors = snapshot.sampledColors
         selectedColorIDs = snapshot.selectedColorIDs
         backgroundRemovedImage = snapshot.backgroundRemovedImage
@@ -716,6 +752,57 @@ final class ImageSession: ObservableObject {
         let annotation = annotations.remove(at: index)
         annotations.insert(annotation, at: clamped)
         record("Reorder layer", systemImage: "square.3.layers.3d")
+    }
+
+    // MARK: - Image layers
+
+    /// Add a placed image as a new layer, centred and scaled to ~half the canvas.
+    @discardableResult
+    func addImageLayer(_ image: NSImage, name: String) -> UUID {
+        let layerAspect = image.size.width / max(image.size.height, 1)
+        let base = pixelSize
+        let baseAspect = base.width / max(base.height, 1)
+        var w: CGFloat = 0.5
+        var h: CGFloat = 0.5 * baseAspect / max(layerAspect, 0.0001)
+        if h > 0.8 { h = 0.8; w = h * layerAspect / max(baseAspect, 0.0001) }
+        w = min(max(w, 0.05), 1)
+        h = min(max(h, 0.05), 1)
+        let layer = ImageLayer(
+            name: name,
+            image: image,
+            frame: CGRect(x: (1 - w) / 2, y: (1 - h) / 2, width: w, height: h)
+        )
+        imageLayers.append(layer)
+        selectedLayerID = layer.id
+        selectedAnnotationID = nil
+        record("Add image layer", systemImage: "photo.on.rectangle")
+        return layer.id
+    }
+
+    func updateImageLayer(id: UUID, _ update: (inout ImageLayer) -> Void) {
+        guard let index = imageLayers.firstIndex(where: { $0.id == id }) else { return }
+        update(&imageLayers[index])
+        isDirty = true
+    }
+
+    func removeImageLayer(id: UUID) {
+        imageLayers.removeAll(where: { $0.id == id })
+        if selectedLayerID == id { selectedLayerID = nil }
+        record("Delete layer", systemImage: "trash")
+    }
+
+    func toggleImageLayerVisibility(id: UUID) {
+        guard let index = imageLayers.firstIndex(where: { $0.id == id }) else { return }
+        imageLayers[index].isVisible.toggle()
+        record(imageLayers[index].isVisible ? "Show layer" : "Hide layer", systemImage: "eye")
+    }
+
+    func moveImageLayer(id: UUID, forward: Bool) {
+        guard let index = imageLayers.firstIndex(where: { $0.id == id }) else { return }
+        let target = forward ? index + 1 : index - 1
+        guard target >= 0, target < imageLayers.count else { return }
+        imageLayers.swapAt(index, target)
+        record(forward ? "Bring layer forward" : "Send layer backward", systemImage: "square.3.layers.3d")
     }
 
     func applyDraftCrop() {
