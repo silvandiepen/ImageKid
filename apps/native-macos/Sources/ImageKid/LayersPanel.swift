@@ -122,6 +122,18 @@ struct LayersPanel: View {
                 session.renameImageLayer(id: layer.id, to: $0)
             }
             Spacer()
+            if layer.hasMask {
+                Button {
+                    session.toggleLayerMask(id: layer.id)
+                } label: {
+                    Image(systemName: "theatermask.and.paintbrush")
+                        .font(.system(size: 11))
+                        .opacity(layer.isMaskEnabled ? 1 : 0.35)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white.opacity(0.8))
+                .help(layer.isMaskEnabled ? "Disable mask" : "Enable mask")
+            }
             visibilityButton(isOn: layer.isVisible) {
                 session.toggleImageLayerVisibility(id: layer.id)
             }
@@ -146,6 +158,19 @@ struct LayersPanel: View {
             }
             session.selectedLayerID = layer.id
             session.selectedAnnotationID = nil
+        }
+        .contextMenu {
+            Button(layer.hasMask ? "Redo Background Mask" : "Remove Background (Mask)") {
+                session.selectedLayerID = layer.id
+                appModel.removeBackgroundFromSelectedLayer()
+            }
+            .disabled(appModel.isRemovingBackground)
+            if layer.hasMask {
+                Button(layer.isMaskEnabled ? "Disable Mask" : "Enable Mask") {
+                    session.toggleLayerMask(id: layer.id)
+                }
+                Button("Delete Mask") { session.removeLayerMask(id: layer.id) }
+            }
         }
     }
 

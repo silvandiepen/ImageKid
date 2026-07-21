@@ -420,6 +420,10 @@ struct ImageLayer: Identifiable {
     var frame: CGRect
     var opacity: Double
     var isVisible: Bool
+    /// Non-destructive alpha mask (white = keep, black = hide). Applied to the
+    /// layer image when `isMaskEnabled` is true; the original pixels are kept.
+    var mask: NSImage?
+    var isMaskEnabled: Bool
 
     init(
         id: UUID = UUID(),
@@ -427,7 +431,9 @@ struct ImageLayer: Identifiable {
         image: NSImage,
         frame: CGRect,
         opacity: Double = 1,
-        isVisible: Bool = true
+        isVisible: Bool = true,
+        mask: NSImage? = nil,
+        isMaskEnabled: Bool = true
     ) {
         self.id = id
         self.name = name
@@ -435,6 +441,16 @@ struct ImageLayer: Identifiable {
         self.frame = frame
         self.opacity = opacity
         self.isVisible = isVisible
+        self.mask = mask
+        self.isMaskEnabled = isMaskEnabled
+    }
+
+    var hasMask: Bool { mask != nil }
+
+    /// The image as it should render — masked when a mask is present and enabled.
+    var renderedImage: NSImage {
+        guard isMaskEnabled, let mask else { return image }
+        return MaskCompositor.apply(mask: mask, to: image) ?? image
     }
 }
 
@@ -903,6 +919,27 @@ final class ImageSession: ObservableObject {
         guard let index = imageLayers.firstIndex(where: { $0.id == id }) else { return }
         imageLayers[index].isVisible.toggle()
         record(imageLayers[index].isVisible ? "Show layer" : "Hide layer", systemImage: "eye")
+    }
+
+    // MARK: - Layer masks
+
+    func setLayerMask(id: UUID, mask: NSImage) {
+        guard let index = imageLayers.firstIndex(where: { $0.id == id }) else { return }
+        imageLayers[index].mask = mask
+        imageLayers[index].isMaskEnabled = true
+        record("Add mask", systemImage: "theatermask.and.paintbrush")
+    }
+
+    func toggleLayerMask(id: UUID) {
+        guard let index = imageLayers.firstIndex(where: { $0.id == id }), imageLayers[index].hasMask else { return }
+        imageLayers[index].isMaskEnabled.toggle()
+        record(imageLayers[index].isMaskEnabled ? "Enable mask" : "Disable mask", systemImage: "theatermask.and.paintbrush")
+    }
+
+    func removeLayerMask(id: UUID) {
+        guard let index = imageLayers.firstIndex(where: { $0.id == id }), imageLayers[index].hasMask else { return }
+        imageLayers[index].mask = nil
+        record("Remove mask", systemImage: "trash")
     }
 
     func moveImageLayer(id: UUID, forward: Bool) {
