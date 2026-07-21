@@ -14,6 +14,8 @@ struct FloatingToolPanel<Content: View>: View {
 
     @GestureState private var dragTranslation: CGSize = .zero
     @GestureState private var resizeTranslation: CGSize = .zero
+    @GestureState private var isDragging = false
+    @State private var resizeHovering = false
 
     init(
         title: String,
@@ -74,7 +76,9 @@ struct FloatingToolPanel<Content: View>: View {
         .overlay(alignment: .bottomTrailing) {
             if resizable { resizeHandle }
         }
-        .shadow(color: .black.opacity(0.36), radius: 28, y: 12)
+        // A large blurred shadow re-rasterises every frame while dragging, which
+        // is the main source of drag stutter — shrink it hard during a drag.
+        .shadow(color: .black.opacity(isDragging ? 0.28 : 0.36), radius: isDragging ? 6 : 28, y: isDragging ? 3 : 12)
         .offset(
             x: offset.width + dragTranslation.width,
             y: offset.height + dragTranslation.height
@@ -82,11 +86,17 @@ struct FloatingToolPanel<Content: View>: View {
     }
 
     private var resizeHandle: some View {
-        Image(systemName: "arrow.down.right")
-            .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(.white.opacity(0.4))
-            .frame(width: 26, height: 26)
+        ResizeCornerArc(cornerRadius: 28)
+            .stroke(
+                Color.white.opacity(resizeHovering ? 0.65 : 0.22),
+                style: StrokeStyle(lineWidth: 2.5, lineCap: .round)
+            )
+            .frame(width: 42, height: 42)
             .contentShape(Rectangle())
+            .onHover { hovering in
+                withAnimation(.easeOut(duration: 0.12)) { resizeHovering = hovering }
+                if hovering { NSCursor.crosshair.push() } else { NSCursor.pop() }
+            }
             .gesture(
                 DragGesture()
                     .updating($resizeTranslation) { value, state, _ in
@@ -99,7 +109,7 @@ struct FloatingToolPanel<Content: View>: View {
                         )
                     }
             )
-            .help("Resize")
+            .help("Drag to resize")
     }
 
     private var header: some View {
@@ -149,6 +159,9 @@ struct FloatingToolPanel<Content: View>: View {
                 .updating($dragTranslation) { value, state, _ in
                     state = value.translation
                 }
+                .updating($isDragging) { _, state, _ in
+                    state = true
+                }
                 .onEnded { value in
                     var next = CGSize(
                         width: offset.width + value.translation.width,
@@ -163,6 +176,28 @@ struct FloatingToolPanel<Content: View>: View {
                     offset = next
                 }
         )
+    }
+}
+
+/// A short arc that hugs a panel's bottom-right rounded corner — a subtle resize
+/// affordance that grows more visible on hover.
+struct ResizeCornerArc: Shape {
+    /// The panel's own corner radius; the arc is drawn concentric with it, inset.
+    var cornerRadius: CGFloat = 28
+
+    func path(in rect: CGRect) -> Path {
+        // Centre of curvature sits `cornerRadius` in from the panel's corner,
+        // which is this view's bottom-right (its frame aligns to the corner).
+        let center = CGPoint(x: rect.maxX - cornerRadius, y: rect.maxY - cornerRadius)
+        var path = Path()
+        path.addArc(
+            center: center,
+            radius: cornerRadius - 10,
+            startAngle: .degrees(16),
+            endAngle: .degrees(74),
+            clockwise: false
+        )
+        return path
     }
 }
 
