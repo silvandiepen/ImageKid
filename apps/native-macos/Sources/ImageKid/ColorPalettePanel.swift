@@ -9,28 +9,40 @@ struct ColorPalettePanel: View {
     let onClose: () -> Void
 
     @State private var expandedColorIDs: Set<UUID> = []
+    @State private var panelSize = CGSize(width: 320, height: 460)
+    @State private var extractCount = 6
+    @State private var swipeOffsets: [UUID: CGFloat] = [:]
 
     var body: some View {
         FloatingToolPanel(
             title: "Picked Colours",
             systemImage: "paintpalette",
-            width: 320,
             offset: $offset,
-            onClose: onClose
+            onClose: onClose,
+            resizable: true,
+            size: $panelSize
         ) {
             VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Text("\(session.sampledColors.count) saved")
+                HStack(spacing: 8) {
+                    Text("\(session.sampledColors.count)")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.white.opacity(0.58))
                     Spacer()
-                    Button {
-                        session.extractPalette()
+                    Menu {
+                        ForEach([4, 6, 8, 12, 16], id: \.self) { count in
+                            Button("Extract \(count) colours") {
+                                extractCount = count
+                                session.extractPalette(count: count)
+                            }
+                        }
                     } label: {
                         Label("Extract", systemImage: "wand.and.stars")
+                    } primaryAction: {
+                        session.extractPalette(count: extractCount)
                     }
-                    .buttonStyle(.borderless)
-                    .help("Extract dominant colours from the image")
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .help("Extract up to \(extractCount) dominant colours from the image")
                     if !session.sampledColors.isEmpty {
                         Button(session.selectedColorIDs.count == session.sampledColors.count ? "None" : "All") {
                             toggleAll()
@@ -54,11 +66,11 @@ struct ColorPalettePanel: View {
                     ScrollView {
                         LazyVStack(spacing: 8) {
                             ForEach(session.sampledColors) { sample in
-                                colorRow(sample)
+                                swipeableRow(sample)
                             }
                         }
                     }
-                    .frame(maxHeight: 390)
+                    .frame(maxHeight: .infinity)
                 }
 
                 Rectangle()
@@ -100,6 +112,44 @@ struct ColorPalettePanel: View {
                 }
             }
             .darkPanelControl()
+        }
+    }
+
+    /// A colour row that can be swiped left to delete.
+    private func swipeableRow(_ sample: SampledColor) -> some View {
+        let dx = swipeOffsets[sample.id] ?? 0
+        return ZStack {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.red.opacity(0.85))
+                .overlay(alignment: .trailing) {
+                    Image(systemName: "trash")
+                        .foregroundStyle(.white)
+                        .padding(.trailing, 20)
+                }
+            colorRow(sample)
+                .background(
+                    Color(red: 0.10, green: 0.10, blue: 0.11),
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                )
+                .offset(x: dx)
+                .highPriorityGesture(
+                    DragGesture(minimumDistance: 14)
+                        .onChanged { value in
+                            if value.translation.width < 0 {
+                                swipeOffsets[sample.id] = max(value.translation.width, -130)
+                            }
+                        }
+                        .onEnded { value in
+                            if value.translation.width < -70 {
+                                withAnimation(.easeOut(duration: 0.16)) { swipeOffsets[sample.id] = -420 }
+                                session.removeSamples([sample.id])
+                            } else {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                                    swipeOffsets[sample.id] = 0
+                                }
+                            }
+                        }
+                )
         }
     }
 
