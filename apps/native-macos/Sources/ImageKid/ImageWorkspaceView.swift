@@ -275,6 +275,7 @@ struct ImageWorkspaceView: View {
                     session: session,
                     appModel: appModel,
                     offset: panelBinding(.layers),
+                    size: panelSizeBinding(.layers),
                     onMinimize: { appModel.minimizePanel(.layers) }
                 )
             }
@@ -282,6 +283,7 @@ struct ImageWorkspaceView: View {
                 HistoryPanel(
                     session: session,
                     offset: panelBinding(.history),
+                    size: panelSizeBinding(.history),
                     onMinimize: { appModel.minimizePanel(.history) }
                 )
             }
@@ -294,6 +296,13 @@ struct ImageWorkspaceView: View {
         Binding(
             get: { appModel.panelPosition(panel) },
             set: { appModel.setPanelPosition(panel, to: $0) }
+        )
+    }
+
+    private func panelSizeBinding(_ panel: DockablePanel) -> Binding<CGSize> {
+        Binding(
+            get: { appModel.panelSize(panel) },
+            set: { appModel.setPanelSize(panel, to: $0) }
         )
     }
 

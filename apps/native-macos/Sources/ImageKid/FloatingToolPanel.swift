@@ -8,9 +8,12 @@ struct FloatingToolPanel<Content: View>: View {
     let onClose: (() -> Void)?
     let onMinimize: (() -> Void)?
     let snapStep: CGFloat?
+    let resizable: Bool
+    @Binding var size: CGSize
     let content: Content
 
     @GestureState private var dragTranslation: CGSize = .zero
+    @GestureState private var resizeTranslation: CGSize = .zero
 
     init(
         title: String,
@@ -20,6 +23,8 @@ struct FloatingToolPanel<Content: View>: View {
         onClose: (() -> Void)? = nil,
         onMinimize: (() -> Void)? = nil,
         snapStep: CGFloat? = nil,
+        resizable: Bool = false,
+        size: Binding<CGSize> = .constant(.zero),
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
@@ -29,7 +34,19 @@ struct FloatingToolPanel<Content: View>: View {
         self.onClose = onClose
         self.onMinimize = onMinimize
         self.snapStep = snapStep
+        self.resizable = resizable
+        self._size = size
         self.content = content()
+    }
+
+    private var resolvedWidth: CGFloat {
+        guard resizable else { return width }
+        return max(DockablePanel.minSize.width, size.width + resizeTranslation.width)
+    }
+
+    private var resolvedHeight: CGFloat? {
+        guard resizable else { return nil }
+        return max(DockablePanel.minSize.height, size.height + resizeTranslation.height)
     }
 
     var body: some View {
@@ -42,8 +59,9 @@ struct FloatingToolPanel<Content: View>: View {
 
             content
                 .padding(16)
+                .frame(maxHeight: resizable ? .infinity : nil, alignment: .top)
         }
-        .frame(width: width)
+        .frame(width: resolvedWidth, height: resolvedHeight, alignment: .top)
         .foregroundStyle(.white)
         .background(
             Color.black.opacity(0.80),
@@ -53,11 +71,35 @@ struct FloatingToolPanel<Content: View>: View {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .strokeBorder(.white.opacity(0.12))
         )
+        .overlay(alignment: .bottomTrailing) {
+            if resizable { resizeHandle }
+        }
         .shadow(color: .black.opacity(0.36), radius: 28, y: 12)
         .offset(
             x: offset.width + dragTranslation.width,
             y: offset.height + dragTranslation.height
         )
+    }
+
+    private var resizeHandle: some View {
+        Image(systemName: "arrow.down.right")
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(.white.opacity(0.4))
+            .frame(width: 26, height: 26)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture()
+                    .updating($resizeTranslation) { value, state, _ in
+                        state = value.translation
+                    }
+                    .onEnded { value in
+                        size = CGSize(
+                            width: min(max(size.width + value.translation.width, DockablePanel.minSize.width), DockablePanel.maxSize.width),
+                            height: min(max(size.height + value.translation.height, DockablePanel.minSize.height), DockablePanel.maxSize.height)
+                        )
+                    }
+            )
+            .help("Resize")
     }
 
     private var header: some View {

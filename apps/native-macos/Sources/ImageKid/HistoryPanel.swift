@@ -5,16 +5,18 @@ import SwiftUI
 struct HistoryPanel: View {
     @ObservedObject var session: ImageSession
     @Binding var offset: CGSize
+    @Binding var size: CGSize
     let onMinimize: () -> Void
 
     var body: some View {
         FloatingToolPanel(
             title: "History",
             systemImage: "clock.arrow.circlepath",
-            width: 280,
             offset: $offset,
             onMinimize: onMinimize,
-            snapStep: AppModel.panelGridStep
+            snapStep: AppModel.panelGridStep,
+            resizable: true,
+            size: $size
         ) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
@@ -22,12 +24,18 @@ struct HistoryPanel: View {
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.white.opacity(0.58))
                     Spacer()
-                    Button("Undo") { session.undo() }
-                        .buttonStyle(.borderless)
-                        .disabled(!session.canUndo)
-                    Button("Redo") { session.redo() }
-                        .buttonStyle(.borderless)
-                        .disabled(!session.canRedo)
+                    Button { session.undo() } label: {
+                        Image(systemName: "arrow.uturn.backward")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(!session.canUndo)
+                    .help("Undo")
+                    Button { session.redo() } label: {
+                        Image(systemName: "arrow.uturn.forward")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(!session.canRedo)
+                    .help("Redo")
                 }
 
                 ScrollViewReader { proxy in
@@ -39,7 +47,7 @@ struct HistoryPanel: View {
                             }
                         }
                     }
-                    .frame(maxHeight: 360)
+                    .frame(maxHeight: .infinity)
                     .onChange(of: session.historyIndex) { _, newValue in
                         withAnimation { proxy.scrollTo(newValue, anchor: .center) }
                     }

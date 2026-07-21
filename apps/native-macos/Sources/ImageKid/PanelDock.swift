@@ -33,6 +33,17 @@ enum DockablePanel: String, CaseIterable, Identifiable {
         case .history: CGSize(width: 0, height: 300)
         }
     }
+
+    var defaultSize: CGSize {
+        switch self {
+        case .files: CGSize(width: 260, height: 360)
+        case .layers: CGSize(width: 280, height: 360)
+        case .history: CGSize(width: 280, height: 420)
+        }
+    }
+
+    static let minSize = CGSize(width: 220, height: 200)
+    static let maxSize = CGSize(width: 520, height: 900)
 }
 
 extension AppModel {
@@ -63,6 +74,17 @@ extension AppModel {
 
     func panelPosition(_ panel: DockablePanel) -> CGSize {
         panelPositions[panel] ?? panel.defaultPosition
+    }
+
+    func panelSize(_ panel: DockablePanel) -> CGSize {
+        panelSizes[panel] ?? panel.defaultSize
+    }
+
+    func setPanelSize(_ panel: DockablePanel, to size: CGSize) {
+        panelSizes[panel] = CGSize(
+            width: min(max(size.width, DockablePanel.minSize.width), DockablePanel.maxSize.width),
+            height: min(max(size.height, DockablePanel.minSize.height), DockablePanel.maxSize.height)
+        )
     }
 
     /// Store a dropped position snapped to the nearest grid intersection.

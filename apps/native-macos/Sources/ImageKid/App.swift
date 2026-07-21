@@ -56,6 +56,7 @@ final class AppModel: ObservableObject {
     @Published var presentedPanels: Set<DockablePanel> = []
     @Published var minimizedPanels: Set<DockablePanel> = []
     @Published var panelPositions: [DockablePanel: CGSize] = [:]
+    @Published var panelSizes: [DockablePanel: CGSize] = [:]
     @Published var errorMessage: String?
     @Published var isShowingResize = false
     @Published var isShowingExport = false

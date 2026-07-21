@@ -6,6 +6,7 @@ struct LayersPanel: View {
     @ObservedObject var session: ImageSession
     @ObservedObject var appModel: AppModel
     @Binding var offset: CGSize
+    @Binding var size: CGSize
     let onMinimize: () -> Void
 
     /// Front-most first (last in the draw array renders on top).
@@ -15,10 +16,11 @@ struct LayersPanel: View {
         FloatingToolPanel(
             title: "Layers",
             systemImage: "square.3.layers.3d",
-            width: 280,
             offset: $offset,
             onMinimize: onMinimize,
-            snapStep: AppModel.panelGridStep
+            snapStep: AppModel.panelGridStep,
+            resizable: true,
+            size: $size
         ) {
             VStack(alignment: .leading, spacing: 10) {
                 if session.annotations.isEmpty {
@@ -40,7 +42,7 @@ struct LayersPanel: View {
                             }
                         }
                     }
-                    .frame(maxHeight: 340)
+                    .frame(maxHeight: .infinity)
 
                     controlBar
                 }
