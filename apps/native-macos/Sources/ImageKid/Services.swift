@@ -513,7 +513,7 @@ enum ImageRenderer {
                 width: relativeFrame.width * targetSize.width,
                 height: relativeFrame.height * targetSize.height
             )
-            layer.image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: layer.opacity)
+            layer.renderedImage.draw(in: rect, from: .zero, operation: .sourceOver, fraction: layer.opacity)
         }
     }
 

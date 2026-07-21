@@ -1147,6 +1147,53 @@ final class AppModel: ObservableObject {
         }
     }
 
+    var canRemoveBackgroundFromLayer: Bool {
+        guard case .image(let session) = media else { return false }
+        return session.selectedLayerID != nil && !isRemovingBackground
+    }
+
+    /// Remove the background of the selected image layer non-destructively,
+    /// storing the result as an editable, toggleable mask on that layer.
+    func removeBackgroundFromSelectedLayer() {
+        guard case .image(let session) = media,
+              let layerID = session.selectedLayerID,
+              let layer = session.imageLayers.first(where: { $0.id == layerID }),
+              let source = layer.image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return
+        }
+
+        isRemovingBackground = true
+        operationProgress = OperationProgress(
+            title: "Masking the layer",
+            detail: "Finding the edges",
+            startedAt: Date(),
+            fraction: nil
+        )
+
+        Task {
+            do {
+                let output = try await Task.detached(priority: .userInitiated) {
+                    let engine = BackgroundRemovalEngine(
+                        rawValue: UserDefaults.standard.string(forKey: "backgroundRemovalEngine")
+                            ?? BackgroundRemovalEngine.builtIn.rawValue
+                    ) ?? .builtIn
+                    return try await BackgroundRemovalService.removeBackground(from: source, engine: engine)
+                }.value
+
+                if let mask = MaskCompositor.alphaMask(from: output) {
+                    session.setLayerMask(id: layerID, mask: mask)
+                } else {
+                    errorMessage = "ImageKid could not build a mask for this layer."
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+
+            isRemovingBackground = false
+            operationProgress = nil
+        }
+    }
+
     private func suggestedExportName(for session: ImageSession, format: ImageExportFormat) -> String {
         let sourceName = session.sourceURL?.deletingPathExtension().lastPathComponent ?? "ImageKid Export"
         return sourceName + "-edited." + format.fileExtension

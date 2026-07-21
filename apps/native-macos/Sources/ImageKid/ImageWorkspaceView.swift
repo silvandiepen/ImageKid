@@ -445,7 +445,7 @@ struct ImageWorkspaceView: View {
         ForEach(session.imageLayers) { layer in
             if session.isLayerEffectivelyVisible(layer), let displayedFrame = displayedAnnotationFrame(layer.frame) {
                 let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
-                Image(nsImage: layer.image)
+                Image(nsImage: layer.renderedImage)
                     .resizable()
                     .interpolation(.high)
                     .frame(width: rect.width, height: rect.height)
