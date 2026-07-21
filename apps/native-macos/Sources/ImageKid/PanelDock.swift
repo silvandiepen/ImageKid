@@ -29,8 +29,8 @@ enum DockablePanel: String, CaseIterable, Identifiable {
     var defaultPosition: CGSize {
         switch self {
         case .files: CGSize(width: 0, height: 0)
-        case .layers: CGSize(width: 0, height: 0)
-        case .history: CGSize(width: 0, height: 300)
+        case .layers: CGSize(width: 300, height: 0)
+        case .history: CGSize(width: 300, height: 400)
         }
     }
 
