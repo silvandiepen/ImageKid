@@ -86,6 +86,11 @@ final class AppModel: ObservableObject {
         selectedItem?.media
     }
 
+    var imageSession: ImageSession? {
+        if case .image(let session) = media { return session }
+        return nil
+    }
+
     var selectedItem: WorkspaceItem? {
         guard let selectedItemID else { return nil }
         return items.first(where: { $0.id == selectedItemID })
@@ -1152,6 +1157,16 @@ struct AppCommands: Commands {
             Button("Close Image") { currentAppModel?.closeSelectedItem() }
                 .keyboardShortcut("w")
                 .disabled(currentAppModel?.canCloseSelectedItem != true)
+        }
+
+        CommandGroup(replacing: .undoRedo) {
+            Button("Undo") { currentAppModel?.imageSession?.undo() }
+                .keyboardShortcut("z", modifiers: .command)
+                .disabled(currentAppModel?.imageSession?.canUndo != true)
+
+            Button("Redo") { currentAppModel?.imageSession?.redo() }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+                .disabled(currentAppModel?.imageSession?.canRedo != true)
         }
 
         CommandGroup(replacing: .pasteboard) {

@@ -543,6 +543,13 @@ struct ImageWorkspaceView: View {
             .onChanged { value in
                 if dragMode == nil {
                     dragMode = resolveDragMode(at: value.startLocation, imageRect: imageRect)
+                    // Record one undo step for a whole move/resize gesture.
+                    switch dragMode {
+                    case .moveAnnotation, .resizeAnnotation:
+                        session.checkpoint()
+                    default:
+                        break
+                    }
                 }
                 updateDrag(value, imageRect: imageRect)
             }
@@ -803,6 +810,7 @@ struct ImageWorkspaceView: View {
         }
 
         guard let annotation else { return }
+        session.checkpoint()
         session.annotations.append(annotation)
         session.selectedAnnotationID = nil
         session.isDirty = true
@@ -911,6 +919,7 @@ struct ImageWorkspaceView: View {
                 cropRect: session.cropRect
             )
         )
+        session.checkpoint()
         session.annotations.append(annotation)
         session.selectedAnnotationID = annotation.id
         session.isDirty = true
