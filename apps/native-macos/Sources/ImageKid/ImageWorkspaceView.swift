@@ -17,6 +17,8 @@ struct ImageWorkspaceView: View {
     @State private var isViewportToolbarCollapsed = false
     @State private var panelOffset: CGSize = .zero
     @State private var progressBarOffset: CGSize = .zero
+    @State private var historyPanelOffset: CGSize = .zero
+    @State private var layersPanelOffset: CGSize = .zero
 
     var body: some View {
         GeometryReader { proxy in
@@ -184,6 +186,26 @@ struct ImageWorkspaceView: View {
     private var toolPanels: some View {
         VStack {
             HStack(alignment: .top) {
+                VStack(spacing: 12) {
+                    if appModel.showLayersPanel {
+                        LayersPanel(
+                            session: session,
+                            appModel: appModel,
+                            offset: $layersPanelOffset,
+                            onClose: { appModel.showLayersPanel = false }
+                        )
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                    }
+                    if appModel.showHistoryPanel {
+                        HistoryPanel(
+                            session: session,
+                            offset: $historyPanelOffset,
+                            onClose: { appModel.showHistoryPanel = false }
+                        )
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                    }
+                }
+
                 Spacer()
 
                 if appModel.activeTool == .pickColor {
@@ -250,9 +272,11 @@ struct ImageWorkspaceView: View {
             Spacer()
         }
         .padding(.top, 54)
-        .padding(.trailing, 18)
+        .padding(.horizontal, 18)
         .animation(.easeOut(duration: 0.18), value: appModel.activeTool)
         .animation(.easeOut(duration: 0.18), value: session.selectedAnnotationID)
+        .animation(.easeOut(duration: 0.18), value: appModel.showHistoryPanel)
+        .animation(.easeOut(duration: 0.18), value: appModel.showLayersPanel)
     }
 
     private var controls: some View {
@@ -543,18 +567,20 @@ struct ImageWorkspaceView: View {
             .onChanged { value in
                 if dragMode == nil {
                     dragMode = resolveDragMode(at: value.startLocation, imageRect: imageRect)
-                    // Record one undo step for a whole move/resize gesture.
-                    switch dragMode {
-                    case .moveAnnotation, .resizeAnnotation:
-                        session.checkpoint()
-                    default:
-                        break
-                    }
                 }
                 updateDrag(value, imageRect: imageRect)
             }
             .onEnded { value in
                 finishDrag(value, imageRect: imageRect)
+                // Record the completed gesture as a single named history step.
+                switch dragMode {
+                case .moveAnnotation:
+                    session.record("Move", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
+                case .resizeAnnotation:
+                    session.record("Resize annotation", systemImage: "arrow.up.left.and.arrow.down.right")
+                default:
+                    break
+                }
                 dragMode = nil
                 draftAnnotation = nil
                 draftFreehandPoints = []
@@ -810,10 +836,9 @@ struct ImageWorkspaceView: View {
         }
 
         guard let annotation else { return }
-        session.checkpoint()
         session.annotations.append(annotation)
         session.selectedAnnotationID = nil
-        session.isDirty = true
+        session.record("Add \(session.drawingMode.label.lowercased())", systemImage: session.drawingMode.symbolName)
     }
 
     private func makeShapeAnnotation(
@@ -919,10 +944,9 @@ struct ImageWorkspaceView: View {
                 cropRect: session.cropRect
             )
         )
-        session.checkpoint()
         session.annotations.append(annotation)
         session.selectedAnnotationID = annotation.id
-        session.isDirty = true
+        session.record("Add text", systemImage: "textformat")
         appModel.activeTool = .view
     }
 

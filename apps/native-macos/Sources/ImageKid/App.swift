@@ -53,6 +53,8 @@ final class AppModel: ObservableObject {
     @Published var selectedItemID: UUID?
     @Published var selectedItemIDs: Set<UUID> = []
     @Published var activeTool: Tool = .view
+    @Published var showHistoryPanel = false
+    @Published var showLayersPanel = false
     @Published var errorMessage: String?
     @Published var isShowingResize = false
     @Published var isShowingExport = false
@@ -459,6 +461,25 @@ final class AppModel: ObservableObject {
         }
 
         session.selectionRect = nil
+    }
+
+    var hasSelectedAnnotation: Bool {
+        imageSession?.selectedAnnotationID != nil
+    }
+
+    func duplicateSelectedAnnotation() {
+        guard let session = imageSession, let id = session.selectedAnnotationID else { return }
+        session.duplicateAnnotation(id: id)
+    }
+
+    func moveSelectedAnnotation(toFront: Bool) {
+        guard let session = imageSession, let id = session.selectedAnnotationID else { return }
+        session.moveAnnotation(id: id, toFront: toFront)
+    }
+
+    func moveSelectedAnnotation(forward: Bool) {
+        guard let session = imageSession, let id = session.selectedAnnotationID else { return }
+        session.moveAnnotation(id: id, forward: forward)
     }
 
     func selectAllImage() {
@@ -1104,7 +1125,7 @@ final class AppModel: ObservableObject {
                     cgImage: output,
                     size: CGSize(width: output.width, height: output.height)
                 )
-                session.isDirty = true
+                session.recordBackgroundRemoval()
                 if selectedItemID == itemID {
                     activeTool = .view
                 }
@@ -1208,6 +1229,25 @@ struct AppCommands: Commands {
             }
             .keyboardShortcut(.delete, modifiers: [])
             .disabled(currentAppModel?.canDeleteSelection != true)
+
+            Divider()
+
+            Button("Duplicate") { currentAppModel?.duplicateSelectedAnnotation() }
+                .keyboardShortcut("d", modifiers: .command)
+                .disabled(currentAppModel?.hasSelectedAnnotation != true)
+
+            Button("Bring to Front") { currentAppModel?.moveSelectedAnnotation(toFront: true) }
+                .keyboardShortcut("]", modifiers: [.command, .shift])
+                .disabled(currentAppModel?.hasSelectedAnnotation != true)
+            Button("Bring Forward") { currentAppModel?.moveSelectedAnnotation(forward: true) }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(currentAppModel?.hasSelectedAnnotation != true)
+            Button("Send Backward") { currentAppModel?.moveSelectedAnnotation(forward: false) }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(currentAppModel?.hasSelectedAnnotation != true)
+            Button("Send to Back") { currentAppModel?.moveSelectedAnnotation(toFront: false) }
+                .keyboardShortcut("[", modifiers: [.command, .shift])
+                .disabled(currentAppModel?.hasSelectedAnnotation != true)
         }
 
         // Whole-image operations live under a dedicated "Image" menu.
@@ -1247,6 +1287,22 @@ struct AppCommands: Commands {
                     .disabled(currentAppModel == nil)
             }
             .disabled(currentAppModel == nil)
+        }
+
+        CommandGroup(after: .sidebar) {
+            Button((currentAppModel?.showLayersPanel == true ? "Hide" : "Show") + " Layers") {
+                currentAppModel?.showLayersPanel.toggle()
+            }
+            .keyboardShortcut("l", modifiers: [.command, .shift])
+            .disabled(currentAppModel?.imageSession == nil)
+
+            Button((currentAppModel?.showHistoryPanel == true ? "Hide" : "Show") + " History") {
+                currentAppModel?.showHistoryPanel.toggle()
+            }
+            .keyboardShortcut("y", modifiers: [.command, .shift])
+            .disabled(currentAppModel?.imageSession == nil)
+
+            Divider()
         }
 
         // Interactive tools only.

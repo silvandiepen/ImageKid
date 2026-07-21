@@ -23,10 +23,19 @@ struct ColorPalettePanel: View {
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.white.opacity(0.58))
                     Spacer()
-                    Button(session.selectedColorIDs.count == session.sampledColors.count ? "None" : "All") {
-                        toggleAll()
+                    Button {
+                        session.extractPalette()
+                    } label: {
+                        Label("Extract", systemImage: "wand.and.stars")
                     }
                     .buttonStyle(.borderless)
+                    .help("Extract dominant colours from the image")
+                    if !session.sampledColors.isEmpty {
+                        Button(session.selectedColorIDs.count == session.sampledColors.count ? "None" : "All") {
+                            toggleAll()
+                        }
+                        .buttonStyle(.borderless)
+                    }
                 }
 
                 if session.sampledColors.isEmpty {
