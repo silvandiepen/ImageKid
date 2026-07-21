@@ -476,7 +476,7 @@ struct ImageWorkspaceView: View {
     @ViewBuilder
     private func annotations(in imageRect: CGRect) -> some View {
         ForEach(session.annotations) { annotation in
-            if let displayedFrame = displayedAnnotationFrame(annotation.frame) {
+            if annotation.isVisible, let displayedFrame = displayedAnnotationFrame(annotation.frame) {
                 let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
 
                 annotationContent(annotation)

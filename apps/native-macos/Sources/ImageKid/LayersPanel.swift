@@ -9,6 +9,10 @@ struct LayersPanel: View {
     @Binding var size: CGSize
     let onMinimize: () -> Void
 
+    @State private var editingID: UUID?
+    @State private var editingText: String = ""
+    @FocusState private var nameFieldFocused: Bool
+
     /// Front-most first (last in the draw array renders on top).
     private var orderedLayers: [Annotation] { session.annotations.reversed() }
 
@@ -55,31 +59,33 @@ struct LayersPanel: View {
 
     private func row(_ layer: Annotation) -> some View {
         let isSelected = session.selectedAnnotationID == layer.id
-        return Button {
+        return HStack(spacing: 10) {
+            Image(systemName: icon(for: layer))
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 22)
+                .opacity(layer.isVisible ? 1 : 0.4)
+            nameLabel(id: layer.id, text: label(for: layer), isSelected: isSelected) {
+                session.renameAnnotation(id: layer.id, to: $0)
+            }
+            Spacer()
+            visibilityButton(isOn: layer.isVisible) {
+                session.toggleAnnotationVisibility(id: layer.id)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            isSelected ? Color.accentColor.opacity(0.30) : Color.white.opacity(0.05),
+            in: RoundedRectangle(cornerRadius: 8)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
             session.selectedAnnotationID = layer.id
             session.selectedLayerID = nil
             session.selectionRect = nil
             if appModel.activeTool == .view { appModel.activeTool = .select }
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: icon(for: layer))
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(width: 22)
-                Text(label(for: layer))
-                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
-                    .lineLimit(1)
-                Spacer()
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                isSelected ? Color.accentColor.opacity(0.30) : Color.white.opacity(0.05),
-                in: RoundedRectangle(cornerRadius: 8)
-            )
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
     }
 
     private func imageLayerRow(_ layer: ImageLayer) -> some View {
@@ -91,18 +97,13 @@ struct LayersPanel: View {
                 .frame(width: 24, height: 24)
                 .clipShape(RoundedRectangle(cornerRadius: 5))
                 .opacity(layer.isVisible ? 1 : 0.35)
-            Text(layer.name)
-                .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
-                .lineLimit(1)
-            Spacer()
-            Button {
-                session.toggleImageLayerVisibility(id: layer.id)
-            } label: {
-                Image(systemName: layer.isVisible ? "eye" : "eye.slash")
-                    .font(.system(size: 12))
+            nameLabel(id: layer.id, text: layer.name, isSelected: isSelected) {
+                session.renameImageLayer(id: layer.id, to: $0)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white.opacity(0.7))
+            Spacer()
+            visibilityButton(isOn: layer.isVisible) {
+                session.toggleImageLayerVisibility(id: layer.id)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
@@ -116,6 +117,37 @@ struct LayersPanel: View {
             session.selectedLayerID = layer.id
             session.selectedAnnotationID = nil
         }
+    }
+
+    @ViewBuilder
+    private func nameLabel(id: UUID, text: String, isSelected: Bool, commit: @escaping (String) -> Void) -> some View {
+        if editingID == id {
+            TextField("", text: $editingText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .focused($nameFieldFocused)
+                .onSubmit { commit(editingText); editingID = nil }
+                .onExitCommand { editingID = nil }
+        } else {
+            Text(text)
+                .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                .lineLimit(1)
+                .onTapGesture(count: 2) {
+                    editingText = text
+                    editingID = id
+                    nameFieldFocused = true
+                }
+        }
+    }
+
+    private func visibilityButton(isOn: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: isOn ? "eye" : "eye.slash")
+                .font(.system(size: 12))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white.opacity(0.7))
+        .help(isOn ? "Hide" : "Show")
     }
 
     private var controlBar: some View {
@@ -159,6 +191,7 @@ struct LayersPanel: View {
     }
 
     private func label(for layer: Annotation) -> String {
+        if let custom = layer.customName, !custom.isEmpty { return custom }
         if layer.isText {
             let text = layer.textValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return text.isEmpty ? "Text" : text

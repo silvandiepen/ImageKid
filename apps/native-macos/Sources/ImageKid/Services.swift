@@ -550,7 +550,7 @@ enum ImageRenderer {
     }
 
     private static func drawAnnotations(session: ImageSession, targetSize: CGSize) {
-        for annotation in session.annotations {
+        for annotation in session.annotations where annotation.isVisible {
             draw(annotation, cropRect: session.cropRect, sourceSize: session.pixelSize, targetSize: targetSize)
         }
     }

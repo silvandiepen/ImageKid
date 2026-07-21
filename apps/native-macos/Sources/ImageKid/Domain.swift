@@ -330,6 +330,8 @@ struct Annotation: Identifiable {
     var fontWeight: AnnotationFontWeight
     var lineHeight: CGFloat
     var textAlignment: AnnotationTextAlignment
+    var customName: String?
+    var isVisible: Bool
 
     init(
         id: UUID = UUID(),
@@ -343,7 +345,9 @@ struct Annotation: Identifiable {
         fontSize: CGFloat = 48,
         fontWeight: AnnotationFontWeight = .semibold,
         lineHeight: CGFloat = 1.1,
-        textAlignment: AnnotationTextAlignment = .leading
+        textAlignment: AnnotationTextAlignment = .leading,
+        customName: String? = nil,
+        isVisible: Bool = true
     ) {
         self.id = id
         self.kind = kind
@@ -357,6 +361,8 @@ struct Annotation: Identifiable {
         self.fontWeight = fontWeight
         self.lineHeight = lineHeight
         self.textAlignment = textAlignment
+        self.customName = customName
+        self.isVisible = isVisible
     }
 
     var textValue: String? {
@@ -693,6 +699,26 @@ final class ImageSession: ObservableObject {
         record("Delete", systemImage: "trash")
     }
 
+    func toggleAnnotationVisibility(id: UUID) {
+        guard let index = annotations.firstIndex(where: { $0.id == id }) else { return }
+        annotations[index].isVisible.toggle()
+        record(annotations[index].isVisible ? "Show layer" : "Hide layer", systemImage: "eye")
+    }
+
+    func renameAnnotation(id: UUID, to name: String) {
+        guard let index = annotations.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        annotations[index].customName = trimmed.isEmpty ? nil : trimmed
+        record("Rename layer", systemImage: "pencil")
+    }
+
+    func renameImageLayer(id: UUID, to name: String) {
+        guard let index = imageLayers.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        imageLayers[index].name = trimmed.isEmpty ? imageLayers[index].name : trimmed
+        record("Rename layer", systemImage: "pencil")
+    }
+
     /// Duplicate an annotation, offset slightly so it is visible, and select the copy.
     @discardableResult
     func duplicateAnnotation(id: UUID) -> UUID? {
@@ -716,7 +742,9 @@ final class ImageSession: ObservableObject {
             fontSize: copy.fontSize,
             fontWeight: copy.fontWeight,
             lineHeight: copy.lineHeight,
-            textAlignment: copy.textAlignment
+            textAlignment: copy.textAlignment,
+            customName: copy.customName,
+            isVisible: copy.isVisible
         )
         annotations.insert(copy, at: index + 1)
         selectedAnnotationID = copy.id
