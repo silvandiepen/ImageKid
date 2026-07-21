@@ -104,6 +104,19 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
         order.filter { presented.contains($0) && minimized.contains($0) }
     }
 
+    /// Rail button behaviour: show if hidden, restore if minimized, hide if open.
+    public func railToggle(_ id: ID) {
+        if !presented.contains(id) {
+            presented.insert(id)
+            minimized.remove(id)
+        } else if minimized.contains(id) {
+            minimized.remove(id)
+        } else {
+            presented.remove(id)
+            minimized.remove(id)
+        }
+    }
+
     public func positionBinding(_ id: ID) -> Binding<CGSize> {
         Binding(get: { self.position(id) }, set: { self.setPosition(id, to: $0) })
     }
@@ -113,7 +126,8 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
     }
 }
 
-/// Vertical rail of icons for minimized panels, shown top-left. Click to restore.
+/// Always-visible vertical rail of toggle buttons — one per panel. Each button
+/// shows/hides its panel and is highlighted while the panel is open.
 public struct PanelDockRail<ID: Hashable>: View {
     @ObservedObject var model: PanelDockModel<ID>
 
@@ -123,24 +137,27 @@ public struct PanelDockRail<ID: Hashable>: View {
 
     public var body: some View {
         VStack(spacing: 8) {
-            ForEach(model.minimizedList, id: \.self) { id in
+            ForEach(model.order, id: \.self) { id in
                 if let spec = model.spec(id) {
+                    let isActive = model.presented.contains(id)
                     Button {
-                        model.restore(id)
+                        model.railToggle(id)
                     } label: {
                         Image(systemName: spec.systemImage)
-                            .font(.system(size: 16, weight: .semibold))
-                            .frame(width: 40, height: 40)
-                            .background(Color.black.opacity(0.80), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(width: 38, height: 38)
+                            .background(
+                                isActive ? Color.accentColor.opacity(0.9) : Color.black.opacity(0.80),
+                                in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            )
                             .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .strokeBorder(.white.opacity(0.12))
+                                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                    .strokeBorder(.white.opacity(isActive ? 0.0 : 0.12))
                             )
                             .foregroundStyle(.white)
                     }
                     .buttonStyle(.plain)
-                    .help("Show \(spec.title)")
-                    .transition(.scale.combined(with: .opacity))
+                    .help((isActive ? "Hide " : "Show ") + spec.title)
                 }
             }
         }

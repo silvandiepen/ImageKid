@@ -233,7 +233,8 @@ struct ImageWorkspaceView: View {
                 offset: $panelOffset,
                 isApplying: appModel.isApplyingResize,
                 onCancel: cancelResize,
-                onApply: applyResize
+                onApply: applyResize,
+                onEnhance: { appModel.requestEnhance() }
             )
             .transition(.move(edge: .trailing).combined(with: .opacity))
         } else if appModel.activeTool == .rotate {
@@ -276,34 +277,36 @@ struct ImageWorkspaceView: View {
 
     @ViewBuilder
     private var dockablePanelsLayer: some View {
-        ZStack(alignment: .topLeading) {
-            if panelDock.isExpanded(.files) {
-                FilesPanel(
-                    appModel: appModel,
-                    offset: panelDock.positionBinding(.files),
-                    size: panelDock.sizeBinding(.files),
-                    onMinimize: { panelDock.minimize(.files) }
-                )
-            }
-            if panelDock.isExpanded(.layers) {
-                LayersPanel(
-                    session: session,
-                    appModel: appModel,
-                    offset: panelDock.positionBinding(.layers),
-                    size: panelDock.sizeBinding(.layers),
-                    onMinimize: { panelDock.minimize(.layers) }
-                )
-            }
-            if panelDock.isExpanded(.history) {
-                HistoryPanel(
-                    session: session,
-                    offset: panelDock.positionBinding(.history),
-                    size: panelDock.sizeBinding(.history),
-                    onMinimize: { panelDock.minimize(.history) }
-                )
-            }
+        HStack(alignment: .top, spacing: 12) {
             PanelDockRail(model: panelDock)
-                .animation(.easeOut(duration: 0.18), value: panelDock.minimizedList)
+
+            ZStack(alignment: .topLeading) {
+                if panelDock.isExpanded(.files) {
+                    FilesPanel(
+                        appModel: appModel,
+                        offset: panelDock.positionBinding(.files),
+                        size: panelDock.sizeBinding(.files),
+                        onMinimize: { panelDock.minimize(.files) }
+                    )
+                }
+                if panelDock.isExpanded(.layers) {
+                    LayersPanel(
+                        session: session,
+                        appModel: appModel,
+                        offset: panelDock.positionBinding(.layers),
+                        size: panelDock.sizeBinding(.layers),
+                        onMinimize: { panelDock.minimize(.layers) }
+                    )
+                }
+                if panelDock.isExpanded(.history) {
+                    HistoryPanel(
+                        session: session,
+                        offset: panelDock.positionBinding(.history),
+                        size: panelDock.sizeBinding(.history),
+                        onMinimize: { panelDock.minimize(.history) }
+                    )
+                }
+            }
         }
     }
 

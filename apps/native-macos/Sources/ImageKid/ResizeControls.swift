@@ -7,6 +7,7 @@ struct ResizeControls: View {
     let isApplying: Bool
     let onCancel: () -> Void
     let onApply: () -> Void
+    let onEnhance: () -> Void
 
     @State private var customPercent = 100
 
@@ -73,10 +74,23 @@ struct ResizeControls: View {
                         .frame(maxWidth: .infinity)
                         .disabled(isApplying)
 
-                    Text("Want to enlarge with more detail? Use Magic ▸ Enhance Image.")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.55))
-                        .fixedSize(horizontal: false, vertical: true)
+                    Divider().overlay(.white.opacity(0.12))
+
+                    field("Upscale") {
+                        Button {
+                            onEnhance()
+                        } label: {
+                            Label("Upscale with AI…", systemImage: "wand.and.stars")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isApplying)
+
+                        Text("Enlarge with more detail using the on-device Best Quality engine.")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.5))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
 
                 Button("Cancel", action: onCancel)
