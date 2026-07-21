@@ -56,6 +56,7 @@ struct ImageWorkspaceView: View {
                     .rotationEffect(rotatePreviewActive ? .degrees(session.rotationDraft) : .zero)
                     .position(x: imageRect.midX, y: imageRect.midY)
 
+                imageLayers(in: imageRect)
                 annotations(in: imageRect)
                 imageSelection(in: imageRect)
                 draftDrawing(in: imageRect)
@@ -121,6 +122,10 @@ struct ImageWorkspaceView: View {
                 progressOverlay
             }
             .clipped()
+            .dropDestination(for: String.self) { payloads, _ in
+                guard let payload = payloads.first else { return false }
+                return appModel.addDraggedImageAsLayer(payload, into: session)
+            }
             .onHover { inside in
                 withAnimation(.easeOut(duration: 0.15)) {
                     hoverControls = inside
@@ -444,6 +449,27 @@ struct ImageWorkspaceView: View {
             let rect = GeometryMapper.viewRect(from: selectionRect, in: imageRect)
             selectionOverlay(for: rect)
                 .allowsHitTesting(false)
+        }
+    }
+
+    @ViewBuilder
+    private func imageLayers(in imageRect: CGRect) -> some View {
+        ForEach(session.imageLayers) { layer in
+            if layer.isVisible, let displayedFrame = displayedAnnotationFrame(layer.frame) {
+                let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
+                Image(nsImage: layer.image)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: rect.width, height: rect.height)
+                    .opacity(layer.opacity)
+                    .position(x: rect.midX, y: rect.midY)
+                    .allowsHitTesting(false)
+
+                if session.selectedLayerID == layer.id {
+                    selectionOverlay(for: rect)
+                        .allowsHitTesting(false)
+                }
+            }
         }
     }
 

@@ -486,11 +486,35 @@ enum ImageRenderer {
             fraction: 1
         )
 
+        drawImageLayers(session: session, targetSize: targetSize)
+
         if includesAnnotations {
             drawAnnotations(session: session, targetSize: targetSize)
         }
 
         return result
+    }
+
+    private static func drawImageLayers(session: ImageSession, targetSize: CGSize) {
+        let crop = session.cropRect
+        for layer in session.imageLayers where layer.isVisible {
+            let relativeFrame = CGRect(
+                x: (layer.frame.minX - crop.minX) / crop.width,
+                y: (layer.frame.minY - crop.minY) / crop.height,
+                width: layer.frame.width / crop.width,
+                height: layer.frame.height / crop.height
+            )
+            guard relativeFrame.maxX > 0, relativeFrame.maxY > 0,
+                  relativeFrame.minX < 1, relativeFrame.minY < 1 else { continue }
+            // Normalised frame uses a top-left origin; AppKit draws bottom-up.
+            let rect = CGRect(
+                x: relativeFrame.minX * targetSize.width,
+                y: (1 - relativeFrame.maxY) * targetSize.height,
+                width: relativeFrame.width * targetSize.width,
+                height: relativeFrame.height * targetSize.height
+            )
+            layer.image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: layer.opacity)
+        }
     }
 
     private static func writeHEIC(_ image: NSImage, to url: URL, quality: Double) throws {
