@@ -28,3 +28,4 @@ apps/native-ios/Sources/ImageKidiOS/Info.plist
 # Build output directories (xcodebuild / packaging)
 apps/native-macos/build/
 apps/native-ios/build/
+.build-*/
