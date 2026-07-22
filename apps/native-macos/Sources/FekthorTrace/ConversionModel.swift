@@ -638,16 +638,46 @@ final class ConversionModel: ObservableObject {
         editGeneration += 1
     }
 
-    func exportSVG() {
-        // Edits happen live on the document; the SVG string is regenerated
-        // here so exports always match the canvas.
+    /// The current SVG text, regenerated when manual edits exist so it
+    /// always matches the canvas; nil while there is nothing to export.
+    func currentSVGText() -> String? {
         if documentEdited, let doc = document {
             svg = SVGExport.toSVG(doc, smoothing: smoothing)
             svgKB = svg.utf8.count / 1024
             nodes = doc.nodeCount
             documentEdited = false
         }
-        guard !svg.isEmpty else { return }
+        return svg.isEmpty ? nil : svg
+    }
+
+    /// Clears the trace session back to the empty state (used when a traced
+    /// icon lands in a workspace, or when a workspace opens over a trace).
+    func reset() {
+        generation += 1
+        sourceImage = nil
+        vectorImage = nil
+        originalImage = nil
+        fullImage = nil
+        workingImage = nil
+        document = nil
+        svg = ""
+        hasResult = false
+        documentEdited = false
+        undoStack = []
+        canUndo = false
+        selectedElements = []
+        colorGestureActive = false
+        isBusy = false
+        sourceInfo = ""
+        status = "Drop, open or paste an image."
+        imageGeneration += 1
+        editGeneration += 1
+    }
+
+    func exportSVG() {
+        // Edits happen live on the document; the SVG string is regenerated
+        // here so exports always match the canvas.
+        guard let svg = currentSVGText() else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "svg") ?? .xml]
         panel.nameFieldStringValue = "fekthor.svg"

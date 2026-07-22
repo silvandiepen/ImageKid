@@ -4,11 +4,20 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @StateObject private var model = ConversionModel()
+    @StateObject private var workspaceSession = WorkspaceSession()
     @State private var editorSession: EditorSession? = nil
     @State private var showInspector = true
     @State private var zoom: CGFloat = 1
     @State private var offset: CGSize = .zero
     @State private var compareMode: CompareMode = .split
+    /// When a raster is dropped on the gallery, the trace flow targets the
+    /// workspace: the result saves into this category under this name.
+    @State private var traceTarget: WorkspaceTraceTarget? = nil
+
+    struct WorkspaceTraceTarget {
+        var category: String
+        var name: String
+    }
 
     var body: some View {
         NavigationStack {
@@ -16,16 +25,42 @@ struct ContentView: View {
                 if let session = editorSession {
                     EditorWorkspaceView(
                         session: session, zoom: $zoom, offset: $offset,
+                        backLabel: workspaceSession.workspace != nil ? "Gallery" : "Home",
                         onClose: { editorSession = nil })
-                } else if model.sourceImage == nil && model.document == nil {
-                    EmptyStateView(model: model, onNewFile: { newFile() }, onOpen: { openAny() })
-                } else {
+                } else if model.sourceImage != nil || model.document != nil {
                     VStack(spacing: 0) {
                         ComparisonView(
                             model: model, mode: $compareMode, zoom: $zoom, offset: $offset)
                         Divider()
+                        if traceTarget != nil && workspaceSession.workspace != nil {
+                            workspaceSaveBar
+                            Divider()
+                        }
                         statusBar
                     }
+                } else if workspaceSession.workspace != nil {
+                    WorkspaceGalleryView(
+                        session: workspaceSession,
+                        onOpenEntry: { openEntry($0) },
+                        onDropRaster: { url, category in
+                            traceTarget = WorkspaceTraceTarget(
+                                category: category,
+                                name: url.deletingPathExtension().lastPathComponent)
+                            model.load(path: url.path)
+                        },
+                        onClose: {
+                            workspaceSession.close()
+                            traceTarget = nil
+                        })
+                } else {
+                    EmptyStateView(
+                        model: model,
+                        recents: workspaceSession.recents,
+                        onNewFile: { newFile() },
+                        onOpen: { openAny() },
+                        onNewWorkspace: { newWorkspace() },
+                        onOpenWorkspace: { openWorkspace() },
+                        onOpenRecent: { openRecentWorkspace($0) })
                 }
             }
             .navigationTitle("Fekthor")
@@ -56,6 +91,9 @@ struct ContentView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .fekthorOpen)) { _ in
                 openAny()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorOpenWorkspace)) { _ in
+                openWorkspace()
             }
             .onReceive(NotificationCenter.default.publisher(for: .fekthorSave)) { _ in
                 if let session = editorSession { session.save() } else { model.exportSVG() }
@@ -116,6 +154,12 @@ struct ContentView: View {
 
     private func route(url: URL) {
         let ext = url.pathExtension.lowercased()
+        // A .fekthor with a folder reference IS a workspace; only workfiles
+        // with embedded artboards (and plain SVGs) go to the editor.
+        if ext == "fekthor", workspaceSession.openWorkfile(url) {
+            enterWorkspaceMode()
+            return
+        }
         if ext == "svg" || ext == "fekthor" {
             do {
                 editorSession = try EditorSession.open(url: url)
@@ -127,6 +171,110 @@ struct ContentView: View {
         } else {
             editorSession = nil
             model.load(path: url.path)
+        }
+    }
+
+    // MARK: - Workspace mode
+
+    private func enterWorkspaceMode() {
+        editorSession = nil
+        traceTarget = nil
+        model.reset()
+    }
+
+    private func openWorkspace() {
+        if workspaceSession.openPanel() { enterWorkspaceMode() }
+    }
+
+    private func newWorkspace() {
+        if workspaceSession.newWorkspace() { enterWorkspaceMode() }
+    }
+
+    private func openRecentWorkspace(_ recent: RecentWorkspace) {
+        if workspaceSession.openRecent(recent) { enterWorkspaceMode() }
+    }
+
+    /// Gallery double-click / Open in Editor: straight into the editor; the
+    /// editor's Back returns to the gallery (the workspace stays open).
+    private func openEntry(_ entry: IconEntry) {
+        do {
+            editorSession = try EditorSession.open(url: entry.url)
+            zoom = 1
+            offset = .zero
+        } catch {
+            workspaceSession.status =
+                "Could not open \(entry.fileName): \(error.localizedDescription)"
+        }
+    }
+
+    /// Shown under the trace comparison when the trace was started by a
+    /// drop on the gallery: name + category, one click to land the SVG in
+    /// the workspace.
+    private var workspaceSaveBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "square.grid.3x3.square").foregroundStyle(Color.accentColor)
+            Text("Add to workspace:")
+            TextField(
+                "icon name",
+                text: Binding(
+                    get: { traceTarget?.name ?? "" },
+                    set: { traceTarget?.name = $0 })
+            )
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 180)
+            Picker(
+                "in",
+                selection: Binding(
+                    get: { traceTarget?.category ?? "" },
+                    set: { traceTarget?.category = $0 })
+            ) {
+                Text("Uncategorized").tag("")
+                ForEach(workspaceSession.workspace?.categories ?? [], id: \.self) {
+                    Text($0).tag($0)
+                }
+            }
+            .frame(maxWidth: 220)
+            Button("Save to Workspace") { saveTraceIntoWorkspace() }
+                .disabled(!model.hasResult)
+            Button("Back to Gallery") {
+                traceTarget = nil
+                model.reset()
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(Color.accentColor.opacity(0.06))
+    }
+
+    private func saveTraceIntoWorkspace() {
+        guard let target = traceTarget, let ws = workspaceSession.workspace,
+            let svg = model.currentSVGText()
+        else { return }
+        let stem = target.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !stem.isEmpty, !stem.hasPrefix("."), !stem.contains("/"), !stem.contains("\\")
+        else {
+            model.status = "Pick a usable icon name (not empty or hidden, no slashes)."
+            return
+        }
+        let folder =
+            target.category.isEmpty ? ws.root : ws.root.appendingPathComponent(target.category)
+        let destination = folder.appendingPathComponent(stem + ".svg")
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            guard !FileManager.default.fileExists(atPath: destination.path) else {
+                model.status = "\(stem).svg already exists in that category — pick another name."
+                return
+            }
+            try svg.write(to: destination, atomically: true, encoding: .utf8)
+            workspaceSession.status =
+                "Added \(stem).svg"
+                + (target.category.isEmpty ? "." : " to \(target.category).")
+            workspaceSession.rescanNow()
+            traceTarget = nil
+            model.reset()
+        } catch {
+            model.status = "Could not save into the workspace: \(error.localizedDescription)"
         }
     }
 
@@ -190,8 +338,12 @@ struct ContentView: View {
 
 private struct EmptyStateView: View {
     @ObservedObject var model: ConversionModel
+    var recents: [RecentWorkspace] = []
     var onNewFile: () -> Void = {}
     var onOpen: () -> Void = {}
+    var onNewWorkspace: () -> Void = {}
+    var onOpenWorkspace: () -> Void = {}
+    var onOpenRecent: (RecentWorkspace) -> Void = { _ in }
 
     var body: some View {
         ZStack {
@@ -215,9 +367,10 @@ private struct EmptyStateView: View {
                         icon: "square.grid.3x3.square",
                         title: "New Workspace",
                         subtitle: "An icon library —\na .fekthor workfile over\na folder of SVGs.",
-                        enabled: false,
-                        badge: "coming with the Library update"
-                    ) {}
+                        enabled: true
+                    ) {
+                        onNewWorkspace()
+                    }
                     homeCard(
                         icon: "wand.and.rays",
                         title: "Vectorize Image",
@@ -227,8 +380,36 @@ private struct EmptyStateView: View {
                         model.openPanel()
                     }
                 }
-                Button("Open a file…", action: onOpen)
-                    .buttonStyle(.link)
+                HStack(spacing: 20) {
+                    Button("Open a file…", action: onOpen)
+                        .buttonStyle(.link)
+                    Button("Open Workspace…", action: onOpenWorkspace)
+                        .buttonStyle(.link)
+                }
+                if !recents.isEmpty {
+                    VStack(spacing: 4) {
+                        Text("Recent workspaces")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        ForEach(recents.prefix(4)) { recent in
+                            Button {
+                                onOpenRecent(recent)
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "folder")
+                                    Text(recent.name)
+                                    Text(recent.path)
+                                        .font(.caption)
+                                        .foregroundStyle(.tertiary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                        .frame(maxWidth: 320)
+                                }
+                            }
+                            .buttonStyle(.link)
+                        }
+                    }
+                }
                 Text("or drop an image or SVG anywhere · press ⌘V to paste")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
@@ -867,6 +1048,8 @@ struct EditorWorkspaceView: View {
     @ObservedObject var session: EditorSession
     @Binding var zoom: CGFloat
     @Binding var offset: CGSize
+    /// Where Back leads: "Home", or "Gallery" when a workspace is open.
+    var backLabel: String = "Home"
     var onClose: () -> Void
 
     var body: some View {
@@ -875,7 +1058,7 @@ struct EditorWorkspaceView: View {
                 Button {
                     onClose()
                 } label: {
-                    Label("Home", systemImage: "chevron.left")
+                    Label(backLabel, systemImage: "chevron.left")
                 }
                 Text(session.fileURL?.lastPathComponent ?? "Untitled")
                     .font(.headline)

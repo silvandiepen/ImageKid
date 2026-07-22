@@ -3,6 +3,7 @@ import SwiftUI
 extension Notification.Name {
     static let fekthorNewFile = Notification.Name("fekthor.newFile")
     static let fekthorOpen = Notification.Name("fekthor.open")
+    static let fekthorOpenWorkspace = Notification.Name("fekthor.openWorkspace")
     static let fekthorSave = Notification.Name("fekthor.save")
     static let fekthorSaveAs = Notification.Name("fekthor.saveAs")
     static let fekthorTraceImage = Notification.Name("fekthor.traceImage")
@@ -32,6 +33,10 @@ struct FekthorApp: App {
                     NotificationCenter.default.post(name: .fekthorOpen, object: nil)
                 }
                 .keyboardShortcut("o", modifiers: .command)
+                Button("Open Workspace…") {
+                    NotificationCenter.default.post(name: .fekthorOpenWorkspace, object: nil)
+                }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
             }
             CommandGroup(replacing: .saveItem) {
                 Button("Save") {
