@@ -925,12 +925,7 @@ struct ImageWorkspaceView: View {
         }
 
         if session.drawingMode == .freehand, draftFreehandPoints.count > 1 {
-            Path { path in
-                path.move(to: draftFreehandPoints[0])
-                for point in draftFreehandPoints.dropFirst() {
-                    path.addLine(to: point)
-                }
-            }
+            Self.smoothPath(draftFreehandPoints)
             .stroke(
                 Color(nsColor: session.drawingStrokeColor).opacity(session.drawingOpacity),
                 style: StrokeStyle(
@@ -2043,17 +2038,30 @@ struct ImageWorkspaceView: View {
             )
 
         case .freehand(let points):
-            guard let first = points.first else { return }
-            var path = Path()
-            path.move(to: localPoint(first, size: size))
-            for point in points.dropFirst() {
-                path.addLine(to: localPoint(point, size: size))
-            }
+            let path = Self.smoothPath(points.map { localPoint($0, size: size) })
             context.stroke(path, with: stroke, style: style)
 
         case .text:
             break
         }
+    }
+
+    /// A smooth curve through the points (quadratic segments via midpoints).
+    static func smoothPath(_ pts: [CGPoint]) -> Path {
+        var path = Path()
+        guard let first = pts.first else { return path }
+        path.move(to: first)
+        if pts.count < 3 {
+            for p in pts.dropFirst() { path.addLine(to: p) }
+            return path
+        }
+        for i in 1..<(pts.count - 1) {
+            let cur = pts[i], next = pts[i + 1]
+            let mid = CGPoint(x: (cur.x + next.x) / 2, y: (cur.y + next.y) / 2)
+            path.addQuadCurve(to: mid, control: cur)
+        }
+        path.addLine(to: pts[pts.count - 1])
+        return path
     }
 
     private func drawArrow(

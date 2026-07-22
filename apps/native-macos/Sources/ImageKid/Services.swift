@@ -646,11 +646,19 @@ enum ImageRenderer {
             )
 
         case .freehand(let points):
-            guard let first = points.first else { return }
+            let mapped = points.map { outputPoint($0, in: rect) }
+            guard mapped.count > 0 else { return }
             let path = NSBezierPath()
-            path.move(to: outputPoint(first, in: rect))
-            for point in points.dropFirst() {
-                path.line(to: outputPoint(point, in: rect))
+            path.move(to: mapped[0])
+            if mapped.count < 3 {
+                for p in mapped.dropFirst() { path.line(to: p) }
+            } else {
+                for i in 1..<(mapped.count - 1) {
+                    let cur = mapped[i], next = mapped[i + 1]
+                    let mid = CGPoint(x: (cur.x + next.x) / 2, y: (cur.y + next.y) / 2)
+                    path.curve(to: mid, controlPoint1: cur, controlPoint2: cur)
+                }
+                path.line(to: mapped[mapped.count - 1])
             }
             path.lineJoinStyle = .round
             path.lineCapStyle = .round
