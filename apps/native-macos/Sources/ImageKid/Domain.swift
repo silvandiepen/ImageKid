@@ -433,6 +433,8 @@ struct ImageLayer: Identifiable {
     var frame: CGRect
     var opacity: Double
     var isVisible: Bool
+    /// Rotation in degrees, clockwise, about the layer's centre.
+    var rotation: Double
     /// Non-destructive alpha mask (white = keep, black = hide). Applied to the
     /// layer image when `isMaskEnabled` is true; the original pixels are kept.
     var mask: NSImage?
@@ -445,6 +447,7 @@ struct ImageLayer: Identifiable {
         frame: CGRect,
         opacity: Double = 1,
         isVisible: Bool = true,
+        rotation: Double = 0,
         mask: NSImage? = nil,
         isMaskEnabled: Bool = true
     ) {
@@ -454,6 +457,7 @@ struct ImageLayer: Identifiable {
         self.frame = frame
         self.opacity = opacity
         self.isVisible = isVisible
+        self.rotation = rotation
         self.mask = mask
         self.isMaskEnabled = isMaskEnabled
     }

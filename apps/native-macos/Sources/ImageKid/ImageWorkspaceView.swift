@@ -529,6 +529,7 @@ struct ImageWorkspaceView: View {
                     .interpolation(.high)
                     .frame(width: rect.width, height: rect.height)
                     .opacity(layer.opacity)
+                    .rotationEffect(.degrees(layer.rotation))
                     .position(x: rect.midX, y: rect.midY)
                     .allowsHitTesting(false)
 
@@ -796,6 +797,8 @@ struct ImageWorkspaceView: View {
                     session.record("Move layer", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
                 case .resizeLayer:
                     session.record("Resize layer", systemImage: "arrow.up.left.and.arrow.down.right")
+                case .rotateLayer:
+                    session.record("Rotate layer", systemImage: "rotate.right")
                 default:
                     break
                 }
@@ -965,6 +968,12 @@ struct ImageWorkspaceView: View {
                 layer.frame = resizedRect(start, handle: corner.boxHandle, delta: delta)
             }
 
+        case .rotateLayer(let id, let center, let startAngle, let startRotation):
+            let angle = atan2(value.location.y - center.y, value.location.x - center.x)
+            var degrees = startRotation + Double((angle - startAngle) * 180 / .pi)
+            if NSEvent.modifierFlags.contains(.shift) { degrees = (degrees / 15).rounded() * 15 }
+            session.updateImageLayer(id: id) { $0.rotation = degrees }
+
         case .moveSelection(let start):
             let delta = normalizedDisplayTranslation(value.translation, imageRect: imageRect)
             session.selectionRect = movedRect(start, by: delta)
@@ -1054,7 +1063,7 @@ struct ImageWorkspaceView: View {
                 session.recordMaskEdit()
             }
 
-        case .pan, .moveAnnotation, .resizeAnnotation, .moveLayer, .resizeLayer, .moveSelection, .resizeSelection, .crop, .resizeCanvas:
+        case .pan, .moveAnnotation, .resizeAnnotation, .moveLayer, .resizeLayer, .rotateLayer, .moveSelection, .resizeSelection, .crop, .resizeCanvas:
             break
         }
     }
@@ -1291,7 +1300,8 @@ struct ImageWorkspaceView: View {
         }
     }
 
-    /// Resize handle for the currently-selected image layer, if grabbed.
+    /// Resize handle (on a corner) or rotate (just outside a corner) for the
+    /// currently-selected image layer.
     private func selectedLayerResizeMode(at point: CGPoint, imageRect: CGRect) -> DragMode? {
         guard let selectedID = session.selectedLayerID,
               let selected = session.imageLayers.first(where: { $0.id == selectedID }),
@@ -1299,6 +1309,17 @@ struct ImageWorkspaceView: View {
         let rect = GeometryMapper.viewRect(from: displayed, in: imageRect)
         if let corner = cornerHandle(at: point, rect: rect) {
             return .resizeLayer(id: selectedID, corner: corner, start: selected.frame)
+        }
+        // Rotate ring: just beyond a corner dot.
+        let corners = [
+            CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY),
+            CGPoint(x: rect.minX, y: rect.maxY), CGPoint(x: rect.maxX, y: rect.maxY)
+        ]
+        let nearest = corners.map { hypot($0.x - point.x, $0.y - point.y) }.min() ?? .infinity
+        if nearest > 11, nearest < 36 {
+            let center = CGPoint(x: rect.midX, y: rect.midY)
+            let startAngle = atan2(point.y - center.y, point.x - center.x)
+            return .rotateLayer(id: selectedID, center: center, startAngle: startAngle, startRotation: selected.rotation)
         }
         return nil
     }
@@ -1714,6 +1735,7 @@ struct ImageWorkspaceView: View {
         case resizeAnnotation(id: UUID, corner: AnnotationCorner, start: CGRect)
         case moveLayer(id: UUID, start: CGRect)
         case resizeLayer(id: UUID, corner: AnnotationCorner, start: CGRect)
+        case rotateLayer(id: UUID, center: CGPoint, startAngle: CGFloat, startRotation: Double)
         case moveSelection(start: CGRect)
         case resizeSelection(handle: BoxHandle, start: CGRect)
         case crop(handle: BoxHandle, start: CGRect)

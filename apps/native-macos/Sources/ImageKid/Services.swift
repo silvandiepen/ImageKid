@@ -513,7 +513,20 @@ enum ImageRenderer {
                 width: relativeFrame.width * targetSize.width,
                 height: relativeFrame.height * targetSize.height
             )
-            layer.renderedImage.draw(in: rect, from: .zero, operation: .sourceOver, fraction: layer.opacity)
+            if layer.rotation != 0 {
+                NSGraphicsContext.current?.saveGraphicsState()
+                let transform = NSAffineTransform()
+                transform.translateX(by: rect.midX, yBy: rect.midY)
+                transform.rotate(byDegrees: -layer.rotation) // AppKit is CCW-positive; match SwiftUI CW.
+                transform.concat()
+                layer.renderedImage.draw(
+                    in: CGRect(x: -rect.width / 2, y: -rect.height / 2, width: rect.width, height: rect.height),
+                    from: .zero, operation: .sourceOver, fraction: layer.opacity
+                )
+                NSGraphicsContext.current?.restoreGraphicsState()
+            } else {
+                layer.renderedImage.draw(in: rect, from: .zero, operation: .sourceOver, fraction: layer.opacity)
+            }
         }
     }
 
