@@ -23,11 +23,23 @@ struct EditorGridConfig: Equatable {
     var opacity: Double = 1
 }
 
+/// The workspace guide icon drawn dimmed between the artboard fill and the
+/// grid: a shared construction template (key lines, safe areas) behind
+/// every icon. Never hit-tested, never saved — pure canvas chrome. The
+/// guide SVG scales to the artboard viewBox (contain, centred).
+struct EditorGuideConfig: Equatable {
+    var document: GraphicDocument
+    var visible: Bool
+}
+
 struct EditorCanvasView: View {
     @ObservedObject var session: EditorSession
     @Binding var zoom: CGFloat
     @Binding var offset: CGSize
     var grid: EditorGridConfig? = nil
+    /// The workspace guide icon (View ▸ Show Guide); nil when the open file
+    /// IS the guide, or no workspace/guide is configured.
+    var guide: EditorGuideConfig? = nil
     /// View ▸ Snap to Points (⌥⌘'): dragged anchors, drawn shapes and moved
     /// selections magnet onto other shapes' anchors and bounds
     /// corners/centres. Point snap WINS over grid snap; ⌃ disables both.
@@ -58,6 +70,13 @@ struct EditorCanvasView: View {
     /// The pointer is over the canvas (hover phase) — the tool cursor is
     /// only ours to set while this is true.
     @State private var pointerOverCanvas = false
+    /// In-flight gradient annotator drag: which handle of which shape, and
+    /// the paint as it was at drag start — every event recomputes from it
+    /// so nothing accumulates. One "Gradient" undo step per drag.
+    @State private var gradientDrag: GradientDragState? = nil
+    /// The Free Distort corner being dragged (session.distort holds the
+    /// originals/corners; this is only the gesture's pick).
+    @State private var distortCorner: Int? = nil
     /// Snap-to-points candidates (doc space), collected ONCE at gesture
     /// start from the non-dragged shapes: anchors + bounds corners/centres.
     @State private var snapMagnets: [Pt] = []
@@ -103,6 +122,9 @@ struct EditorCanvasView: View {
                 x: t.tx + t.s * doc.viewBox.minX, y: t.ty + t.s * doc.viewBox.minY,
                 width: t.s * doc.viewBox.width, height: t.s * doc.viewBox.height)
             ctx.fill(Path(board), with: .color(.white))
+            if let guide, guide.visible {
+                drawGuide(guide.document, in: &ctx, doc: doc, t: t)
+            }
             if let g = grid, g.visible, g.spacing > 0 {
                 drawGrid(g, in: &ctx, doc: doc, t: t)
             }
@@ -121,6 +143,12 @@ struct EditorCanvasView: View {
 
             drawAnchorsAndHandles(&ctx, doc: doc, t: t)
             drawSelectionChrome(&ctx, t: t)
+            if let gh = gradientHandles(t: t) {
+                drawGradientChrome(gh, &ctx)
+            }
+            if let d = session.distort {
+                drawDistortChrome(d, &ctx, t: t)
+            }
 
             // Shape-tool preview.
             if let draft = drawDraft {
@@ -250,6 +278,29 @@ struct EditorCanvasView: View {
             }
             i += 1
         }
+    }
+
+    // MARK: - Guide
+
+    /// The workspace guide SVG, dimmed to ~25% and scaled to the artboard
+    /// viewBox (contain, centred). Drawn between the artboard fill and the
+    /// grid; never part of the document, never hit-tested.
+    private func drawGuide(
+        _ g: GraphicDocument, in ctx: inout GraphicsContext, doc: GraphicDocument, t: T
+    ) {
+        let gvb = g.viewBox
+        guard gvb.width > 0, gvb.height > 0 else { return }
+        let vb = doc.viewBox
+        let k = min(vb.width / gvb.width, vb.height / gvb.height)
+        let ox = vb.minX + (vb.width - gvb.width * k) / 2
+        let oy = vb.minY + (vb.height - gvb.height * k) / 2
+        var base = CGAffineTransform.identity
+        base = base.translatedBy(x: t.tx, y: t.ty)
+        base = base.scaledBy(x: t.s, y: t.s)
+        base = base.translatedBy(x: CGFloat(ox), y: CGFloat(oy))
+        base = base.scaledBy(x: CGFloat(k), y: CGFloat(k))
+        base = base.translatedBy(x: CGFloat(-gvb.minX), y: CGFloat(-gvb.minY))
+        drawNodes(g.nodes, into: &ctx, base: base, scale: t.s * CGFloat(k), opacity: 0.25)
     }
 
     // MARK: - Snapping
@@ -383,7 +434,7 @@ struct EditorCanvasView: View {
                 var p = Path(CGPathBuilder.path(for: s.kind))
                 p = p.applying(shapeBase)
 
-                if let fill = style.fill ?? defaultFill(for: s), let c = fill.renderColor {
+                if let fill = style.fill ?? defaultFill(for: s) {
                     var rule = FillStyle(eoFill: false)
                     if case .keyword("evenodd")? = style.value(of: "fill-rule") {
                         rule = FillStyle(eoFill: true)
@@ -394,10 +445,13 @@ struct EditorCanvasView: View {
                     } else {
                         fillOpacity = 1
                     }
-                    ctx.fill(
-                        p,
-                        with: .color(
-                            color(c).opacity(nodeOpacity * fillOpacity)), style: rule)
+                    let alpha = nodeOpacity * fillOpacity
+                    if let shading = gradientShading(fill, base: shapeBase, alpha: alpha) {
+                        // Real gradient, not a first-stop flattening.
+                        ctx.fill(p, with: shading, style: rule)
+                    } else if let c = fill.renderColor {
+                        ctx.fill(p, with: .color(color(c).opacity(alpha)), style: rule)
+                    }
                 }
                 if let stroke = style.stroke, let c = stroke.renderColor {
                     let width = style.strokeWidth ?? 1
@@ -431,8 +485,12 @@ struct EditorCanvasView: View {
                             strokeStyle.dash = parts.map { CGFloat($0) * scale }
                         }
                     }
-                    ctx.stroke(
-                        p, with: .color(color(c).opacity(nodeOpacity)), style: strokeStyle)
+                    if let shading = gradientShading(stroke, base: shapeBase, alpha: nodeOpacity) {
+                        ctx.stroke(p, with: shading, style: strokeStyle)
+                    } else {
+                        ctx.stroke(
+                            p, with: .color(color(c).opacity(nodeOpacity)), style: strokeStyle)
+                    }
                 }
             }
         }
@@ -478,6 +536,7 @@ struct EditorCanvasView: View {
     /// rotate lollipop above the top edge.
     private func drawSelectionChrome(_ ctx: inout GraphicsContext, t: T) {
         guard session.tool == .select, !session.selection.isEmpty,
+            session.distort == nil,
             let box = selectionDocBounds()
         else { return }
         let view = paddedViewRect(box, t: t)
@@ -499,6 +558,198 @@ struct EditorCanvasView: View {
             let r = CGRect(x: p.x - 3.5, y: p.y - 3.5, width: 7, height: 7)
             ctx.fill(Path(r), with: .color(.white))
             ctx.stroke(Path(r), with: .color(.blue), lineWidth: 1.2)
+        }
+    }
+
+    // MARK: - Gradients (rendering + on-canvas handles)
+
+    /// Typed gradient paints as GraphicsContext shadings in view space (the
+    /// shape's base transform maps the gradient's user-space geometry).
+    /// nil for non-gradient paints — callers fall back to flat colour.
+    private func gradientShading(
+        _ paint: PaintValue, base: CGAffineTransform, alpha: Double
+    ) -> GraphicsContext.Shading? {
+        func gradient(_ stops: [GradientStop]) -> Gradient {
+            Gradient(
+                stops: stops
+                    .sorted { $0.offset < $1.offset }
+                    .map { stop in
+                        Gradient.Stop(
+                            color: GradientStopsEditor.color(stop).opacity(alpha),
+                            location: CGFloat(max(0, min(1, stop.offset))))
+                    })
+        }
+        switch paint {
+        case .linear(let g):
+            return .linearGradient(
+                gradient(g.stops),
+                startPoint: CGPoint(x: g.p0.x, y: g.p0.y).applying(base),
+                endPoint: CGPoint(x: g.p1.x, y: g.p1.y).applying(base))
+        case .radial(let g):
+            let scale = hypot(base.a, base.b)
+            return .radialGradient(
+                gradient(g.stops),
+                center: CGPoint(x: g.center.x, y: g.center.y).applying(base),
+                startRadius: 0, endRadius: max(0.01, CGFloat(g.radius) * scale))
+        default:
+            return nil
+        }
+    }
+
+    /// The single selected shape's gradient annotator, in view coordinates:
+    /// the axis (linear p0→p1; radial centre→radius handle) plus the
+    /// INTERIOR stops as chips riding the axis (the end stops are edited
+    /// through the endpoints / the palette).
+    private struct GradientAnnotator {
+        var shapeID: Int
+        var paint: PaintValue
+        var a: CGPoint
+        var b: CGPoint
+        var isRadial: Bool
+        var stops: [(index: Int, point: CGPoint, stop: GradientStop)]
+    }
+
+    private func gradientHandles(t: T) -> GradientAnnotator? {
+        guard session.tool == .select, session.distort == nil, let sel = single,
+            let shape = session.document.firstShape(id: sel)
+        else { return nil }
+        let paint = shape.effectiveStyle.fill
+        guard let paint, let axis = Self.gradientAxis(paint) else { return nil }
+        func view(_ p: Pt) -> CGPoint {
+            CGPoint(x: p.x * t.s + t.tx, y: p.y * t.s + t.ty)
+        }
+        let a = view(axis.0)
+        let b = view(axis.1)
+        var chips: [(Int, CGPoint, GradientStop)] = []
+        for (i, stop) in (paint.gradientStops ?? []).enumerated()
+        where stop.offset > 0.001 && stop.offset < 0.999 {
+            let p = CGPoint(
+                x: a.x + (b.x - a.x) * stop.offset, y: a.y + (b.y - a.y) * stop.offset)
+            chips.append((i, p, stop))
+        }
+        var isRadial = false
+        if case .radial = paint { isRadial = true }
+        return GradientAnnotator(
+            shapeID: sel, paint: paint, a: a, b: b, isRadial: isRadial, stops: chips)
+    }
+
+    /// The gradient's editable axis in DOC space: linear p0→p1, radial
+    /// centre → the point at (centre.x + radius, centre.y).
+    private static func gradientAxis(_ paint: PaintValue) -> (Pt, Pt)? {
+        switch paint {
+        case .linear(let g): return (g.p0, g.p1)
+        case .radial(let g): return (g.center, Pt(g.center.x + g.radius, g.center.y))
+        default: return nil
+        }
+    }
+
+    /// Axis line (white casing under blue core so it reads over any art),
+    /// round endpoint handles, and the interior stop chips filled with
+    /// their own colours.
+    private func drawGradientChrome(_ gh: GradientAnnotator, _ ctx: inout GraphicsContext) {
+        var axis = Path()
+        axis.move(to: gh.a)
+        axis.addLine(to: gh.b)
+        ctx.stroke(axis, with: .color(.white.opacity(0.9)), lineWidth: 3)
+        ctx.stroke(axis, with: .color(.blue.opacity(0.8)), lineWidth: 1.2)
+        if gh.isRadial {
+            // The radius ring, faint, so the extent reads at a glance.
+            let r = hypot(gh.b.x - gh.a.x, gh.b.y - gh.a.y)
+            let ring = CGRect(x: gh.a.x - r, y: gh.a.y - r, width: 2 * r, height: 2 * r)
+            ctx.stroke(
+                Path(ellipseIn: ring), with: .color(.blue.opacity(0.35)),
+                style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+        }
+        for p in [gh.a, gh.b] {
+            let rect = CGRect(x: p.x - 4.5, y: p.y - 4.5, width: 9, height: 9)
+            ctx.fill(Path(ellipseIn: rect), with: .color(.white))
+            ctx.stroke(Path(ellipseIn: rect), with: .color(.blue), lineWidth: 1.5)
+        }
+        for chip in gh.stops {
+            let rect = CGRect(
+                x: chip.point.x - 4, y: chip.point.y - 4, width: 8, height: 8)
+            ctx.fill(Path(ellipseIn: rect), with: .color(GradientStopsEditor.color(chip.stop)))
+            ctx.stroke(Path(ellipseIn: rect), with: .color(.white), lineWidth: 1.5)
+            ctx.stroke(
+                Path(ellipseIn: rect.insetBy(dx: -1, dy: -1)),
+                with: .color(.blue.opacity(0.7)), lineWidth: 1)
+        }
+    }
+
+    /// One gradient-annotator drag: `paint` is the gradient at drag start,
+    /// every event recomputes the new paint from it plus the cursor.
+    private struct GradientDragState {
+        enum Kind {
+            case start  // linear p0 / radial centre
+            case end  // linear p1 / radial radius handle
+            case stop(Int)  // stop chip (index into the FULL stops array)
+        }
+        var shapeID: Int
+        var kind: Kind
+        var paint: PaintValue
+    }
+
+    /// Endpoint drags snap like anchors (point snap wins, then grid); stop
+    /// chips project the cursor onto the axis and move in offset space.
+    private func applyGradientDrag(_ gd: GradientDragState, target: Pt, in size: CGSize) {
+        guard var shape = session.document.firstShape(id: gd.shapeID) else { return }
+        var paint = gd.paint
+        switch (gd.kind, gd.paint) {
+        case (.start, .linear(var g)):
+            g.p0 = pointOrGridSnapped(target, in: size)
+            paint = .linear(g)
+        case (.end, .linear(var g)):
+            g.p1 = pointOrGridSnapped(target, in: size)
+            paint = .linear(g)
+        case (.start, .radial(var g)):
+            g.center = pointOrGridSnapped(target, in: size)
+            paint = .radial(g)
+        case (.end, .radial(var g)):
+            g.radius = max(0.01, hypot(target.x - g.center.x, target.y - g.center.y))
+            paint = .radial(g)
+        case (.stop(let index), _):
+            guard var stops = gd.paint.gradientStops, stops.indices.contains(index),
+                let axis = Self.gradientAxis(gd.paint)
+            else { return }
+            let dx = axis.1.x - axis.0.x
+            let dy = axis.1.y - axis.0.y
+            let len2 = dx * dx + dy * dy
+            guard len2 > 1e-12 else { return }
+            let t = ((target.x - axis.0.x) * dx + (target.y - axis.0.y) * dy) / len2
+            stops[index].offset = max(0.01, min(0.99, t))
+            paint = gd.paint.withGradientStops(stops)
+        default:
+            return
+        }
+        shape.style.fill = paint
+        session.updateShapes([shape])
+    }
+
+    // MARK: - Distort chrome
+
+    /// Free Distort: the warped quad through the four corners plus a square
+    /// handle per corner (the normal selection chrome hides meanwhile).
+    private func drawDistortChrome(
+        _ d: EditorSession.DistortState, _ ctx: inout GraphicsContext, t: T
+    ) {
+        func view(_ p: Pt) -> CGPoint {
+            CGPoint(x: p.x * t.s + t.tx, y: p.y * t.s + t.ty)
+        }
+        guard d.corners.count == 4 else { return }
+        var quad = Path()
+        quad.move(to: view(d.corners[0]))
+        for c in d.corners.dropFirst() {
+            quad.addLine(to: view(c))
+        }
+        quad.closeSubpath()
+        ctx.stroke(
+            quad, with: .color(.fekthorAccent.opacity(0.9)),
+            style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+        for c in d.corners {
+            let p = view(c)
+            let rect = CGRect(x: p.x - 4.5, y: p.y - 4.5, width: 9, height: 9)
+            ctx.fill(Path(rect), with: .color(.white))
+            ctx.stroke(Path(rect), with: .color(.fekthorAccent), lineWidth: 1.5)
         }
     }
 
@@ -635,9 +886,25 @@ struct EditorCanvasView: View {
             }
     }
 
-    /// Classify the press: Bézier handle → anchor → transform handle →
+    /// Classify the press: distort corner (while Free Distort is live) →
+    /// gradient annotator → Bézier handle → anchor → transform handle →
     /// selected body → marquee (Select tool), or a shape-drawing start.
     private func beginDrag(_ v: DragGesture.Value, in size: CGSize) {
+        // Free Distort owns the canvas: corner drags only, everything else
+        // is inert until Return commits or Esc cancels.
+        if let d = session.distort {
+            let t = transform(doc: session.document, in: size)
+            var best: (Int, CGFloat)? = nil
+            for (i, c) in d.corners.enumerated() {
+                let cv = CGPoint(x: c.x * t.s + t.tx, y: c.y * t.s + t.ty)
+                let dist = hypot(cv.x - v.startLocation.x, cv.y - v.startLocation.y)
+                if dist <= hitRadius + 2, best == nil || dist < best!.1 {
+                    best = (i, dist)
+                }
+            }
+            distortCorner = best?.0
+            return
+        }
         if session.tool == .pen {
             beginPen(v, in: size)
             return
@@ -649,6 +916,31 @@ struct EditorCanvasView: View {
         }
         let doc = session.document
         let t = transform(doc: doc, in: size)
+        // Gradient annotator (single selection with a gradient fill): stop
+        // chips first — they ride the axis — then the endpoint handles.
+        if let gh = gradientHandles(t: t) {
+            func near(_ p: CGPoint) -> Bool {
+                hypot(p.x - v.startLocation.x, p.y - v.startLocation.y) <= hitRadius - 1
+            }
+            if let chip = gh.stops.first(where: { near($0.point) }) {
+                session.beginGesture(label: "Gradient stop")
+                gradientDrag = GradientDragState(
+                    shapeID: gh.shapeID, kind: .stop(chip.index), paint: gh.paint)
+                return
+            }
+            if near(gh.a) {
+                session.beginGesture(label: gh.isRadial ? "Gradient centre" : "Gradient axis")
+                gradientDrag = GradientDragState(
+                    shapeID: gh.shapeID, kind: .start, paint: gh.paint)
+                return
+            }
+            if near(gh.b) {
+                session.beginGesture(label: gh.isRadial ? "Gradient radius" : "Gradient axis")
+                gradientDrag = GradientDragState(
+                    shapeID: gh.shapeID, kind: .end, paint: gh.paint)
+                return
+            }
+        }
         if let sel = single, let shape = doc.firstShape(id: sel) {
             if let active = activeAnchor {
                 for h in Editing2.handles(of: shape, path: active.path, anchor: active.index) {
@@ -716,6 +1008,13 @@ struct EditorCanvasView: View {
     }
 
     private func continueDrag(_ v: DragGesture.Value, in size: CGSize) {
+        if session.distort != nil {
+            if let corner = distortCorner {
+                session.distortDrag(
+                    corner: corner, to: snapped(docPoint(from: v.location, in: size)))
+            }
+            return
+        }
         if session.tool == .pen {
             continuePen(v, in: size)
             return
@@ -725,6 +1024,10 @@ struct EditorCanvasView: View {
             return
         }
         let target = docPoint(from: v.location, in: size)
+        if let gd = gradientDrag {
+            applyGradientDrag(gd, target: target, in: size)
+            return
+        }
         if let drag = transformDrag {
             let start = docPoint(from: v.startLocation, in: size)
             switch drag.kind {
@@ -778,12 +1081,20 @@ struct EditorCanvasView: View {
             snapMagnets = []
             activeMagnet = nil
         }
+        if session.distort != nil {
+            distortCorner = nil
+            return
+        }
         if session.tool == .pen {
             endPen(v, in: size)
             return
         }
         if session.tool != .select {
             finishDraft(v, in: size)
+            return
+        }
+        if gradientDrag != nil {
+            gradientDrag = nil
             return
         }
         if transformDrag != nil {

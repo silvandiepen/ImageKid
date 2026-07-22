@@ -64,6 +64,18 @@ final class EditorSession: ObservableObject {
     /// default (no fill, near-black 2pt stroke — SVG's spec-default black
     /// fill is wrong for stroke icons) and follows the last style-panel edit.
     @Published var drawingStyle: Style = EditorSession.defaultDrawingStyle
+    /// Free Distort (Transform palette): non-nil while the canvas shows the
+    /// 4-corner warp handles. Corner drags recompute every shape from
+    /// `originals` (nothing accumulates); the FIRST drag snapshots one
+    /// "Distort" undo step for the whole session, Esc restores it.
+    struct DistortState {
+        var originals: [ShapeNode]
+        var bounds: (minX: Double, minY: Double, maxX: Double, maxY: Double)
+        /// tl, tr, br, bl in screen orientation (y down).
+        var corners: [Pt]
+        var snapshotTaken = false
+    }
+    @Published var distort: DistortState? = nil
 
     /// One undo snapshot: the document as it was BEFORE the labelled
     /// operation ran. The History palette lists these newest-first.
@@ -101,6 +113,10 @@ final class EditorSession: ObservableObject {
         if let url = fileURL {
             scoped = url.startAccessingSecurityScopedResource()
         }
+        // Saved gradients come back as url(#id) references over raw defs;
+        // fold the modelled ones back into typed paints so they render and
+        // edit (EditorGradients.swift). Not an edit: no dirty, no history.
+        normalizeGradientReferences()
     }
 
     deinit {
@@ -298,6 +314,152 @@ final class EditorSession: ObservableObject {
         mutate { doc in
             for s in shapes { doc.replaceShape(id: s.id, with: s) }
         }
+    }
+
+    /// The selected shapes in id order (Transform palette, distort entry).
+    func selectionShapes() -> [ShapeNode] {
+        selection.sorted().compactMap { document.firstShape(id: $0) }
+    }
+
+    /// Union of the selection's geometric bounds (doc coordinates).
+    func selectionBounds() -> (minX: Double, minY: Double, maxX: Double, maxY: Double)? {
+        var out: (minX: Double, minY: Double, maxX: Double, maxY: Double)? = nil
+        for shape in selectionShapes() {
+            guard let b = Editing2.bounds(of: shape) else { continue }
+            if let cur = out {
+                out = (
+                    Swift.min(cur.minX, b.minX), Swift.min(cur.minY, b.minY),
+                    Swift.max(cur.maxX, b.maxX), Swift.max(cur.maxY, b.maxY)
+                )
+            } else {
+                out = b
+            }
+        }
+        return out
+    }
+
+    // MARK: - Numeric transforms (Transform palette; one undo step each)
+
+    /// Scale every selected node about a common fixed point (the union box
+    /// origin for W/H fields, so the selection keeps its position). Baked
+    /// into geometry via the engine's primitive-preserving degrade rules.
+    func scaleSelectionNumeric(sx: Double, sy: Double, around c: Pt) {
+        let shapes = selectionShapes()
+        guard !shapes.isEmpty, sx.isFinite, sy.isFinite,
+            abs(sx) > 0.001, abs(sy) > 0.001, sx != 1 || sy != 1
+        else { return }
+        beginGesture(label: "Resize")
+        updateShapes(shapes.map { TransformOps.scaledNumeric($0, sx: sx, sy: sy, around: c) })
+        status = "Resized."
+    }
+
+    /// Move the selection so its union box origin lands at (x, y).
+    func moveSelectionTo(x: Double? = nil, y: Double? = nil) {
+        guard let box = selectionBounds() else { return }
+        let dx = (x ?? box.minX) - box.minX
+        let dy = (y ?? box.minY) - box.minY
+        guard abs(dx) > 1e-9 || abs(dy) > 1e-9 else { return }
+        beginGesture(label: "Move")
+        translateSelection(dx: dx, dy: dy)
+        status = "Moved."
+    }
+
+    /// Rotate the selection by `degrees` (positive clockwise on screen)
+    /// around the union box centre — geometry-baked, never a transform.
+    func rotateSelectionNumeric(degrees: Double) {
+        let shapes = selectionShapes()
+        guard !shapes.isEmpty, degrees.isFinite, abs(degrees) > 1e-9,
+            let box = selectionBounds()
+        else { return }
+        let c = Pt((box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2)
+        beginGesture(label: "Rotate")
+        updateShapes(shapes.map { TransformOps.rotatedNumeric($0, degrees: degrees, around: c) })
+        status = String(format: "Rotated %.1f°.", degrees)
+    }
+
+    /// Skew (shear) the selection around the union box centre. Skew has no
+    /// primitive form, so touched nodes become paths — the status says so
+    /// the first time a primitive converts.
+    func skewSelection(xDegrees: Double, yDegrees: Double) {
+        let shapes = selectionShapes()
+        guard !shapes.isEmpty, xDegrees.isFinite, yDegrees.isFinite,
+            abs(xDegrees) > 1e-9 || abs(yDegrees) > 1e-9,
+            abs(xDegrees) < 89, abs(yDegrees) < 89,
+            let box = selectionBounds()
+        else { return }
+        let c = Pt((box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2)
+        let hadPrimitives = shapes.contains { shape in
+            if case .path = shape.kind { return false }
+            return true
+        }
+        beginGesture(label: "Skew")
+        updateShapes(
+            shapes.map {
+                TransformOps.skewed($0, xDegrees: xDegrees, yDegrees: yDegrees, around: c)
+            })
+        status = hadPrimitives ? "Skewed — shapes converted to paths." : "Skewed."
+    }
+
+    // MARK: - Free Distort (Transform palette; ONE "Distort" undo step)
+
+    /// Enter distort mode: the canvas swaps the selection chrome for four
+    /// independent corner handles. Nothing mutates until a corner moves.
+    func beginDistort() {
+        let shapes = selectionShapes()
+        guard !shapes.isEmpty, let box = selectionBounds(),
+            box.maxX - box.minX > 1e-9, box.maxY - box.minY > 1e-9
+        else {
+            status = "Select something with area to distort."
+            return
+        }
+        tool = .select
+        distort = DistortState(
+            originals: shapes, bounds: box,
+            corners: [
+                Pt(box.minX, box.minY), Pt(box.maxX, box.minY),
+                Pt(box.maxX, box.maxY), Pt(box.minX, box.maxY),
+            ])
+        status = "Free Distort — drag the corners; Return commits, Esc cancels."
+    }
+
+    /// A corner drag event: the first one snapshots the single "Distort"
+    /// undo step; every event rewarps all shapes from their originals.
+    /// Distort always degrades to paths (no primitive survives a warp).
+    func distortDrag(corner: Int, to p: Pt) {
+        guard var state = distort, state.corners.indices.contains(corner) else { return }
+        if !state.snapshotTaken {
+            beginGesture(label: "Distort")
+            state.snapshotTaken = true
+        }
+        state.corners[corner] = p
+        distort = state
+        let c = state.corners
+        updateShapes(
+            state.originals.map {
+                TransformOps.distorted(
+                    $0, corners: (tl: c[0], tr: c[1], br: c[2], bl: c[3]),
+                    from: state.bounds)
+            })
+    }
+
+    /// Return / Commit button: keep the warp, leave the mode.
+    func commitDistort() {
+        guard let state = distort else { return }
+        distort = nil
+        generation += 1
+        status = state.snapshotTaken ? "Distorted." : "Free Distort left (nothing moved)."
+    }
+
+    /// Esc / Cancel button: restore the pre-distort document, leave the mode.
+    func cancelDistort() {
+        guard let state = distort else { return }
+        distort = nil
+        if state.snapshotTaken {
+            undo()
+        } else {
+            generation += 1
+        }
+        status = "Distort cancelled."
     }
 
     // MARK: - Style edits (panel; one undo step per control interaction)

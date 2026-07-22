@@ -19,6 +19,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
     case styles
     case opacity
     case corners
+    case transform
     case combine
     case align
     case history
@@ -34,6 +35,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         case .styles: return "Styles"
         case .opacity: return "Opacity"
         case .corners: return "Corners"
+        case .transform: return "Transform"
         case .combine: return "Combine"
         case .align: return "Align"
         case .history: return "History"
@@ -49,6 +51,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         case .styles: return "paintbrush.pointed"
         case .opacity: return "circle.lefthalf.filled"
         case .corners: return "rectangle.roundedtop"
+        case .transform: return "skew"
         case .combine: return "square.on.square.intersection.dashed"
         case .align: return "align.horizontal.left"
         case .history: return "clock.arrow.circlepath"
@@ -63,7 +66,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
     /// LEFT — each column stacked top-down with 16pt gaps using the
     /// estimated heights below.
     private static let rightColumn: [EditorPanel] = [
-        .fill, .stroke, .opacity, .corners, .combine,
+        .fill, .stroke, .opacity, .corners, .transform, .combine,
     ]
     private static let leftColumn: [EditorPanel] = [
         .layers, .swatches, .styles, .align, .history,
@@ -77,6 +80,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         case .stroke: return 320
         case .opacity: return 140
         case .corners: return 180
+        case .transform: return 280
         case .combine: return 150
         case .layers: return 360
         case .swatches: return 260
@@ -117,6 +121,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         case .styles: return CGSize(width: 280, height: 16)
         case .opacity: return CGSize(width: 660, height: 560)
         case .corners: return CGSize(width: 400, height: 300)
+        case .transform: return CGSize(width: 400, height: 380)
         case .combine: return CGSize(width: 400, height: 480)
         case .align: return CGSize(width: 280, height: 420)
         case .history: return CGSize(width: 400, height: 16)
@@ -401,6 +406,9 @@ struct EditorPanelsLayer: View {
                 }
                 if panels.isExpanded(.corners) {
                     palette(.corners, in: dock) { CornersPanelContent(session: session) }
+                }
+                if panels.isExpanded(.transform) {
+                    palette(.transform, in: dock) { TransformPanelContent(session: session) }
                 }
                 if panels.isExpanded(.combine) {
                     palette(.combine, in: dock) { CombinePanelContent(session: session) }

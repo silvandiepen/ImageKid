@@ -46,6 +46,8 @@ final class WorkspaceSession: ObservableObject {
     private var watcher: FolderWatcher?
     private var debounce: Task<Void, Never>?
     private var scanGeneration = 0
+    /// Parsed guide SVG, keyed by entry id + modification date.
+    private var guideCache: (key: String, doc: GraphicDocument)?
 
     private static let recentsKey = "fekthor.recentWorkspaces"
     private static let fekthorType = UTType(filenameExtension: "fekthor") ?? .json
@@ -219,6 +221,7 @@ final class WorkspaceSession: ObservableObject {
         folderURL = nil
         workfileURL = nil
         settings = Workfile(version: 1)
+        guideCache = nil
         scanGeneration += 1
     }
 
@@ -381,6 +384,43 @@ final class WorkspaceSession: ObservableObject {
             s.snapToGrid = snap
             workfile.settings = s
         }
+    }
+
+    // MARK: - Guide icon (drawn dimmed behind every icon in the editor)
+
+    /// A configured guide defaults to SHOWN; the toggle only stores false.
+    var showGuide: Bool {
+        guard settings.settings?.guideIcon != nil else { return false }
+        return settings.settings?.showGuide ?? true
+    }
+
+    /// View ▸ Show Guide (⌥⌘G), persisted through the workfile.
+    func setShowGuide(_ show: Bool) {
+        updateSettings { workfile in
+            var s = workfile.settings ?? Workfile.WorkspaceSettings()
+            s.showGuide = show
+            workfile.settings = s
+        }
+    }
+
+    /// The workspace entry configured as the guide icon, if it still exists.
+    func guideEntry() -> IconEntry? {
+        guard let ws = workspace, let id = settings.settings?.guideIcon else { return nil }
+        return ws.entries.first { $0.id == id }
+    }
+
+    /// The guide's parsed SVG, cached per entry id + modification date so
+    /// gallery scrolls and editor publishes never re-read the file; a save
+    /// to the guide file rides the FSEvents rescan into a fresh key.
+    func guideDocument() -> GraphicDocument? {
+        guard let entry = guideEntry() else { return nil }
+        let key = entry.id + "|" + entry.modificationDate.timeIntervalSince1970.description
+        if let cached = guideCache, cached.key == key { return cached.doc }
+        guard let data = try? Data(contentsOf: entry.url),
+            let doc = try? SVGReader.read(data)
+        else { return nil }
+        guideCache = (key, doc)
+        return doc
     }
 
     // MARK: - New icon

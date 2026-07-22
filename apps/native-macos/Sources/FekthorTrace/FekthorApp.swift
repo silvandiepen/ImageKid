@@ -20,6 +20,7 @@ extension Notification.Name {
     static let fekthorWorkspaceSettings = Notification.Name("fekthor.workspaceSettings")
     static let fekthorToggleGrid = Notification.Name("fekthor.toggleGrid")
     static let fekthorToggleSnap = Notification.Name("fekthor.toggleSnap")
+    static let fekthorToggleGuide = Notification.Name("fekthor.toggleGuide")
     static let fekthorPathUnite = Notification.Name("fekthor.pathUnite")
     static let fekthorPathSubtract = Notification.Name("fekthor.pathSubtract")
     static let fekthorPathIntersect = Notification.Name("fekthor.pathIntersect")
@@ -58,6 +59,10 @@ final class MenuState: ObservableObject {
     /// through the workfile by ContentView); session-level for detached
     /// editors.
     @Published var snapToGrid = false
+    /// Show Guide (⌥⌘G): mirrors the open workspace's guide visibility
+    /// (persisted through the workfile by ContentView). Meaningless — and
+    /// the menu item disabled — without a workspace.
+    @Published var showGuide = false
     /// Snap to points (⌥⌘'): dragged anchors, drawn shapes and moved
     /// selections magnet onto other shapes' anchors and bounds
     /// corners/centres. App-side and persisted globally in UserDefaults —
@@ -198,6 +203,18 @@ struct FekthorApp: App {
                 // app-global and persists itself via MenuState's didSet.
                 Toggle("Snap to Points", isOn: $menuState.snapToPoints)
                     .keyboardShortcut("'", modifiers: [.command, .option])
+                Divider()
+                Toggle(
+                    "Show Guide",
+                    isOn: Binding(
+                        get: { menuState.showGuide },
+                        set: { _ in
+                            NotificationCenter.default.post(
+                                name: .fekthorToggleGuide, object: nil)
+                        })
+                )
+                .keyboardShortcut("g", modifiers: [.command, .option])
+                .disabled(!menuState.workspaceOpen)
                 Divider()
                 Toggle("Preview Composed Icons", isOn: $menuState.previewComposed)
                     .keyboardShortcut("p", modifiers: [.command, .option])

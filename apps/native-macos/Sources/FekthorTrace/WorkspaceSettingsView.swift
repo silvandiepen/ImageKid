@@ -23,6 +23,9 @@ struct WorkspaceSettingsSheet: View {
     /// "" = unset (fallback), "none", or "color" (with `fillHex`).
     @State private var fillMode = ""
     @State private var fillHex = ""
+    /// Guide icon entry id ("" = no guide) + visibility.
+    @State private var guideIcon = ""
+    @State private var showGuide = true
 
     private var std: Workfile.WorkspaceSettings { .standard }
 
@@ -58,6 +61,19 @@ struct WorkspaceSettingsSheet: View {
                         }
                     }
                     Toggle("Snap to grid  (⇧⌘')", isOn: $snap)
+                }
+                Section("Guide") {
+                    Picker("Guide icon", selection: $guideIcon) {
+                        Text("None").tag("")
+                        ForEach(session.workspace?.entries ?? []) { entry in
+                            Text(entry.id).tag(entry.id)
+                        }
+                    }
+                    Toggle("Show guide behind icons  (⌥⌘G)", isOn: $showGuide)
+                        .disabled(guideIcon.isEmpty)
+                    Text("Any workspace SVG works — it draws dimmed under every icon in the editor, never in the files.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                 }
                 Section("Drawing defaults") {
                     LabeledContent("Stroke") {
@@ -112,7 +128,7 @@ struct WorkspaceSettingsSheet: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 16)
         }
-        .frame(width: 440, height: 560)
+        .frame(width: 440, height: 640)
         .onAppear(perform: load)
     }
 
@@ -172,6 +188,8 @@ struct WorkspaceSettingsSheet: View {
             fillMode = "color"
             fillHex = hex
         }
+        guideIcon = raw?.guideIcon ?? ""
+        showGuide = raw?.showGuide ?? true
     }
 
     private func save() {
@@ -201,6 +219,10 @@ struct WorkspaceSettingsSheet: View {
         default:
             built.defaultFill = nil
         }
+        // No guide, no flags: both fields collapse together so untouched
+        // workfiles never gain a stored `showGuide`.
+        built.guideIcon = guideIcon.isEmpty ? nil : guideIcon
+        built.showGuide = guideIcon.isEmpty ? nil : showGuide
         session.updateSettings { workfile in
             workfile.settings = built
         }

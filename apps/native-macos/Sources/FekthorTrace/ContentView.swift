@@ -47,6 +47,7 @@ struct ContentView: View {
                         session: session, zoom: $zoom, offset: $offset,
                         backLabel: workspaceSession.workspace != nil ? "Gallery" : "Home",
                         grid: editorGrid,
+                        guide: editorGuide,
                         snapToPoints: menuState.snapToPoints,
                         workspace: workspaceSession,
                         onClose: { editorSession = nil })
@@ -143,6 +144,7 @@ struct ContentView: View {
             .background(objectCommandListeners)
             .background(workspaceCommandListeners)
             .background(editorCommandListeners)
+            .background(guideCommandListeners)
         }
     }
 
@@ -215,6 +217,7 @@ struct ContentView: View {
                     MenuState.shared.snapToGrid =
                         workspaceSession.effectiveStandards.snapToGrid ?? false
                 }
+                MenuState.shared.showGuide = open && workspaceSession.showGuide
             }
             .onChange(of: workspaceSession.settings.settings?.snapToGrid) { _, snap in
                 if workspaceSession.workspace != nil {
@@ -237,6 +240,23 @@ struct ContentView: View {
             }
             .sheet(isPresented: $workspaceSettingsShown) {
                 WorkspaceSettingsSheet(session: workspaceSession)
+            }
+    }
+
+    /// Guide toggling (View ▸ Show Guide, ⌥⌘G) and its menu-state sync — a
+    /// fourth hidden host keeps the others type-checkable.
+    private var guideCommandListeners: some View {
+        Color.clear
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorToggleGuide)) { _ in
+                guard workspaceSession.workspace != nil else { return }
+                workspaceSession.setShowGuide(!workspaceSession.showGuide)
+                MenuState.shared.showGuide = workspaceSession.showGuide
+            }
+            .onChange(of: workspaceSession.settings.settings?.showGuide) { _, _ in
+                MenuState.shared.showGuide = workspaceSession.showGuide
+            }
+            .onChange(of: workspaceSession.settings.settings?.guideIcon) { _, _ in
+                MenuState.shared.showGuide = workspaceSession.showGuide
             }
     }
 
@@ -360,6 +380,23 @@ struct ContentView: View {
             visible: menuState.showGrid,
             snap: menuState.snapToGrid,
             opacity: std.gridOpacity ?? 1)
+    }
+
+    /// The workspace guide icon drawn dimmed behind the open icon. nil when
+    /// no workspace/guide is configured — or when the open file IS the
+    /// guide (editing the guide must not draw the guide under itself). The
+    /// View ▸ Show Guide toggle rides `showGuide` through the workfile.
+    private var editorGuide: EditorGuideConfig? {
+        guard workspaceSession.workspace != nil,
+            let entry = workspaceSession.guideEntry(),
+            let doc = workspaceSession.guideDocument()
+        else { return nil }
+        if let open = editorSession?.fileURL?.standardizedFileURL,
+            open == entry.url.standardizedFileURL
+        {
+            return nil
+        }
+        return EditorGuideConfig(document: doc, visible: workspaceSession.showGuide)
     }
 
     /// One Open for everything: svg/fekthor go to the editor, rasters to trace.
@@ -1301,6 +1338,8 @@ struct EditorWorkspaceView: View {
     var backLabel: String = "Home"
     /// Workspace grid (drawn + snapped by the canvas); nil hides it.
     var grid: EditorGridConfig? = nil
+    /// Workspace guide icon (drawn dimmed behind the artwork); nil = none.
+    var guide: EditorGuideConfig? = nil
     /// View ▸ Snap to Points (⌥⌘'), passed through to the canvas.
     var snapToPoints: Bool = false
     /// The app's workspace session — the Swatches palette reads/writes the
@@ -1319,7 +1358,7 @@ struct EditorWorkspaceView: View {
             ZStack(alignment: .bottom) {
                 EditorCanvasView(
                     session: session, zoom: $zoom, offset: $offset, grid: grid,
-                    snapToPoints: snapToPoints)
+                    guide: guide, snapToPoints: snapToPoints)
                     .overlay(
                         TrackpadCatcher(
                             onPan: { dx, dy in
@@ -1469,16 +1508,27 @@ struct EditorWorkspaceView: View {
                         && !(session.tool == .pen && !session.penAnchors.isEmpty))
                 .frame(width: 0, height: 0)
                 .opacity(0)
-            // Return finishes the pen path OPEN.
-            Button { session.finishPenPath(closed: false) } label: { EmptyView() }
+            // Return commits a live Free Distort, else finishes the pen
+            // path OPEN.
+            Button {
+                if session.distort != nil {
+                    session.commitDistort()
+                } else {
+                    session.finishPenPath(closed: false)
+                }
+            } label: { EmptyView() }
                 .keyboardShortcut(.return, modifiers: [])
-                .disabled(!(session.tool == .pen && !session.penAnchors.isEmpty))
+                .disabled(
+                    session.distort == nil
+                        && !(session.tool == .pen && !session.penAnchors.isEmpty))
                 .frame(width: 0, height: 0)
                 .opacity(0)
-            // Esc cancels an in-progress pen path first; a second Esc (or
-            // Esc in any other tool) returns to Select.
+            // Esc cancels a live Free Distort first, then an in-progress
+            // pen path; otherwise it returns to Select.
             Button {
-                if session.tool == .pen, !session.penAnchors.isEmpty {
+                if session.distort != nil {
+                    session.cancelDistort()
+                } else if session.tool == .pen, !session.penAnchors.isEmpty {
                     session.cancelPenPath()
                 } else {
                     session.tool = .select

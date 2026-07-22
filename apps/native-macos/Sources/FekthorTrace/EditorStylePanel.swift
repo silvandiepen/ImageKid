@@ -109,12 +109,30 @@ struct FillPanelContent: View {
 
     @State private var hex = ""
 
+    /// Every selected fill is a gradient — the palette swaps the colour
+    /// controls for the stops editor (EditorGradientPanel.swift).
+    private var allGradients: Bool {
+        let styles = StyleSelection(session: session).styles
+        return !styles.isEmpty
+            && styles.allSatisfy { style in
+                switch style.fill {
+                case .linear?, .radial?: return true
+                default: return false
+                }
+            }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             SelectionHeader(session: session)
-            PaintControls(
-                session: session, editKey: "fill", hex: $hex,
-                get: { $0.fill }, set: { $0.fill = $1 })
+            FillPaintTypeRow(session: session)
+            if allGradients {
+                GradientStopsEditor(session: session)
+            } else {
+                PaintControls(
+                    session: session, editKey: "fill", hex: $hex,
+                    get: { $0.fill }, set: { $0.fill = $1 })
+            }
             KeywordPickerRow(
                 session: session, label: "Rule", name: "fill-rule", editKey: "fill-rule",
                 options: [("nonzero", "Nonzero"), ("evenodd", "Even-odd")])
