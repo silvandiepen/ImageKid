@@ -1206,6 +1206,7 @@ struct ImageWorkspaceView: View {
             // dragging stays smooth even on large masks.
             if !session.maskWandMode {
                 maskStrokeViewPoints.append(value.location)
+                maskBrushCursor = value.location
             }
 
         case .placeText:

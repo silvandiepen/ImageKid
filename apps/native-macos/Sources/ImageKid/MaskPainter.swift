@@ -46,62 +46,37 @@ enum MaskPainter {
     ) -> NSImage {
         guard !points.isEmpty else { return mask }
         let size = mask.size
-        let w = max(Int(size.width.rounded()), 1)
-        let h = max(Int(size.height.rounded()), 1)
-        let radius = max(diameter / 2, 1)
-        let inner = max(0, 1 - min(max(softness, 0), 1))
-        let gray = CGColorSpaceCreateDeviceGray()
-
-        // 1) Build the stroke's coverage in a grayscale buffer. Overlapping soft
-        //    dabs are combined with .lighten (max), NOT added — so the soft edge
-        //    (hardness) survives a dense stroke instead of filling in to a hard edge.
-        guard let cov = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
-                                  bytesPerRow: 0, space: gray,
-                                  bitmapInfo: CGImageAlphaInfo.none.rawValue) else {
-            return mask
-        }
-        cov.setFillColor(CGColor(gray: 0, alpha: 1))
-        cov.fill(CGRect(x: 0, y: 0, width: w, height: h))
-        cov.setBlendMode(.lighten)
-        let softGradient = CGGradient(
-            colorsSpace: gray,
-            colors: [CGColor(gray: 1, alpha: 1), CGColor(gray: 0, alpha: 1)] as CFArray,
-            locations: [inner, 1]
-        )
-        let roundY = max(min(roundness, 1), 0.05)
-        for point in points {
-            let cx = point.x * size.width
-            let cy = (1 - point.y) * size.height // bottom-left origin
-            cov.saveGState()
-            cov.translateBy(x: cx, y: cy)
-            cov.rotate(by: -angle * .pi / 180)
-            cov.scaleBy(x: 1, y: roundY)
-            cov.addEllipse(in: CGRect(x: -radius, y: -radius, width: radius * 2, height: radius * 2))
-            cov.clip()
-            if let softGradient {
-                cov.drawRadialGradient(softGradient, startCenter: .zero, startRadius: 0,
-                                       endCenter: .zero, endRadius: radius, options: [])
-            } else {
-                cov.setFillColor(CGColor(gray: 1, alpha: 1))
-                cov.fill(CGRect(x: -radius, y: -radius, width: radius * 2, height: radius * 2))
-            }
-            cov.restoreGState()
-        }
-        guard let coverageImage = cov.makeImage() else { return mask }
-
-        // 2) Paint the mask colour once, through that coverage, at brush opacity.
         let result = NSImage(size: size)
         result.lockFocus()
         defer { result.unlockFocus() }
         mask.draw(in: CGRect(origin: .zero, size: size))
-        if let ctx = NSGraphicsContext.current?.cgContext {
-            let full = CGRect(x: 0, y: 0, width: size.width, height: size.height)
-            ctx.saveGState()
-            ctx.clip(to: full, mask: coverageImage) // white coverage = painted
-            ctx.setAlpha(CGFloat(min(max(opacity, 0), 1)))
-            ctx.setFillColor(reveal ? CGColor(gray: 1, alpha: 1) : CGColor(gray: 0, alpha: 1))
-            ctx.fill(full)
-            ctx.restoreGState()
+
+        guard let context = NSGraphicsContext.current else { return result }
+        let radius = max(diameter / 2, 1)
+        let ry = radius * max(min(roundness, 1), 0.05)
+        let alpha = CGFloat(min(max(opacity, 0), 1))
+        let color = (reveal ? NSColor.white : NSColor.black).withAlphaComponent(alpha)
+        let inner = max(0, 1 - min(max(softness, 0), 1))
+        let gradient = NSGradient(colors: [color, color.withAlphaComponent(0)],
+                                  atLocations: [inner, 1], colorSpace: .deviceGray)
+        let ovalRect = CGRect(x: -radius, y: -ry, width: radius * 2, height: ry * 2)
+
+        for point in points {
+            // NSImage is bottom-left origin; the mask is stored top-down.
+            let center = CGPoint(x: point.x * size.width, y: (1 - point.y) * size.height)
+            context.saveGraphicsState()
+            let transform = NSAffineTransform()
+            transform.translateX(by: center.x, yBy: center.y)
+            transform.rotate(byDegrees: -angle)
+            transform.concat()
+            let path = NSBezierPath(ovalIn: ovalRect)
+            if let gradient {
+                gradient.draw(in: path, relativeCenterPosition: .zero)
+            } else {
+                color.setFill()
+                path.fill()
+            }
+            context.restoreGraphicsState()
         }
         return result
     }
