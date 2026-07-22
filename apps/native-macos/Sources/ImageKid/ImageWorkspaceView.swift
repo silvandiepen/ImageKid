@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import ImageKidKit
+import UniformTypeIdentifiers
 
 struct ImageWorkspaceView: View {
     @EnvironmentObject private var appModel: AppModel
@@ -134,9 +135,8 @@ struct ImageWorkspaceView: View {
                 progressOverlay
             }
             .clipped()
-            .dropDestination(for: String.self) { payloads, _ in
-                guard let payload = payloads.first else { return false }
-                return appModel.addDraggedImageAsLayer(payload, into: session)
+            .onDrop(of: [UTType.fileURL.identifier, UTType.plainText.identifier], isTargeted: nil) { providers in
+                handleCanvasDrop(providers)
             }
             .onHover { inside in
                 withAnimation(.easeOut(duration: 0.15)) {
@@ -352,6 +352,28 @@ struct ImageWorkspaceView: View {
     /// Panels collapse toward their top-left corner (where the rail buttons sit).
     private var panelCollapse: AnyTransition {
         .scale(scale: 0.06, anchor: .topLeading).combined(with: .opacity)
+    }
+
+    /// Finder files → open as new images; an internal Files-row drag → add as a layer.
+    private func handleCanvasDrop(_ providers: [NSItemProvider]) -> Bool {
+        let fileProviders = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
+        if !fileProviders.isEmpty {
+            for provider in fileProviders {
+                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                    let url: URL? = (item as? URL) ?? (item as? Data).flatMap { URL(dataRepresentation: $0, relativeTo: nil) }
+                    if let url { Task { @MainActor in appModel.load(url) } }
+                }
+            }
+            return true
+        }
+        for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
+            provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { item, _ in
+                let text = (item as? String) ?? (item as? Data).flatMap { String(data: $0, encoding: .utf8) }
+                if let text { Task { @MainActor in appModel.addDraggedImageAsLayer(text, into: session) } }
+            }
+            return true
+        }
+        return false
     }
 
     /// Apply a swatch colour to the drawing default and the selected annotation.

@@ -1105,6 +1105,12 @@ final class AppModel: ObservableObject {
             return
         }
 
+        // If an image layer is selected, mask *that* layer instead of the base.
+        if session.selectedLayerID != nil {
+            removeBackgroundFromSelectedLayer()
+            return
+        }
+
         if session.backgroundRemovedImage != nil {
             session.restoreBackground()
             if activeTool == .refineBackground {

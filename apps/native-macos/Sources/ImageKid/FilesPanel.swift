@@ -1,5 +1,6 @@
 import SwiftUI
 import ImageKidKit
+import UniformTypeIdentifiers
 
 /// The open-files list, shared by the dockable Files panel and any legacy
 /// sidebar presentation.
@@ -131,6 +132,17 @@ struct FilesPanel: View {
             } else {
                 FilesListContent(appModel: appModel)
             }
+        }
+        .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
+            var handled = false
+            for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                handled = true
+                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                    let url: URL? = (item as? URL) ?? (item as? Data).flatMap { URL(dataRepresentation: $0, relativeTo: nil) }
+                    if let url { Task { @MainActor in appModel.load(url) } }
+                }
+            }
+            return handled
         }
     }
 }
