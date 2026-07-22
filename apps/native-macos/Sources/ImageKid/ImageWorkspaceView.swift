@@ -1,4 +1,5 @@
 import AppKit
+import ImageKidCore
 import SwiftUI
 import ImageKidKit
 import UniformTypeIdentifiers

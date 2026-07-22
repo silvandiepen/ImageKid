@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageKidCore
 import ImageKidKit
 
 struct CropControls: View {

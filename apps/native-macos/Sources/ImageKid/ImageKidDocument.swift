@@ -1,4 +1,5 @@
 import AppKit
+import ImageKidCore
 import Foundation
 
 // MARK: - Codable geometry / image helpers
