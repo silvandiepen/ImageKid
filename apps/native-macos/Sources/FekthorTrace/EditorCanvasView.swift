@@ -219,6 +219,15 @@ struct EditorCanvasView: View {
         return Pt((p.x / step).rounded() * step, (p.y / step).rounded() * step)
     }
 
+    /// ⇧-snap: snaps to the grid even while the global snap toggle is off —
+    /// used for handle drags, where free movement is the default.
+    private func forceSnapped(_ p: Pt) -> Pt {
+        guard let g = grid, g.spacing > 0 else { return p }
+        let subs = max(0, g.subdivisions)
+        let step = subs > 0 ? g.spacing / Double(subs + 1) : g.spacing
+        return Pt((p.x / step).rounded() * step, (p.y / step).rounded() * step)
+    }
+
     // MARK: - Rendering
 
     private func drawNodes(
@@ -603,9 +612,13 @@ struct EditorCanvasView: View {
             }
         } else if let h = draggingHandle, let sel = single, let active = activeAnchor {
             let mirror = !NSEvent.modifierFlags.contains(.option)
+            // Handles drag free by default; ⇧ snaps them to the grid too
+            // (even when the global snap toggle is off).
+            let want =
+                NSEvent.modifierFlags.contains(.shift) ? forceSnapped(target) : target
             session.moveHandle(
                 node: sel, path: active.path, segment: h.segment, kind: h.kind,
-                to: target, mirror: mirror)
+                to: want, mirror: mirror)
         } else if let d = draggingAnchor, let sel = single {
             session.moveAnchor(node: sel, path: d.path, anchor: d.index, to: snapped(target))
         } else if draggingBody, let origin = moveOrigin {
