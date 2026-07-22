@@ -13,11 +13,13 @@ enum EditorPanel: String, CaseIterable, Identifiable {
     case fill
     case stroke
     case swatches
+    case styles
     case opacity
     case corners
     case combine
     case align
     case history
+    case layers
 
     var id: String { rawValue }
 
@@ -26,11 +28,13 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         case .fill: return "Fill"
         case .stroke: return "Stroke"
         case .swatches: return "Swatches"
+        case .styles: return "Styles"
         case .opacity: return "Opacity"
         case .corners: return "Corners"
         case .combine: return "Combine"
         case .align: return "Align"
         case .history: return "History"
+        case .layers: return "Layers"
         }
     }
 
@@ -39,28 +43,45 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         case .fill: return "drop.fill"
         case .stroke: return "pencil.line"
         case .swatches: return "paintpalette"
+        case .styles: return "paintbrush.pointed"
         case .opacity: return "circle.lefthalf.filled"
         case .corners: return "rectangle.roundedtop"
         case .combine: return "square.on.square.intersection.dashed"
         case .align: return "align.horizontal.left"
         case .history: return "clock.arrow.circlepath"
+        case .layers: return "square.3.stack.3d"
         }
     }
 
     /// First-run resting offset from the canvas's top-leading corner. The
     /// style column hugs the right of a minimum-size window; Opacity,
     /// Corners and Combine sit one column in; Swatches, Align and History
-    /// stack down the leading edge so nothing overlaps.
+    /// stack down the leading edge so nothing overlaps. Styles and Layers
+    /// take the bottom row of the leading/middle columns.
     var defaultPosition: CGSize {
         switch self {
+        // Default-visible trio: Fill above Stroke in a right-hand column,
+        // Layers anchored top-leading.
         case .fill: return CGSize(width: 660, height: 16)
-        case .stroke: return CGSize(width: 660, height: 230)
-        case .swatches: return CGSize(width: 16, height: 16)
-        case .opacity: return CGSize(width: 400, height: 16)
-        case .corners: return CGSize(width: 400, height: 180)
-        case .combine: return CGSize(width: 400, height: 380)
-        case .align: return CGSize(width: 16, height: 240)
-        case .history: return CGSize(width: 16, height: 400)
+        case .stroke: return CGSize(width: 660, height: 250)
+        case .layers: return CGSize(width: 16, height: 16)
+        // Opened on demand: staggered so any combination lands tidily.
+        case .swatches: return CGSize(width: 16, height: 420)
+        case .styles: return CGSize(width: 280, height: 16)
+        case .opacity: return CGSize(width: 660, height: 560)
+        case .corners: return CGSize(width: 400, height: 300)
+        case .combine: return CGSize(width: 400, height: 480)
+        case .align: return CGSize(width: 280, height: 420)
+        case .history: return CGSize(width: 400, height: 16)
+        }
+    }
+
+    /// First-run size for panels that opt into FloatingToolPanel's resizable
+    /// mode (only Layers today — a node tree wants height).
+    var defaultSize: CGSize {
+        switch self {
+        case .layers: return CGSize(width: 240, height: 360)
+        default: return .zero
         }
     }
 }
@@ -82,27 +103,46 @@ final class EditorPanelsState: ObservableObject {
 
     /// Per-panel offsets from the canvas's top-leading corner.
     @Published private var positions: [EditorPanel: CGSize]
+    /// Per-panel sizes for the resizable panels (Layers).
+    @Published private var sizes: [EditorPanel: CGSize]
 
-    private static let visibleKey = "fekthor.panels.visible"
+    // v2 keys: the v1 defaults shipped with every palette open in an
+    // overlapping pile; bumping the keys re-defaults everyone once into
+    // the curated layout without touching other preferences.
+    private static let visibleKey = "fekthor.panels.visible.v2"
     private static func positionKey(_ panel: EditorPanel) -> String {
-        "fekthor.panel.\(panel.rawValue).position"
+        "fekthor.panel.\(panel.rawValue).position.v2"
     }
+    private static func sizeKey(_ panel: EditorPanel) -> String {
+        "fekthor.panel.\(panel.rawValue).size.v2"
+    }
+
+    /// First-run set: the daily-driver palettes. Everything else is one
+    /// click away in the Panels menu — ten open palettes bury the canvas.
+    private static let defaultVisible: Set<EditorPanel> = [.fill, .stroke, .layers]
 
     private init() {
         if let raw = UserDefaults.standard.array(forKey: Self.visibleKey) as? [String] {
             visible = Set(raw.compactMap(EditorPanel.init(rawValue:)))
         } else {
-            visible = Set(EditorPanel.allCases)
+            visible = Self.defaultVisible
         }
         var loaded: [EditorPanel: CGSize] = [:]
+        var loadedSizes: [EditorPanel: CGSize] = [:]
         for panel in EditorPanel.allCases {
             if let pair = UserDefaults.standard.array(
                 forKey: Self.positionKey(panel)) as? [Double], pair.count == 2
             {
                 loaded[panel] = CGSize(width: pair[0], height: pair[1])
             }
+            if let pair = UserDefaults.standard.array(
+                forKey: Self.sizeKey(panel)) as? [Double], pair.count == 2
+            {
+                loadedSizes[panel] = CGSize(width: pair[0], height: pair[1])
+            }
         }
         positions = loaded
+        sizes = loadedSizes
     }
 
     func position(_ panel: EditorPanel) -> CGSize {
@@ -119,6 +159,22 @@ final class EditorPanelsState: ObservableObject {
         Binding(
             get: { self.position(panel) },
             set: { self.setPosition(panel, to: $0) })
+    }
+
+    func size(_ panel: EditorPanel) -> CGSize {
+        sizes[panel] ?? panel.defaultSize
+    }
+
+    func setSize(_ panel: EditorPanel, to size: CGSize) {
+        sizes[panel] = size
+        UserDefaults.standard.set(
+            [size.width, size.height], forKey: Self.sizeKey(panel))
+    }
+
+    func sizeBinding(_ panel: EditorPanel) -> Binding<CGSize> {
+        Binding(
+            get: { self.size(panel) },
+            set: { self.setSize(panel, to: $0) })
     }
 
     func toggleBinding(_ panel: EditorPanel) -> Binding<Bool> {
@@ -182,6 +238,16 @@ struct EditorPanelsLayer: View {
             if panels.visible.contains(.history) {
                 palette(.history) { HistoryPanelContent(session: session) }
             }
+            Group {
+                if panels.visible.contains(.styles) {
+                    palette(.styles) {
+                        StylesPanelContent(session: session, workspace: workspace)
+                    }
+                }
+                if panels.visible.contains(.layers) {
+                    resizablePalette(.layers) { LayersPanelContent(session: session) }
+                }
+            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -203,6 +269,29 @@ struct EditorPanelsLayer: View {
         }
         // Explicit stable identity: the free drag lives in @GestureState,
         // which survives only as long as the panel view's identity does.
+        .id(panel)
+    }
+
+    /// A palette in FloatingToolPanel's resizable mode (Layers): the size
+    /// persists next to the position, and the content fills the height.
+    private func resizablePalette(
+        _ panel: EditorPanel, @ViewBuilder content: () -> some View
+    ) -> some View {
+        FloatingToolPanel(
+            title: panel.title,
+            systemImage: panel.systemImage,
+            width: Self.panelWidth,
+            offset: panels.positionBinding(panel),
+            onClose: { panels.visible.remove(panel) },
+            snapStep: Self.snapStep,
+            resizable: true,
+            size: panels.sizeBinding(panel),
+            minSize: CGSize(width: 220, height: 240),
+            maxSize: CGSize(width: 520, height: 900),
+            cornerRadius: 18
+        ) {
+            content()
+        }
         .id(panel)
     }
 }
@@ -486,19 +575,23 @@ struct HistoryPanelContent: View {
             Text("Click a step to revert to the state before it")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            ScrollView {
-                VStack(spacing: 2) {
-                    currentRow
-                    ForEach(entries) { entry in
-                        row(entry)
-                    }
-                }
-            }
-            .frame(maxHeight: 240)
             if entries.isEmpty {
+                // No 240pt scroll reservation while empty — the palette
+                // stays compact instead of a tall hollow column.
+                currentRow
                 Text("No edits yet.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+            } else {
+                ScrollView {
+                    VStack(spacing: 2) {
+                        currentRow
+                        ForEach(entries) { entry in
+                            row(entry)
+                        }
+                    }
+                }
+                .frame(maxHeight: 240)
             }
         }
     }

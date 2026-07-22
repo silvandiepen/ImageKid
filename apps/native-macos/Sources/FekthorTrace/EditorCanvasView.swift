@@ -343,6 +343,9 @@ struct EditorCanvasView: View {
             case .raw:
                 continue  // defs/style blocks have no direct rendering
             case .group(let g):
+                let groupStyle = g.renderStyle
+                // Layers hide: display:none skips the whole subtree.
+                if groupStyle.isDisplayNone { continue }
                 var groupBase = base
                 if let t = g.transform {
                     let m = t.matrix
@@ -351,11 +354,13 @@ struct EditorCanvasView: View {
                             a: m[0], b: m[1], c: m[2], d: m[3], tx: m[4], ty: m[5]
                         ).concatenating(base)
                 }
-                let groupOpacity = opacity * (g.renderStyle.opacity ?? 1)
+                let groupOpacity = opacity * (groupStyle.opacity ?? 1)
                 drawNodes(
                     g.children, into: &ctx, base: groupBase, scale: scale,
                     opacity: groupOpacity)
             case .shape(let s):
+                let style = s.renderStyle
+                if style.isDisplayNone { continue }
                 var shapeBase = base
                 if let t = s.transform {
                     let m = t.matrix
@@ -364,7 +369,6 @@ struct EditorCanvasView: View {
                             a: m[0], b: m[1], c: m[2], d: m[3], tx: m[4], ty: m[5]
                         ).concatenating(base)
                 }
-                let style = s.renderStyle
                 let nodeOpacity = opacity * (style.opacity ?? 1)
                 var p = Path(CGPathBuilder.path(for: s.kind))
                 p = p.applying(shapeBase)
@@ -892,8 +896,15 @@ struct EditorCanvasView: View {
             for node in nodes {
                 switch node {
                 case .raw: continue
-                case .group(let g): walk(g.children)
+                case .group(let g):
+                    guard !g.renderStyle.isDisplayNone,
+                        !session.lockedNodes.contains(g.id)
+                    else { continue }
+                    walk(g.children)
                 case .shape(let s):
+                    guard !s.renderStyle.isDisplayNone,
+                        !session.lockedNodes.contains(s.id)
+                    else { continue }
                     guard let b = Editing2.bounds(of: s) else { continue }
                     let r = CGRect(
                         x: b.minX, y: b.minY, width: b.maxX - b.minX, height: b.maxY - b.minY)
@@ -1173,10 +1184,17 @@ struct EditorCanvasView: View {
                 switch node {
                 case .raw: continue
                 case .group(let g):
+                    // Hidden or locked groups are untouchable, subtree
+                    // included (Layers palette semantics).
+                    guard !g.renderStyle.isDisplayNone,
+                        !session.lockedNodes.contains(g.id)
+                    else { continue }
                     walk(g.children)
                 case .shape(let s):
-                    let path = shapePath(s)
                     let style = s.renderStyle
+                    guard !style.isDisplayNone, !session.lockedNodes.contains(s.id)
+                    else { continue }
+                    let path = shapePath(s)
                     let hasFill: Bool
                     if let f = style.fill {
                         hasFill = f != PaintValue.none

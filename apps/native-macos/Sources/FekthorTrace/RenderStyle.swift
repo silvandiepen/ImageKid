@@ -12,7 +12,7 @@ private let presentationStyleNames: Set<String> = [
     "fill", "fill-opacity", "fill-rule",
     "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin",
     "stroke-dasharray", "stroke-miterlimit", "stroke-opacity",
-    "opacity",
+    "opacity", "display",
 ]
 
 private func layered(_ base: Style, under extras: [XMLAttr]) -> Style {
@@ -40,5 +40,28 @@ extension GroupNode {
     /// (a `<g opacity="0.5">` should dim its children).
     var renderStyle: Style {
         layered(style, under: attributes.extras)
+    }
+}
+
+extension Style {
+    /// `display: none` — the Layers palette's hide flag. The engine keeps
+    /// unknown properties verbatim (`.raw`), so both forms are checked.
+    var isDisplayNone: Bool {
+        switch value(of: "display") {
+        case .raw("none")?, .keyword("none")?: return true
+        default: return false
+        }
+    }
+}
+
+extension GraphicNode {
+    /// Hidden for rendering/hit-testing: the node's render style (inline
+    /// style + presentation attributes + class rules) says `display: none`.
+    var isHiddenNode: Bool {
+        switch self {
+        case .shape(let s): return s.renderStyle.isDisplayNone
+        case .group(let g): return g.renderStyle.isDisplayNone
+        case .raw: return false
+        }
     }
 }

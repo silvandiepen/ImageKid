@@ -36,6 +36,10 @@ final class EditorSession: ObservableObject {
 
     @Published var document: GraphicDocument
     @Published var selection: Set<Int> = []
+    /// App-side node locks (Layers palette): locked nodes are skipped by
+    /// canvas hit-testing, marquee and selection. Session-only — the SVG on
+    /// disk never carries lock state.
+    @Published var lockedNodes: Set<Int> = []
     @Published var canUndo = false
     @Published var dirty = false
     @Published var status: String
@@ -721,6 +725,213 @@ final class EditorSession: ObservableObject {
         status = "Deleted \(ids.count) node(s)."
     }
 
+    // MARK: - Layers palette (visibility, lock, rename, sibling reorder)
+
+    /// Set/clear `display: none` on any node (shape or group). One labelled
+    /// undo step per click. Hiding also drops the node from the selection —
+    /// an invisible node must not keep transform handles.
+    func setNodeHidden(_ id: Int, _ hidden: Bool) {
+        beginGesture(label: hidden ? "Hide" : "Show")
+        var touched = false
+        mutate { doc in
+            touched = doc.updateNode(id: id) { attributes, style in
+                if hidden {
+                    style.set("display", .raw("none"))
+                } else {
+                    style.remove("display")
+                    // A presentation attribute `display="none"` would keep
+                    // the node hidden — clear it too.
+                    attributes.extras.removeAll { $0.name == "display" }
+                }
+            }
+        }
+        guard touched else {
+            undo()
+            return
+        }
+        if hidden { selection.remove(id) }
+        status = hidden ? "Hidden." : "Shown."
+    }
+
+    /// Lock/unlock a node (app-side only; no document mutation, no undo).
+    /// Locking deselects — a locked node cannot be manipulated.
+    func setNodeLocked(_ id: Int, _ locked: Bool) {
+        if locked {
+            lockedNodes.insert(id)
+            selection.remove(id)
+        } else {
+            lockedNodes.remove(id)
+        }
+        generation += 1
+    }
+
+    /// Rename a node: writes (or clears) its `data-name` attribute — the
+    /// name the Layers palette shows first. One undo step.
+    func renameNode(_ id: Int, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        beginGesture(label: "Rename")
+        var touched = false
+        mutate { doc in
+            touched = doc.updateNode(id: id) { attributes, _ in
+                if trimmed.isEmpty {
+                    attributes.extras.removeAll { $0.name == "data-name" }
+                } else if let i = attributes.extras.firstIndex(where: { $0.name == "data-name" }) {
+                    attributes.extras[i].value = trimmed
+                } else {
+                    attributes.extras.append(XMLAttr(name: "data-name", value: trimmed))
+                }
+            }
+        }
+        if !touched { undo() }
+    }
+
+    /// Layers drag-reorder: move `moved` to sit visually ABOVE `target`
+    /// (both must share a sibling array; groups move with their subtree).
+    /// One "Reorder" undo step when the order actually changes.
+    func reorderNode(_ moved: Int, above target: Int) {
+        guard moved != target else { return }
+        var next = document
+        var reordered = false
+        func walk(_ arr: inout [GraphicNode]) -> Bool {
+            let im = arr.firstIndex { $0.id == moved }
+            let it = arr.firstIndex { $0.id == target }
+            if let im, let it {
+                let node = arr.remove(at: im)
+                // Visually above = drawn later: insert right AFTER target.
+                arr.insert(node, at: (im < it ? it - 1 : it) + 1)
+                reordered = true
+                return true
+            }
+            // One of the two lives here, the other elsewhere: not siblings.
+            if im != nil || it != nil { return true }
+            for i in arr.indices {
+                if case .group(var g) = arr[i] {
+                    let done = walk(&g.children)
+                    arr[i] = .group(g)
+                    if done { return true }
+                }
+            }
+            return false
+        }
+        _ = walk(&next.nodes)
+        guard reordered else {
+            status = "Layers reorder works between siblings — move nodes in or out with Group/Ungroup."
+            return
+        }
+        guard next != document else { return }
+        beginGesture(label: "Reorder")
+        mutate { $0 = next }
+        status = "Reordered."
+    }
+
+    // MARK: - Named styles (Styles palette)
+
+    /// Apply a workspace named style to every selected SHAPE — groups are
+    /// skipped (the engine's `NamedStyles.apply` binds shapes). `roster` is
+    /// the full set of workspace style names so a re-style swaps its binding
+    /// class cleanly. One undo step.
+    func applyNamedStyle(_ style: NamedStyle, roster: [String]) {
+        let ids = selection.sorted().filter { document.firstShape(id: $0) != nil }
+        guard !ids.isEmpty else {
+            status = "Select a shape to apply “\(style.name)”."
+            return
+        }
+        beginGesture(label: "Apply style")
+        mutate { doc in
+            for id in ids {
+                guard let shape = doc.firstShape(id: id) else { continue }
+                doc.replaceShape(
+                    id: id, with: NamedStyles.apply(style, to: shape, replacing: roster))
+            }
+        }
+        status = "Applied “\(style.name)” to \(ids.count) node\(ids.count == 1 ? "" : "s")."
+    }
+
+    /// Snapshot the single selected shape's paint style as a named style
+    /// (nil when the selection is not exactly one shape).
+    func captureNamedStyle(named name: String) -> NamedStyle? {
+        guard selection.count == 1, let id = selection.first,
+            let shape = document.firstShape(id: id)
+        else { return nil }
+        return NamedStyles.capture(from: shape, name: name)
+    }
+
+    /// Rewrite the open document's nodes bound to `style` after its
+    /// declarations changed (engine propagate over a one-document dict).
+    /// One labelled undo step; a no-op when nothing here is bound.
+    func propagateNamedStyle(_ style: NamedStyle, label: String = "Update style") {
+        let changed = NamedStyles.propagate(style, docs: ["open": document])
+        guard let next = changed["open"] else { return }
+        beginGesture(label: label)
+        mutate { $0 = next }
+    }
+
+    /// Style rename: retag the binding class on every bound node of the
+    /// open document. One undo step when anything changed.
+    func retagClassInDocument(from old: String, to new: String, label: String = "Rename style") {
+        var changed = false
+        let nodes = ClassRetag.rename(document.nodes, old: old, new: new, changed: &changed)
+        guard changed else { return }
+        beginGesture(label: label)
+        mutate { $0.nodes = nodes }
+    }
+
+    /// Remove a class token from every node of the open document (style
+    /// delete with "strip"). One undo step when anything changed.
+    func stripClassInDocument(_ token: String, label: String = "Delete style") {
+        var changed = false
+        let nodes = ClassRetag.strip(document.nodes, token: token, changed: &changed)
+        guard changed else { return }
+        beginGesture(label: label)
+        mutate { $0.nodes = nodes }
+    }
+
+    // MARK: - Classes (Classes editor)
+
+    /// Add a user class to every selected node missing it (shapes AND
+    /// groups). One undo step for the whole selection.
+    func addClassToSelection(_ token: String) {
+        let ids = selection.sorted().filter { id in
+            guard let node = document.firstNode(id: id) else { return false }
+            return !ClassTokens.list(node.nodeAttributes).contains(token)
+        }
+        guard !ids.isEmpty else {
+            status = "Every selected node already has “\(token)”."
+            return
+        }
+        beginGesture(label: "Add class")
+        mutate { doc in
+            for id in ids {
+                doc.updateNode(id: id) { attributes, _ in
+                    var classes = ClassTokens.list(attributes)
+                    classes.append(token)
+                    attributes = ClassTokens.setting(attributes, to: classes)
+                }
+            }
+        }
+        status = "Added class “\(token)”."
+    }
+
+    /// Remove a class token from every selected node carrying it. One undo
+    /// step.
+    func removeClassFromSelection(_ token: String) {
+        let ids = selection.sorted().filter { id in
+            guard let node = document.firstNode(id: id) else { return false }
+            return ClassTokens.list(node.nodeAttributes).contains(token)
+        }
+        guard !ids.isEmpty else { return }
+        beginGesture(label: "Remove class")
+        mutate { doc in
+            for id in ids {
+                doc.updateNode(id: id) { attributes, _ in
+                    let classes = ClassTokens.list(attributes).filter { $0 != token }
+                    attributes = ClassTokens.setting(attributes, to: classes)
+                }
+            }
+        }
+        status = "Removed class “\(token)”."
+    }
+
     // MARK: - Saving
 
     func save() {
@@ -760,5 +971,65 @@ final class EditorSession: ObservableObject {
         } catch {
             status = "Save failed: \(error.localizedDescription)"
         }
+    }
+}
+
+// MARK: - App-side tree access (any node, shape OR group)
+
+extension GraphicNode {
+    /// The node's attributes (raw nodes have none — empty placeholder).
+    var nodeAttributes: NodeAttributes {
+        switch self {
+        case .shape(let s): return s.attributes
+        case .group(let g): return g.attributes
+        case .raw: return NodeAttributes()
+        }
+    }
+}
+
+extension GraphicDocument {
+    /// Find any node (shape or group) by id, depth-first.
+    func firstNode(id: Int) -> GraphicNode? {
+        func walk(_ nodes: [GraphicNode]) -> GraphicNode? {
+            for n in nodes {
+                if n.id == id, case .raw = n { return nil }
+                if n.id == id { return n }
+                if case .group(let g) = n, let hit = walk(g.children) { return hit }
+            }
+            return nil
+        }
+        return walk(nodes)
+    }
+
+    /// Edit any node's attributes + inline style in place (shape or group).
+    /// Returns false when the id is absent (or a raw node).
+    @discardableResult
+    mutating func updateNode(
+        id: Int, _ edit: (inout NodeAttributes, inout Style) -> Void
+    ) -> Bool {
+        func walk(_ nodes: inout [GraphicNode]) -> Bool {
+            for i in nodes.indices {
+                switch nodes[i] {
+                case .shape(var s) where s.id == id:
+                    edit(&s.attributes, &s.style)
+                    nodes[i] = .shape(s)
+                    return true
+                case .group(var g):
+                    if g.id == id {
+                        edit(&g.attributes, &g.style)
+                        nodes[i] = .group(g)
+                        return true
+                    }
+                    if walk(&g.children) {
+                        nodes[i] = .group(g)
+                        return true
+                    }
+                default:
+                    break
+                }
+            }
+            return false
+        }
+        return walk(&nodes)
     }
 }

@@ -41,14 +41,17 @@ enum ThumbnailRenderer {
             case .raw:
                 continue  // defs/style blocks have no direct rendering
             case .group(let g):
+                let groupStyle = g.renderStyle
+                if groupStyle.isDisplayNone { continue }  // hidden layer
                 ctx.saveGState()
                 if let t = g.transform { ctx.concatenate(affine(t)) }
-                draw(g.children, in: ctx, opacity: opacity * (g.renderStyle.opacity ?? 1))
+                draw(g.children, in: ctx, opacity: opacity * (groupStyle.opacity ?? 1))
                 ctx.restoreGState()
             case .shape(let s):
+                let style = s.renderStyle
+                if style.isDisplayNone { continue }  // hidden layer
                 ctx.saveGState()
                 if let t = s.transform { ctx.concatenate(affine(t)) }
-                let style = s.renderStyle
                 let nodeOpacity = opacity * (style.opacity ?? 1)
                 let path = CGPathBuilder.path(for: s.kind)
                 if let fill = style.fill ?? defaultFill(for: s), let c = fill.renderColor {

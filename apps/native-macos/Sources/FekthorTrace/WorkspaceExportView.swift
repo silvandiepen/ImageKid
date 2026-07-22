@@ -504,6 +504,7 @@ struct WorkspaceExportView: View {
             memberships: composeContainers ? session.containerMemberships : [:],
             partialLinks: composeContainers ? session.partialLinks : [:],
             compose: composeContainers,
+            namedStyles: session.settings.namedStyles ?? [],
             destination: destination,
             replaceExisting: replaceExisting
         ) { finished in
@@ -531,6 +532,7 @@ final class ExportRunController: ObservableObject {
         entries: [IconEntry], allEntries: [IconEntry], profile: Workfile.ExportProfile,
         slots: [Workfile.ContainerSlot], memberships: [String: [String]],
         partialLinks: [String: [String]], compose: Bool,
+        namedStyles: [NamedStyle] = [],
         destination: URL, replaceExisting: Bool, onFinished: @escaping (String) -> Void
     ) {
         guard !running else { return }
@@ -645,7 +647,8 @@ final class ExportRunController: ObservableObject {
 
             for (name, doc) in docs {
                 do {
-                    let result = try ExportRunner.apply(profile: profile, to: doc, name: name)
+                    let result = try ExportRunner.apply(
+                        profile: profile, to: doc, name: name, namedStyles: namedStyles)
                     writeOut(result.fileName, result.document)
                 } catch {
                     problems.append("\(name): \(error)")
@@ -655,7 +658,8 @@ final class ExportRunController: ObservableObject {
             for (fileName, doc) in composed {
                 let stem = fileName.hasSuffix(".svg") ? String(fileName.dropLast(4)) : fileName
                 do {
-                    let result = try ExportRunner.apply(profile: profile, to: doc, name: stem)
+                    let result = try ExportRunner.apply(
+                        profile: profile, to: doc, name: stem, namedStyles: namedStyles)
                     writeOut(result.fileName, result.document)
                 } catch {
                     problems.append("\(stem): \(error)")
