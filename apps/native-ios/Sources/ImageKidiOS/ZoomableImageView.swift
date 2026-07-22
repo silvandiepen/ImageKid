@@ -2,6 +2,17 @@ import AVFoundation
 import SwiftUI
 import UIKit
 
+/// Top safe-area inset (status bar) of the active window, plus the nav-bar
+/// height — used to keep on-canvas controls clear of the floating header when
+/// the canvas is full-bleed behind it.
+func canvasTopControlInset() -> CGFloat {
+    let scene = UIApplication.shared.connectedScenes
+        .compactMap { $0 as? UIWindowScene }
+        .first { $0.activationState == .foregroundActive } ?? (UIApplication.shared.connectedScenes.first as? UIWindowScene)
+    let safeTop = scene?.windows.first?.safeAreaInsets.top ?? 47
+    return safeTop + 44
+}
+
 /// Free pan + zoom image viewer (no UIScrollView, so it never springs back to
 /// centre): one-finger drag pans, pinch zooms (down to 25% and up to 8× of the
 /// fit size), double-tap returns to Fit. Matches the editor canvas so movement
@@ -44,7 +55,9 @@ struct ZoomableImageView: View {
             .simultaneousGesture(zoomGesture)
             .onTapGesture(count: 2) { fit() }
             .overlay(alignment: .topTrailing) {
-                zoomControls.padding(12)
+                zoomControls
+                    .padding(.trailing, 12)
+                    .padding(.top, canvasTopControlInset())
             }
         }
     }

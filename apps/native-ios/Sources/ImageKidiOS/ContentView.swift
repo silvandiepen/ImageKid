@@ -477,9 +477,9 @@ struct ContentView: View {
                     cropRect = CGRect(x: 0, y: 0, width: 1, height: 1)
                     activeTool = nil
                 })
-            case .select, .draw, .text:
-                // Text is handled by the dedicated text bar; here only the
-                // draw/shape controls appear.
+            case .draw:
+                // Shape/brush controls. Text has no panel here — the text bar
+                // (and keyboard bar) handle all text settings.
                 if activeTextID == nil, !isEditingTextInline {
                     AnnotationInspector(
                         selectedTool: $annotationKind,
@@ -487,7 +487,7 @@ struct ContentView: View {
                         widthFraction: $annotationWidthFraction,
                         textSizeFraction: $textSizeFraction,
                         annotations: annotations,
-                        defaultKind: activeTool == .text ? .text : .freehand,
+                        defaultKind: .freehand,
                         onCancel: {
                             resetAnnotations()
                             activeTool = nil
@@ -495,6 +495,8 @@ struct ContentView: View {
                         onApply: applyAnnotations
                     )
                 }
+            case .select, .text:
+                EmptyView()
             }
         }
     }
@@ -1269,7 +1271,8 @@ private struct InlineEditingCanvas: View {
             }
             .overlay(alignment: .topTrailing) {
                 zoomControls
-                    .padding(12)
+                    .padding(.trailing, 12)
+                    .padding(.top, canvasTopControlInset())
             }
         }
     }
