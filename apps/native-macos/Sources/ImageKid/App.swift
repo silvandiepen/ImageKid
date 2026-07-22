@@ -558,6 +558,31 @@ final class AppModel: ObservableObject {
         activeTool = .crop
     }
 
+    /// Fill the current selection with a colour (as a filled rectangle shape).
+    func fillSelection(with color: NSColor) {
+        guard case .image(let session) = media,
+              let selectionRect = session.selectionRect,
+              session.hasImageSelection else {
+            return
+        }
+        let frame = WorkingImageGeometry.sourceRect(
+            fromDisplayNormalized: selectionRect,
+            cropRect: session.cropRect
+        )
+        let fill = Annotation(
+            kind: .rectangle,
+            frame: frame,
+            strokeColor: .clear,
+            fillColor: color,
+            lineWidth: 0
+        )
+        session.annotations.append(fill)
+        session.record("Fill selection", systemImage: "paintbrush.fill")
+        session.selectionRect = nil
+        session.selectedAnnotationID = fill.id
+        activeTool = .select
+    }
+
     func copyCurrentImageToClipboard() {
         guard case .image(let session) = media,
               let image = ImageRenderer.render(session) else {
