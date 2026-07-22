@@ -18,6 +18,10 @@ public struct Workfile: Codable, Equatable, Sendable {
     /// Self-contained artboards, geometry embedded as SVG text.
     public var artboards: [EmbeddedArtboard]?
     public var categories: [String]?
+    /// Workspace standards applied to new icons and the editor canvas:
+    /// artboard size, grid, and drawing defaults. All optional so older
+    /// workfiles decode unchanged.
+    public var settings: WorkspaceSettings?
     public var exportProfiles: [ExportProfile]?
     public var styleTokens: [StyleToken]?
     public var containers: [ContainerSlot]?
@@ -27,7 +31,8 @@ public struct Workfile: Codable, Equatable, Sendable {
 
     public init(
         version: Int = 1, folder: FolderRef? = nil, artboards: [EmbeddedArtboard]? = nil,
-        categories: [String]? = nil, exportProfiles: [ExportProfile]? = nil,
+        categories: [String]? = nil, settings: WorkspaceSettings? = nil,
+        exportProfiles: [ExportProfile]? = nil,
         styleTokens: [StyleToken]? = nil, containers: [ContainerSlot]? = nil,
         containerMemberships: [String: [String]]? = nil
     ) {
@@ -35,10 +40,53 @@ public struct Workfile: Codable, Equatable, Sendable {
         self.folder = folder
         self.artboards = artboards
         self.categories = categories
+        self.settings = settings
         self.exportProfiles = exportProfiles
         self.styleTokens = styleTokens
         self.containers = containers
         self.containerMemberships = containerMemberships
+    }
+
+    /// Workspace standards: the artboard size new icons start with, the
+    /// editor grid, and drawing defaults. Every field optional; consumers
+    /// fall back to `WorkspaceSettings.standard` values per field.
+    public struct WorkspaceSettings: Codable, Equatable, Sendable {
+        /// New-icon artboard size (viewBox `0 0 w h`).
+        public var iconWidth: Double?
+        public var iconHeight: Double?
+        /// Editor grid spacing in artboard units; nil hides the grid.
+        public var gridSpacing: Double?
+        /// Light subdivision lines per grid cell (0/nil = none).
+        public var gridSubdivisions: Int?
+        /// Snap dragged anchors/shapes to the grid.
+        public var snapToGrid: Bool?
+        /// Defaults applied to newly drawn shapes and new icons.
+        public var defaultStrokeColor: String?
+        public var defaultStrokeWidth: Double?
+        public var defaultFill: String?
+
+        public init(
+            iconWidth: Double? = nil, iconHeight: Double? = nil, gridSpacing: Double? = nil,
+            gridSubdivisions: Int? = nil, snapToGrid: Bool? = nil,
+            defaultStrokeColor: String? = nil, defaultStrokeWidth: Double? = nil,
+            defaultFill: String? = nil
+        ) {
+            self.iconWidth = iconWidth
+            self.iconHeight = iconHeight
+            self.gridSpacing = gridSpacing
+            self.gridSubdivisions = gridSubdivisions
+            self.snapToGrid = snapToGrid
+            self.defaultStrokeColor = defaultStrokeColor
+            self.defaultStrokeWidth = defaultStrokeWidth
+            self.defaultFill = defaultFill
+        }
+
+        /// Fekthor's fallbacks, matching the open-icon conventions the
+        /// user draws with (24pt artboard, stroke-first icons).
+        public static let standard = WorkspaceSettings(
+            iconWidth: 24, iconHeight: 24, gridSpacing: 1, gridSubdivisions: 0,
+            snapToGrid: false, defaultStrokeColor: "#010101", defaultStrokeWidth: 2,
+            defaultFill: "none")
     }
 
     public struct FolderRef: Codable, Equatable, Sendable {

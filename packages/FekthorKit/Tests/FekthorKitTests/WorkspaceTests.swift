@@ -382,3 +382,31 @@ final class WorkspaceTests: XCTestCase {
         print("workspace corpus: \(ws.entries.count) icons, \(ws.categories.count) categories, \(metaCount) meta files")
     }
 }
+// MARK: - Create (new icon)
+
+extension WorkspaceTests {
+    func testCreateWritesNewIconAndRefusesCollision() throws {
+        let ws = try scan()
+        let svg = SVGWriter.write(.blank(width: 24, height: 24))
+        let change = try ws.create(name: "icon_new", category: "ui", svg: svg)
+        XCTAssertEqual(change.svg.lastPathComponent, "icon_new.svg")
+        XCTAssertEqual(try String(contentsOf: change.svg, encoding: .utf8), svg)
+        let rescanned = try scan()
+        XCTAssertTrue(rescanned.entries.contains { $0.id == "ui/icon_new" })
+        XCTAssertThrowsError(try ws.create(name: "icon_new", category: "ui", svg: svg)) {
+            guard case WorkspaceError.targetExists = $0 else {
+                return XCTFail("expected targetExists, got \($0)")
+            }
+        }
+    }
+
+    func testCreateInNewCategoryAndRoot() throws {
+        let ws = try scan()
+        let svg = SVGWriter.write(.blank(width: 24, height: 24))
+        let inNew = try ws.create(name: "a", category: "fresh", svg: svg)
+        XCTAssertTrue(inNew.svg.path.hasSuffix("fresh/a.svg"))
+        let atRoot = try ws.create(name: "b", category: "", svg: svg)
+        XCTAssertEqual(atRoot.svg.deletingLastPathComponent().path, ws.root.path)
+        XCTAssertThrowsError(try ws.create(name: "bad/name", category: "", svg: svg))
+    }
+}

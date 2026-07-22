@@ -42,3 +42,16 @@ final class WorkfileTests: XCTestCase {
         XCTAssertEqual(restored, doc)
     }
 }
+
+extension WorkfileTests {
+    func testWorkspaceSettingsRoundTripAndTolerance() throws {
+        var wf = Workfile()
+        wf.settings = .init(iconWidth: 24, iconHeight: 24, gridSpacing: 1, snapToGrid: true)
+        let decoded = try Workfile.decode(wf.encoded())
+        XCTAssertEqual(decoded, wf)
+        // Old workfiles without the key decode with nil settings.
+        let old = try Workfile.decode(Workfile().encoded())
+        XCTAssertNil(old.settings)
+        XCTAssertEqual(Workfile.WorkspaceSettings.standard.iconWidth, 24)
+    }
+}

@@ -206,6 +206,24 @@ public struct Workspace: Equatable, Sendable {
         return FileChange(svg: target, meta: nil)
     }
 
+    /// Writes a brand-new icon SVG into a category (`""` = root), creating
+    /// the category folder if needed. Refuses to overwrite (`targetExists`).
+    /// Returns the change; callers rescan to pick up the new entry.
+    @discardableResult
+    public func create(name: String, category: String, svg: String) throws -> FileChange {
+        try validate(name: name)
+        if !category.isEmpty { try validate(name: category) }
+        let fm = FileManager.default
+        let folder = category.isEmpty ? root : root.appendingPathComponent(category)
+        try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        let target = folder.appendingPathComponent(name + ".svg")
+        guard !fm.fileExists(atPath: target.path) else {
+            throw WorkspaceError.targetExists(target.path)
+        }
+        try svg.write(to: target, atomically: true, encoding: .utf8)
+        return FileChange(svg: target, meta: nil)
+    }
+
     /// Creates an empty category subfolder. Throws `categoryExists` when a
     /// file or folder of that name is already present.
     @discardableResult
