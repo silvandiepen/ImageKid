@@ -19,6 +19,7 @@ struct ImageWorkspaceView: View {
     @State private var didCaptureBackgroundUndo = false
     @State private var isViewportToolbarCollapsed = false
     @State private var panelOffset: CGSize = .zero
+    @State private var gridPanelOffset: CGSize = .zero
     @State private var progressBarOffset: CGSize = .zero
     @State private var editingTextID: UUID?
     @FocusState private var inlineTextFocused: Bool
@@ -160,7 +161,10 @@ struct ImageWorkspaceView: View {
                 if tool == .rotate {
                     session.beginRotation()
                 }
-                if tool != .view {
+                // Canvas-level tools drop any annotation selection; View and
+                // Select keep it (Select is where you edit the selected item,
+                // and newly-placed text switches to Select while staying selected).
+                if tool != .view && tool != .select {
                     session.selectedAnnotationID = nil
                 }
             }
@@ -213,10 +217,21 @@ struct ImageWorkspaceView: View {
     private var toolPanels: some View {
         ZStack(alignment: .topLeading) {
             // Right-side, tool-driven context panels.
-            VStack {
+            VStack(spacing: 12) {
                 HStack(alignment: .top) {
                     Spacer()
                     rightToolPanels
+                }
+                if session.showGridPanel {
+                    HStack(alignment: .top) {
+                        Spacer()
+                        GridControls(
+                            session: session,
+                            offset: $gridPanelOffset,
+                            onClose: { session.showGridPanel = false }
+                        )
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                    }
                 }
                 Spacer()
             }
@@ -224,6 +239,7 @@ struct ImageWorkspaceView: View {
             .padding(.trailing, 18)
             .animation(.easeOut(duration: 0.18), value: appModel.activeTool)
             .animation(.easeOut(duration: 0.18), value: session.selectedAnnotationID)
+            .animation(.easeOut(duration: 0.18), value: session.showGridPanel)
 
             // Movable, minimizable dockable panels + their minimized icon rail.
             dockablePanelsLayer
@@ -606,21 +622,42 @@ struct ImageWorkspaceView: View {
             let workingSize = session.effectivePixelSize
             let step = session.gridSizePx * imageRect.width / max(workingSize.width, 1)
             if step > 3 {
+                let base = Color(nsColor: session.gridColor)
+                let subdivisions = max(1, session.gridSubdivisions)
+                let subStep = step / CGFloat(subdivisions)
                 Canvas { context, _ in
+                    // Finer subdivision lines first (fainter), main grid on top.
+                    if subdivisions > 1 && subStep > 2 {
+                        var subPath = Path()
+                        var sx = imageRect.minX
+                        while sx <= imageRect.maxX + 0.5 {
+                            subPath.move(to: CGPoint(x: sx, y: imageRect.minY))
+                            subPath.addLine(to: CGPoint(x: sx, y: imageRect.maxY))
+                            sx += subStep
+                        }
+                        var sy = imageRect.minY
+                        while sy <= imageRect.maxY + 0.5 {
+                            subPath.move(to: CGPoint(x: imageRect.minX, y: sy))
+                            subPath.addLine(to: CGPoint(x: imageRect.maxX, y: sy))
+                            sy += subStep
+                        }
+                        context.stroke(subPath, with: .color(base.opacity(session.gridOpacity * 0.45)), lineWidth: 0.5)
+                    }
+
                     var path = Path()
                     var x = imageRect.minX
-                    while x <= imageRect.maxX {
+                    while x <= imageRect.maxX + 0.5 {
                         path.move(to: CGPoint(x: x, y: imageRect.minY))
                         path.addLine(to: CGPoint(x: x, y: imageRect.maxY))
                         x += step
                     }
                     var y = imageRect.minY
-                    while y <= imageRect.maxY {
+                    while y <= imageRect.maxY + 0.5 {
                         path.move(to: CGPoint(x: imageRect.minX, y: y))
                         path.addLine(to: CGPoint(x: imageRect.maxX, y: y))
                         y += step
                     }
-                    context.stroke(path, with: .color(.white.opacity(0.16)), lineWidth: 0.5)
+                    context.stroke(path, with: .color(base.opacity(session.gridOpacity)), lineWidth: 0.6)
                 }
                 .allowsHitTesting(false)
             }

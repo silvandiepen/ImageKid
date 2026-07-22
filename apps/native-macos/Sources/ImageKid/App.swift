@@ -1403,12 +1403,32 @@ struct AppCommands: Commands {
             .keyboardShortcut("'", modifiers: [.command, .shift])
             .disabled(currentAppModel?.imageSession == nil)
 
-            Menu("Grid Size") {
-                ForEach([16, 32, 64, 128, 256], id: \.self) { size in
-                    Button("\(size) px") { currentAppModel?.imageSession?.gridSizePx = CGFloat(size) }
-                }
+            Button((currentAppModel?.imageSession?.showGridPanel == true ? "Hide" : "Show") + " Grid Settings…") {
+                currentAppModel?.imageSession?.showGridPanel.toggle()
             }
             .disabled(currentAppModel?.imageSession == nil)
+
+            Divider()
+
+            Button(currentAppModel?.isWorkspaceSidebarCollapsed == true ? "Show Files Sheet" : "Minimize Files Sheet") {
+                currentAppModel?.toggleFilesSheet()
+            }
+            .keyboardShortcut("1", modifiers: [.command, .option])
+            .disabled(currentAppModel?.canToggleFilesSheet != true)
+
+            Divider()
+
+            Button("Zoom In") { currentAppModel?.zoomIn() }
+                .keyboardShortcut("+")
+                .disabled(currentAppModel == nil)
+
+            Button("Zoom Out") { currentAppModel?.zoomOut() }
+                .keyboardShortcut("-")
+                .disabled(currentAppModel == nil)
+
+            Button("Fit to Window") { currentAppModel?.resetView() }
+                .keyboardShortcut("0", modifiers: [])
+                .disabled(currentAppModel == nil)
 
             Divider()
         }
@@ -1437,30 +1457,6 @@ struct AppCommands: Commands {
             Divider()
             Button("Cancel Current Tool") { currentAppModel?.cancelCurrentTool() }
                 .keyboardShortcut(.cancelAction)
-                .disabled(currentAppModel == nil)
-        }
-
-        CommandMenu("View") {
-            Button(currentAppModel?.isWorkspaceSidebarCollapsed == true ? "Show Files Sheet" : "Minimize Files Sheet") {
-                currentAppModel?.toggleFilesSheet()
-            }
-            .keyboardShortcut("1", modifiers: [.command, .option])
-            .disabled(currentAppModel?.canToggleFilesSheet != true)
-
-            Divider()
-
-            Button("Zoom In") { currentAppModel?.zoomIn() }
-                .keyboardShortcut("+")
-                .disabled(currentAppModel == nil)
-
-            Button("Zoom Out") { currentAppModel?.zoomOut() }
-                .keyboardShortcut("-")
-                .disabled(currentAppModel == nil)
-
-            Divider()
-
-            Button("Fit to Window") { currentAppModel?.resetView() }
-                .keyboardShortcut("0", modifiers: [])
                 .disabled(currentAppModel == nil)
         }
 

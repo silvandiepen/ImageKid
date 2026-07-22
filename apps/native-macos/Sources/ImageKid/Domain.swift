@@ -561,6 +561,16 @@ final class ImageSession: ObservableObject {
     @Published var showGrid = false
     @Published var snapToGrid = false
     @Published var gridSizePx: CGFloat = 64
+    /// Grid line colour (hex). Default subtle white.
+    @Published var gridColorHex: String = "#FFFFFF"
+    /// Grid line opacity, 0…1.
+    @Published var gridOpacity: Double = 0.18
+    /// Number of finer subdivisions drawn between the main grid lines (1 = none).
+    @Published var gridSubdivisions: Int = 1
+    /// Whether the floating Grid settings panel is showing.
+    @Published var showGridPanel = false
+
+    var gridColor: NSColor { ColorHex.color(from: gridColorHex) ?? .white }
 
     /// Snap a normalised frame's origin to the grid (in source pixels).
     func gridSnapped(_ frame: CGRect) -> CGRect {
