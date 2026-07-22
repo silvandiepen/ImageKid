@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @StateObject private var model = ConversionModel()
+    @State private var editorSession: EditorSession? = nil
     @State private var showInspector = true
     @State private var zoom: CGFloat = 1
     @State private var offset: CGSize = .zero
@@ -12,8 +13,12 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if model.sourceImage == nil && model.document == nil {
-                    EmptyStateView(model: model)
+                if let session = editorSession {
+                    EditorWorkspaceView(
+                        session: session, zoom: $zoom, offset: $offset,
+                        onClose: { editorSession = nil })
+                } else if model.sourceImage == nil && model.document == nil {
+                    EmptyStateView(model: model, onNewFile: { newFile() }, onOpen: { openAny() })
                 } else {
                     VStack(spacing: 0) {
                         ComparisonView(
@@ -46,6 +51,56 @@ struct ContentView: View {
                 offset = .zero
             }
             .onAppear { model.loadLaunchArgumentIfPresent() }
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorNewFile)) { _ in
+                newFile()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorOpen)) { _ in
+                openAny()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorSave)) { _ in
+                if let session = editorSession { session.save() } else { model.exportSVG() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorSaveAs)) { _ in
+                editorSession?.saveAs()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorTraceImage)) { _ in
+                editorSession = nil
+                model.openPanel()
+            }
+        }
+    }
+
+    private func newFile() {
+        editorSession = EditorSession.blank(size: 72)
+        zoom = 1
+        offset = .zero
+    }
+
+    /// One Open for everything: svg/fekthor go to the editor, rasters to trace.
+    private func openAny() {
+        let panel = NSOpenPanel()
+        var types: [UTType] = [.png, .jpeg, .tiff, .heic, .image]
+        if let svg = UTType(filenameExtension: "svg") { types.insert(svg, at: 0) }
+        if let fk = UTType(filenameExtension: "fekthor") { types.insert(fk, at: 1) }
+        panel.allowedContentTypes = types
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        route(url: url)
+    }
+
+    private func route(url: URL) {
+        let ext = url.pathExtension.lowercased()
+        if ext == "svg" || ext == "fekthor" {
+            do {
+                editorSession = try EditorSession.open(url: url)
+                zoom = 1
+                offset = .zero
+            } catch {
+                model.status = "Could not open \(url.lastPathComponent): \(error.localizedDescription)"
+            }
+        } else {
+            editorSession = nil
+            model.load(path: url.path)
         }
     }
 
@@ -109,6 +164,8 @@ struct ContentView: View {
 
 private struct EmptyStateView: View {
     @ObservedObject var model: ConversionModel
+    var onNewFile: () -> Void = {}
+    var onOpen: () -> Void = {}
 
     var body: some View {
         ZStack {
@@ -123,10 +180,10 @@ private struct EmptyStateView: View {
                     homeCard(
                         icon: "doc.badge.plus",
                         title: "New File",
-                        subtitle: "A blank artboard.\nSaves as plain SVG.",
+                        subtitle: "A blank 72×72 artboard.\nSaves as plain SVG.",
                         enabled: true
                     ) {
-                        model.newBlankDocument()
+                        onNewFile()
                     }
                     homeCard(
                         icon: "square.grid.3x3.square",
@@ -144,7 +201,9 @@ private struct EmptyStateView: View {
                         model.openPanel()
                     }
                 }
-                Text("or drop an image anywhere · press ⌘V to paste · PNG · JPEG · TIFF · HEIC · WebP")
+                Button("Open a file…", action: onOpen)
+                    .buttonStyle(.link)
+                Text("or drop an image or SVG anywhere · press ⌘V to paste")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -770,5 +829,131 @@ private struct InspectorView: View {
                 if !editing { model.convert() }
             }
         }
+    }
+}
+
+// MARK: - Editor workspace
+
+/// The vector-editor face of the app: an EditorSession's canvas with a
+/// compact top bar (file name, fill/stroke colour for the selection, undo,
+/// save, close). Trace remains a separate flow.
+struct EditorWorkspaceView: View {
+    @ObservedObject var session: EditorSession
+    @Binding var zoom: CGFloat
+    @Binding var offset: CGSize
+    var onClose: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Button {
+                    onClose()
+                } label: {
+                    Label("Home", systemImage: "chevron.left")
+                }
+                Text(session.fileURL?.lastPathComponent ?? "Untitled")
+                    .font(.headline)
+                if session.dirty {
+                    Circle().fill(.orange).frame(width: 7, height: 7)
+                }
+                Spacer()
+                if !session.selection.isEmpty {
+                    Text("\(session.selection.count) selected")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    ColorPicker(
+                        "Stroke",
+                        selection: Binding(
+                            get: { selectionColor(\Style.stroke) },
+                            set: { session.setSelectionColor($0, target: .stroke) })
+                    )
+                    .frame(width: 90)
+                    ColorPicker(
+                        "Fill",
+                        selection: Binding(
+                            get: { selectionColor(\Style.fill) },
+                            set: { session.setSelectionColor($0, target: .fill) })
+                    )
+                    .frame(width: 70)
+                }
+                Button {
+                    session.undo()
+                } label: {
+                    Label("Undo", systemImage: "arrow.uturn.backward")
+                }
+                .keyboardShortcut("z", modifiers: .command)
+                .disabled(!session.canUndo)
+                Button {
+                    session.save()
+                } label: {
+                    Label("Save", systemImage: "square.and.arrow.down")
+                }
+                // Backspace deletes selected nodes.
+                Button { session.deleteSelection() } label: { EmptyView() }
+                    .keyboardShortcut(.delete, modifiers: [])
+                    .disabled(session.selection.isEmpty)
+                    .frame(width: 0, height: 0)
+                    .opacity(0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            Divider()
+            ZStack(alignment: .bottom) {
+                EditorCanvasView(session: session, zoom: $zoom, offset: $offset)
+                    .overlay(
+                        TrackpadCatcher(
+                            onPan: { dx, dy in
+                                offset = CGSize(
+                                    width: offset.width + dx, height: offset.height + dy)
+                            },
+                            onZoom: { m in zoom = min(64, max(0.2, zoom * (1 + m))) },
+                            onDoubleClick: { _ in zoom = min(64, zoom * 1.6) }
+                        )
+                    )
+                editorZoomControls
+            }
+            Divider()
+            HStack {
+                Text(session.status).foregroundStyle(.secondary).lineLimit(1)
+                Spacer()
+                Text("\(session.document.nodes.count) nodes")
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+        }
+    }
+
+    private func selectionColor(_ key: KeyPath<Style, PaintValue?>) -> Color {
+        guard let id = session.selection.sorted().first,
+            let shape = session.document.firstShape(id: id),
+            let paint = shape.effectiveStyle[keyPath: key],
+            let c = paint.renderColor
+        else { return .black }
+        return Color(red: Double(c.r) / 255, green: Double(c.g) / 255, blue: Double(c.b) / 255)
+    }
+
+    private var editorZoomControls: some View {
+        HStack(spacing: 2) {
+            Button { zoom = max(0.2, zoom / 1.25) } label: { Image(systemName: "minus") }
+                .keyboardShortcut("-", modifiers: .command)
+            Text("\(Int(zoom * 100))%").font(.callout.monospacedDigit()).frame(width: 56)
+            Button { zoom = min(64, zoom * 1.25) } label: { Image(systemName: "plus") }
+                .keyboardShortcut("=", modifiers: .command)
+            Divider().frame(height: 16)
+            Button {
+                zoom = 1
+                offset = .zero
+            } label: {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+            }
+        }
+        .buttonStyle(.borderless)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(.quaternary))
+        .padding(.bottom, 12)
     }
 }
