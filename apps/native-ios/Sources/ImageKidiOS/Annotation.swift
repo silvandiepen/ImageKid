@@ -51,6 +51,9 @@ struct Annotation: Identifiable {
     /// Text content and size (fraction of image height) for `.text` annotations.
     var text: String = ""
     var fontFraction: CGFloat = 0.05
+    /// Hidden layers stay in the stack but are skipped by the editor canvas
+    /// and the rasteriser (toggled from the Layers panel's eye button).
+    var isHidden = false
 
     var isText: Bool { kind == .text }
 
@@ -61,6 +64,23 @@ struct Annotation: Identifiable {
 
     func fontSize(in rect: CGRect) -> CGFloat {
         max(1, fontFraction * rect.height)
+    }
+
+    /// Measured bounds of a text annotation mapped into `rect` (view or pixel
+    /// space), using the same system font as the rasteriser so hit-testing and
+    /// the selection border line up with what is drawn.
+    func textBounds(in rect: CGRect) -> CGRect {
+        let font = UIFont.systemFont(ofSize: fontSize(in: rect))
+        let measured = (text.isEmpty ? " " : text) as NSString
+        let size = measured.size(withAttributes: [.font: font])
+        return CGRect(origin: textOrigin(in: rect), size: size)
+    }
+
+    /// A rectangle enclosing the annotation in `rect`, for selection chrome.
+    func selectionBounds(in rect: CGRect) -> CGRect {
+        if isText { return textBounds(in: rect) }
+        let inset = -strokeWidth(in: rect) / 2
+        return path(in: rect).boundingBox.insetBy(dx: inset, dy: inset)
     }
 
     /// Absolute stroke width for a given target rectangle (view or pixel space).
@@ -142,7 +162,7 @@ enum AnnotationRasterizer {
             cg.setLineCap(.round)
             cg.setLineJoin(.round)
             let fullRect = CGRect(origin: .zero, size: pixelSize)
-            for annotation in annotations {
+            for annotation in annotations where !annotation.isHidden {
                 if annotation.isText {
                     let attributes: [NSAttributedString.Key: Any] = [
                         .font: UIFont.systemFont(ofSize: annotation.fontSize(in: fullRect)),

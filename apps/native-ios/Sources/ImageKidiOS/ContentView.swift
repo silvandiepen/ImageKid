@@ -29,6 +29,9 @@ struct ContentView: View {
     @State private var isEnteringText = false
     @State private var textInput = ""
     @State private var pendingTextLocation: CGPoint?
+    @State private var selectedAnnotationID: UUID?
+    @State private var editingAnnotationID: UUID?
+    @State private var isShowingLayersSheet = false
     @State private var currentSample: SampledColor?
     @State private var sampleLocation: CGPoint?
 
@@ -38,6 +41,13 @@ struct ContentView: View {
     @AppStorage("ipad.annotatePanel.offset.x") private var annotatePanelX: Double = 0
     @AppStorage("ipad.annotatePanel.offset.y") private var annotatePanelY: Double = 0
     @AppStorage("ipad.annotatePanel.minimized") private var isAnnotatePanelMinimized = false
+
+    // The Layers panel follows the same pattern: toggled from the toolbar,
+    // floating on regular widths, with its resting spot persisted.
+    @AppStorage("ipad.layersPanel.shown") private var isLayersPanelShown = false
+    @AppStorage("ipad.layersPanel.offset.x") private var layersPanelX: Double = 0
+    @AppStorage("ipad.layersPanel.offset.y") private var layersPanelY: Double = 0
+    @AppStorage("ipad.layersPanel.minimized") private var isLayersPanelMinimized = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: $preferredColumn) {
@@ -79,6 +89,13 @@ struct ContentView: View {
                     .padding(16)
             }
         }
+        .overlay(alignment: .topTrailing) {
+            if usesFloatingLayersPanel {
+                layersFloatingPanel
+                    .padding(16)
+            }
+        }
+        .background { hardwareDeleteShortcut }
         .navigationTitle("ImageKid")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { editorToolbar }
@@ -95,6 +112,19 @@ struct ContentView: View {
             }
         }
         ToolbarItemGroup(placement: .topBarTrailing) {
+            if model.workingImage != nil, model.videoURL == nil {
+                Button {
+                    if isRegularWidth {
+                        isLayersPanelShown.toggle()
+                        isLayersPanelMinimized = false
+                    } else {
+                        isShowingLayersSheet = true
+                    }
+                } label: {
+                    Image(systemName: "square.3.layers.3d")
+                }
+                .accessibilityLabel("Layers")
+            }
             if model.workingImage != nil {
                 Button { model.undo() } label: { Image(systemName: "arrow.uturn.backward") }
                     .disabled(!model.canUndo)
@@ -136,6 +166,24 @@ struct ContentView: View {
             }
             .sheet(isPresented: $isShowingSettings) {
                 SettingsView()
+            }
+            .sheet(isPresented: $isShowingLayersSheet) {
+                NavigationStack {
+                    LayersPanelContent(
+                        annotations: $annotations,
+                        selectedAnnotationID: $selectedAnnotationID
+                    )
+                    .padding()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .navigationTitle("Layers")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { isShowingLayersSheet = false }
+                        }
+                    }
+                }
+                .presentationDetents([.medium, .large])
             }
             .alert("Add text", isPresented: $isEnteringText) {
                 TextField("Text", text: $textInput)
@@ -205,6 +253,7 @@ struct ContentView: View {
                     widthFraction: $annotationWidthFraction,
                     textSizeFraction: $textSizeFraction,
                     annotations: $annotations,
+                    selectedAnnotationID: $selectedAnnotationID,
                     defaultKind: isText ? .text : .freehand,
                     onCancel: {
                         resetAnnotations()
@@ -218,6 +267,67 @@ struct ContentView: View {
                 .environment(\.colorScheme, .dark)
             }
         }
+    }
+
+    /// The Layers panel floats on regular widths whenever an image is open;
+    /// compact widths get the same content as a sheet from the toolbar button.
+    private var usesFloatingLayersPanel: Bool {
+        isRegularWidth && isLayersPanelShown && model.workingImage != nil && model.videoURL == nil
+    }
+
+    private var layersPanelOffset: Binding<CGSize> {
+        Binding(
+            get: { CGSize(width: layersPanelX, height: layersPanelY) },
+            set: { newValue in
+                layersPanelX = newValue.width
+                layersPanelY = newValue.height
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var layersFloatingPanel: some View {
+        if isLayersPanelMinimized {
+            MinimizedPanelChip(systemImage: "square.3.layers.3d", isActive: true) {
+                isLayersPanelMinimized = false
+            }
+        } else {
+            FloatingToolPanel(
+                title: "Layers",
+                systemImage: "square.3.layers.3d",
+                width: 300,
+                offset: layersPanelOffset,
+                onMinimize: { isLayersPanelMinimized = true },
+                snapStep: 20
+            ) {
+                LayersPanelContent(
+                    annotations: $annotations,
+                    selectedAnnotationID: $selectedAnnotationID,
+                    listMaxHeight: 280
+                )
+                .darkPanelControl()
+                .environment(\.colorScheme, .dark)
+            }
+        }
+    }
+
+    /// Hidden button so Backspace/Delete on a hardware keyboard removes the
+    /// selected annotation — but never while typing into a text field.
+    private var hardwareDeleteShortcut: some View {
+        Button(action: deleteSelectedAnnotation) {
+            EmptyView()
+        }
+        .keyboardShortcut(.delete, modifiers: [])
+        .disabled(selectedAnnotationID == nil || editingAnnotationID != nil || isEnteringText)
+        .opacity(0)
+        .accessibilityHidden(true)
+    }
+
+    private func deleteSelectedAnnotation() {
+        guard let id = selectedAnnotationID else { return }
+        annotations.removeAll { $0.id == id }
+        selectedAnnotationID = nil
+        if editingAnnotationID == id { editingAnnotationID = nil }
     }
 
     /// The canvas fills the whole editor area; the image sits on top with a border
@@ -259,6 +369,8 @@ struct ContentView: View {
                     cropRect: $cropRect,
                     annotations: $annotations,
                     draftAnnotation: $draftAnnotation,
+                    selectedAnnotationID: $selectedAnnotationID,
+                    editingAnnotationID: $editingAnnotationID,
                     annotationKind: annotationToolKind,
                     annotationColor: annotationColor,
                     annotationWidthFraction: annotationWidthFraction,
@@ -459,6 +571,7 @@ struct ContentView: View {
                     widthFraction: $annotationWidthFraction,
                     textSizeFraction: $textSizeFraction,
                     annotations: $annotations,
+                    selectedAnnotationID: $selectedAnnotationID,
                     defaultKind: activeTool == .text ? .text : .freehand,
                     onCancel: {
                         resetAnnotations()
@@ -529,6 +642,8 @@ struct ContentView: View {
         draftAnnotation = nil
         pendingTextLocation = nil
         textInput = ""
+        selectedAnnotationID = nil
+        editingAnnotationID = nil
     }
 
     private func addTextAnnotation() {
@@ -539,6 +654,7 @@ struct ContentView: View {
         annotation.text = trimmed
         annotation.fontFraction = textSizeFraction
         annotations.append(annotation)
+        selectedAnnotationID = annotation.id
         self.pendingTextLocation = nil
         textInput = ""
     }
@@ -908,6 +1024,7 @@ private struct AnnotationInspector: View {
     @Binding var widthFraction: CGFloat
     @Binding var textSizeFraction: CGFloat
     @Binding var annotations: [Annotation]
+    @Binding var selectedAnnotationID: UUID?
     let defaultKind: Annotation.Kind
     let onCancel: () -> Void
     let onApply: () -> Void
@@ -920,6 +1037,7 @@ private struct AnnotationInspector: View {
                 widthFraction: $widthFraction,
                 textSizeFraction: $textSizeFraction,
                 annotations: $annotations,
+                selectedAnnotationID: $selectedAnnotationID,
                 defaultKind: defaultKind,
                 onCancel: onCancel,
                 onApply: onApply
@@ -936,6 +1054,7 @@ private struct AnnotationControls: View {
     @Binding var widthFraction: CGFloat
     @Binding var textSizeFraction: CGFloat
     @Binding var annotations: [Annotation]
+    @Binding var selectedAnnotationID: UUID?
     let defaultKind: Annotation.Kind
     let onCancel: () -> Void
     let onApply: () -> Void
@@ -969,6 +1088,22 @@ private struct AnnotationControls: View {
                     Image(systemName: "arrow.uturn.backward")
                 }
                 .disabled(annotations.isEmpty)
+                if defaultKind == .text {
+                    // Deletes the SELECTED text (the per-layer delete the
+                    // canvas selection pairs with); the trash below still
+                    // clears everything.
+                    Button(role: .destructive) {
+                        if let id = selectedAnnotationID {
+                            annotations.removeAll { $0.id == id }
+                            selectedAnnotationID = nil
+                        }
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .tint(.red)
+                    .disabled(selectedAnnotationID == nil)
+                    .accessibilityLabel("Delete selected text")
+                }
             }
 
             HStack {
@@ -989,6 +1124,146 @@ private struct AnnotationControls: View {
                 .disabled(annotations.isEmpty)
             }
         }
+    }
+}
+
+/// The annotation layer stack, topmost first (annotations draw in array
+/// order, so the last element sits on top). Shared by the iPad floating
+/// panel and the compact-width sheet; ports the macOS LayersPanel semantics
+/// to the iOS annotation model: tap to select, eye to hide, arrows to
+/// reorder, trash to delete.
+private struct LayersPanelContent: View {
+    @Binding var annotations: [Annotation]
+    @Binding var selectedAnnotationID: UUID?
+    var listMaxHeight: CGFloat?
+
+    /// Front-most first (last in the draw array renders on top).
+    private var orderedLayers: [Annotation] { annotations.reversed() }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if annotations.isEmpty {
+                VStack(spacing: 10) {
+                    Image(systemName: "square.3.layers.3d")
+                        .font(.system(size: 28, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Text("Draw or add text with the tools below — every mark shows up here as a layer.")
+                        .font(.caption)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 110)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 4) {
+                        ForEach(orderedLayers) { layer in
+                            row(layer)
+                        }
+                    }
+                }
+                .frame(maxHeight: listMaxHeight ?? .infinity)
+                .scrollBounceBehavior(.basedOnSize)
+
+                controlBar
+            }
+        }
+    }
+
+    private func row(_ layer: Annotation) -> some View {
+        let isSelected = selectedAnnotationID == layer.id
+        return HStack(spacing: 10) {
+            Image(systemName: layer.kind.systemImage)
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 22)
+                .opacity(layer.isHidden ? 0.4 : 1)
+            Text(label(for: layer))
+                .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                .lineLimit(1)
+                .opacity(layer.isHidden ? 0.5 : 1)
+            Spacer()
+            Button {
+                toggleHidden(layer.id)
+            } label: {
+                Image(systemName: layer.isHidden ? "eye.slash" : "eye")
+                    .font(.system(size: 12))
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel(layer.isHidden ? "Show layer" : "Hide layer")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            isSelected ? Color.accentColor.opacity(0.30) : Color.primary.opacity(0.05),
+            in: RoundedRectangle(cornerRadius: 8)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            selectedAnnotationID = layer.id
+        }
+    }
+
+    private var controlBar: some View {
+        HStack(spacing: 6) {
+            control("arrow.up", label: "Bring forward") { moveSelected(forward: true) }
+            control("arrow.down", label: "Send backward") { moveSelected(forward: false) }
+            Spacer()
+            control("trash", label: "Delete layer", role: .destructive) { deleteSelected() }
+                .foregroundStyle(.red)
+        }
+        .disabled(selectedAnnotationID == nil)
+        .padding(.top, 2)
+    }
+
+    private func control(
+        _ symbol: String,
+        label: String,
+        role: ButtonRole? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(role: role, action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 34, height: 30)
+                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    private func label(for layer: Annotation) -> String {
+        if layer.isText {
+            let text = layer.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? "Text" : text
+        }
+        return layer.kind.label
+    }
+
+    private func selectedIndex() -> Int? {
+        guard let id = selectedAnnotationID else { return nil }
+        return annotations.firstIndex { $0.id == id }
+    }
+
+    /// Forward = towards the viewer = later in the array.
+    private func moveSelected(forward: Bool) {
+        guard let index = selectedIndex() else { return }
+        let target = forward ? index + 1 : index - 1
+        guard annotations.indices.contains(target) else { return }
+        annotations.swapAt(index, target)
+    }
+
+    private func deleteSelected() {
+        guard let index = selectedIndex() else { return }
+        annotations.remove(at: index)
+        selectedAnnotationID = nil
+    }
+
+    private func toggleHidden(_ id: UUID) {
+        guard let index = annotations.firstIndex(where: { $0.id == id }) else { return }
+        annotations[index].isHidden.toggle()
     }
 }
 
@@ -1055,6 +1330,8 @@ private struct InlineEditingCanvas: View {
     @Binding var cropRect: CGRect
     @Binding var annotations: [Annotation]
     @Binding var draftAnnotation: Annotation?
+    @Binding var selectedAnnotationID: UUID?
+    @Binding var editingAnnotationID: UUID?
     let annotationKind: Annotation.Kind
     let annotationColor: Color
     let annotationWidthFraction: CGFloat
@@ -1069,6 +1346,16 @@ private struct InlineEditingCanvas: View {
     @State private var panOffset: CGSize = .zero
     @State private var committedPanOffset: CGSize = .zero
     @State private var isPanning = false
+    /// In-flight move of an existing text annotation (id + its start at
+    /// gesture begin), so a drag repositions instead of adding new text.
+    @State private var textDrag: (id: UUID, origin: CGPoint)?
+    /// Whether the inline editor was open when the current touch went down.
+    /// The double-tap recogniser can open it between this drag's touch-down
+    /// and touch-up, and that fresh editor must not be committed by its own
+    /// second tap.
+    @State private var wasEditingAtTouchDown = false
+    @State private var editingText = ""
+    @FocusState private var inlineEditorFocused: Bool
 
     var body: some View {
         GeometryReader { geo in
@@ -1097,6 +1384,9 @@ private struct InlineEditingCanvas: View {
 
                 if activeTool == .draw || activeTool == .text {
                     annotationOverlay(in: imageRect)
+                    if let editing = annotations.first(where: { $0.id == editingAnnotationID }) {
+                        inlineTextEditor(for: editing, in: imageRect)
+                    }
                 }
 
                 if activeTool == .colour, let sampleLocation {
@@ -1114,6 +1404,7 @@ private struct InlineEditingCanvas: View {
             .frame(width: geo.size.width, height: geo.size.height)
             .contentShape(Rectangle())
             .gesture(canvasGesture(in: imageRect))
+            .simultaneousGesture(doubleTapGesture(in: imageRect))
             .simultaneousGesture(zoomGesture())
             .overlay(alignment: .topTrailing) {
                 zoomControls
@@ -1200,31 +1491,129 @@ private struct InlineEditingCanvas: View {
 
     @ViewBuilder
     private func annotationOverlay(in imageRect: CGRect) -> some View {
+        // The Canvas is framed to the image and positioned over it, so its
+        // drawing space starts at the image's top-left — map annotations into
+        // a zero-origin rect, not into `imageRect` (which would shift them by
+        // the image's letterbox/zoom offset a second time).
+        let localRect = CGRect(origin: .zero, size: imageRect.size)
         Canvas { context, _ in
             for annotation in annotations + [draftAnnotation].compactMap({ $0 }) {
+                if annotation.isHidden || annotation.id == editingAnnotationID { continue }
                 if annotation.isText {
                     let resolved = context.resolve(
                         Text(annotation.text.isEmpty ? " " : annotation.text)
-                            .font(.system(size: annotation.fontSize(in: imageRect)))
+                            .font(.system(size: annotation.fontSize(in: localRect)))
                             .foregroundColor(annotation.color)
                     )
-                    context.draw(resolved, at: annotation.textOrigin(in: imageRect), anchor: .topLeading)
+                    context.draw(resolved, at: annotation.textOrigin(in: localRect), anchor: .topLeading)
                 } else {
                     context.stroke(
-                        Path(annotation.path(in: imageRect)),
+                        Path(annotation.path(in: localRect)),
                         with: .color(annotation.color),
                         style: StrokeStyle(
-                            lineWidth: annotation.strokeWidth(in: imageRect),
+                            lineWidth: annotation.strokeWidth(in: localRect),
                             lineCap: .round,
                             lineJoin: .round
                         )
                     )
                 }
             }
+
+            // Selection border: a white casing under a dashed accent line so
+            // it reads against any image content.
+            if let selected = annotations.first(where: { $0.id == selectedAnnotationID }),
+               !selected.isHidden, selected.id != editingAnnotationID {
+                let bounds = selected.selectionBounds(in: localRect).insetBy(dx: -8, dy: -8)
+                let border = Path(roundedRect: bounds, cornerRadius: 10)
+                context.stroke(
+                    border,
+                    with: .color(.white.opacity(0.85)),
+                    style: StrokeStyle(lineWidth: 4, lineCap: .round)
+                )
+                context.stroke(
+                    border,
+                    with: .color(.accentColor),
+                    style: StrokeStyle(lineWidth: 1.8, lineCap: .round, dash: [7, 5])
+                )
+            }
         }
         .frame(width: imageRect.width, height: imageRect.height)
         .position(x: imageRect.midX, y: imageRect.midY)
         .allowsHitTesting(false)
+    }
+
+    /// A focused TextField floating at the annotation's spot, styled to match
+    /// the text it replaces while the edit is in flight.
+    private func inlineTextEditor(for annotation: Annotation, in imageRect: CGRect) -> some View {
+        let bounds = annotation.textBounds(in: imageRect)
+        let editorWidth = max(bounds.width + 90, 200)
+        return TextField("Text", text: $editingText)
+            .font(.system(size: annotation.fontSize(in: imageRect)))
+            .foregroundStyle(annotation.color)
+            .textFieldStyle(.plain)
+            .focused($inlineEditorFocused)
+            .submitLabel(.done)
+            .onSubmit { commitInlineEdit() }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Color.accentColor, lineWidth: 1.5)
+            )
+            .frame(width: editorWidth)
+            .position(x: bounds.minX - 8 + editorWidth / 2, y: bounds.midY)
+            .onAppear {
+                editingText = annotation.text
+                inlineEditorFocused = true
+            }
+            .onDisappear {
+                // Tool switches or Apply can dismiss the editor without a
+                // submit; commit whatever was typed (no-ops if already done).
+                commitInlineEdit()
+            }
+    }
+
+    private func beginInlineEdit(_ annotation: Annotation) {
+        selectedAnnotationID = annotation.id
+        editingText = annotation.text
+        editingAnnotationID = annotation.id
+        inlineEditorFocused = true
+    }
+
+    private func commitInlineEdit() {
+        guard let id = editingAnnotationID else { return }
+        editingAnnotationID = nil
+        inlineEditorFocused = false
+        guard let index = annotations.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = editingText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            // Clearing the text deletes the annotation, like Backspace would.
+            annotations.remove(at: index)
+            if selectedAnnotationID == id { selectedAnnotationID = nil }
+        } else {
+            annotations[index].text = trimmed
+        }
+    }
+
+    /// Topmost visible text annotation under `location` (view space), with a
+    /// small touch slop around the measured text bounds.
+    private func textAnnotation(at location: CGPoint, in imageRect: CGRect) -> Annotation? {
+        annotations.reversed().first { annotation in
+            annotation.isText && !annotation.isHidden
+                && annotation.textBounds(in: imageRect).insetBy(dx: -12, dy: -12).contains(location)
+        }
+    }
+
+    /// Double tap (touch) or double click (trackpad) on a text annotation
+    /// starts editing it in place.
+    private func doubleTapGesture(in imageRect: CGRect) -> some Gesture {
+        SpatialTapGesture(count: 2, coordinateSpace: .local)
+            .onEnded { value in
+                guard activeTool == .text, !isPanning else { return }
+                guard let hit = textAnnotation(at: value.location, in: imageRect) else { return }
+                beginInlineEdit(hit)
+            }
     }
 
     private func canvasGesture(in imageRect: CGRect) -> some Gesture {
@@ -1263,7 +1652,20 @@ private struct InlineEditingCanvas: View {
                         if annotationKind == .freehand { draftAnnotation?.points.append(point) }
                     }
                 case .text:
-                    break
+                    wasEditingAtTouchDown = editingAnnotationID != nil
+                    // Dragging from an existing text annotation moves it;
+                    // taps fall through to selection/placement on end.
+                    if textDrag == nil, editingAnnotationID == nil,
+                       let hit = textAnnotation(at: value.startLocation, in: imageRect) {
+                        textDrag = (hit.id, hit.start)
+                        selectedAnnotationID = hit.id
+                    }
+                    if let textDrag, let index = annotations.firstIndex(where: { $0.id == textDrag.id }) {
+                        annotations[index].start = CGPoint(
+                            x: min(max(textDrag.origin.x + value.translation.width / imageRect.width, 0), 1),
+                            y: min(max(textDrag.origin.y + value.translation.height / imageRect.height, 0), 1)
+                        )
+                    }
                 case .resize, .background:
                     break
                 }
@@ -1280,7 +1682,18 @@ private struct InlineEditingCanvas: View {
                     if let draftAnnotation { annotations.append(draftAnnotation) }
                     draftAnnotation = nil
                 case .text:
-                    onTextLocation(normalized(value.location, in: imageRect))
+                    let wasMovingText = textDrag != nil
+                    textDrag = nil
+                    if wasEditingAtTouchDown {
+                        // Tapping outside the inline editor commits the edit.
+                        commitInlineEdit()
+                    } else if !wasMovingText,
+                              hypot(value.translation.width, value.translation.height) < 6 {
+                        // A tap on empty canvas clears the selection and asks
+                        // for new text at that spot (the existing flow).
+                        selectedAnnotationID = nil
+                        onTextLocation(normalized(value.location, in: imageRect))
+                    }
                 case .colour, .resize, .background:
                     break
                 }
