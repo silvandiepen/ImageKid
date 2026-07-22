@@ -293,7 +293,8 @@ struct ImageWorkspaceView: View {
                 onDone: { session.endMaskEdit() }
             )
             .transition(.move(edge: .trailing).combined(with: .opacity))
-        } else if let layerID = session.selectedLayerID {
+        } else if let layerID = session.selectedLayerID,
+                  appModel.activeTool == .view || appModel.activeTool == .select {
             TransformControls(
                 session: session,
                 layerID: layerID,
@@ -1094,9 +1095,7 @@ struct ImageWorkspaceView: View {
 
             if let annotation = hitAnnotation(at: point, imageRect: imageRect) {
                 session.selectionRect = nil
-                session.selectedAnnotationID = annotation.id
-                session.selectedLayerID = nil
-                return .moveAnnotation(id: annotation.id, start: annotation.frame)
+                return annotationMoveMode(annotation)
             }
 
             if let mode = layerMoveMode(at: point, imageRect: imageRect) {
@@ -1164,9 +1163,7 @@ struct ImageWorkspaceView: View {
             }
 
             if let annotation = hitAnnotation(at: point, imageRect: imageRect) {
-                session.selectedAnnotationID = annotation.id
-                session.selectedLayerID = nil
-                return .moveAnnotation(id: annotation.id, start: annotation.frame)
+                return annotationMoveMode(annotation)
             }
 
             if let mode = layerMoveMode(at: point, imageRect: imageRect) {
@@ -1637,10 +1634,29 @@ struct ImageWorkspaceView: View {
 
     private func layerMoveMode(at point: CGPoint, imageRect: CGRect) -> DragMode? {
         guard let layer = hitLayer(at: point, imageRect: imageRect) else { return nil }
+        session.selectionRect = nil
+        // Option-drag duplicates the layer and drags the copy.
+        if NSEvent.modifierFlags.contains(.option),
+           let copyID = session.duplicateImageLayer(id: layer.id, offset: 0),
+           let copy = session.imageLayers.first(where: { $0.id == copyID }) {
+            return .moveLayer(id: copyID, start: copy.frame)
+        }
         session.selectedLayerID = layer.id
         session.selectedAnnotationID = nil
-        session.selectionRect = nil
         return .moveLayer(id: layer.id, start: layer.frame)
+    }
+
+    /// Move-drag for an annotation; Option-drag duplicates it and drags the copy.
+    private func annotationMoveMode(_ annotation: Annotation) -> DragMode {
+        if NSEvent.modifierFlags.contains(.option),
+           let copyID = session.duplicateAnnotation(id: annotation.id, offset: 0),
+           let copy = session.annotations.first(where: { $0.id == copyID }) {
+            session.selectedLayerID = nil
+            return .moveAnnotation(id: copyID, start: copy.frame)
+        }
+        session.selectedAnnotationID = annotation.id
+        session.selectedLayerID = nil
+        return .moveAnnotation(id: annotation.id, start: annotation.frame)
     }
 
     private func displayedAnnotationFrame(_ sourceFrame: CGRect) -> CGRect? {

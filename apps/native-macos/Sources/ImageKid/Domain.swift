@@ -1068,35 +1068,64 @@ final class ImageSession: ObservableObject {
 
     /// Duplicate an annotation, offset slightly so it is visible, and select the copy.
     @discardableResult
-    func duplicateAnnotation(id: UUID) -> UUID? {
+    func duplicateAnnotation(id: UUID, offset: CGFloat = 0.02) -> UUID? {
         guard let index = annotations.firstIndex(where: { $0.id == id }) else { return nil }
-        var copy = annotations[index]
-        let offset: CGFloat = 0.02
-        copy = Annotation(
+        let src = annotations[index]
+        let copy = Annotation(
             id: UUID(),
-            kind: copy.kind,
+            kind: src.kind,
             frame: CGRect(
-                x: min(copy.frame.minX + offset, 1 - copy.frame.width),
-                y: min(copy.frame.minY + offset, 1 - copy.frame.height),
-                width: copy.frame.width,
-                height: copy.frame.height
+                x: min(max(src.frame.minX + offset, 0), max(0, 1 - src.frame.width)),
+                y: min(max(src.frame.minY + offset, 0), max(0, 1 - src.frame.height)),
+                width: src.frame.width,
+                height: src.frame.height
             ),
-            strokeColor: copy.strokeColor,
-            fillColor: copy.fillColor,
-            lineWidth: copy.lineWidth,
-            opacity: copy.opacity,
-            fontFamily: copy.fontFamily,
-            fontSize: copy.fontSize,
-            fontWeight: copy.fontWeight,
-            lineHeight: copy.lineHeight,
-            textAlignment: copy.textAlignment,
-            customName: copy.customName,
-            isVisible: copy.isVisible
+            strokeColor: src.strokeColor,
+            fillColor: src.fillColor,
+            lineWidth: src.lineWidth,
+            strokeStyle: src.strokeStyle,
+            strokeAlignment: src.strokeAlignment,
+            cornerRadius: src.cornerRadius,
+            dashLength: src.dashLength,
+            dashGap: src.dashGap,
+            dashOffset: src.dashOffset,
+            blendMode: src.blendMode,
+            opacity: src.opacity,
+            fontFamily: src.fontFamily,
+            fontSize: src.fontSize,
+            fontWeight: src.fontWeight,
+            lineHeight: src.lineHeight,
+            textAlignment: src.textAlignment,
+            customName: src.customName,
+            isVisible: src.isVisible
         )
         annotations.insert(copy, at: index + 1)
         selectedAnnotationID = copy.id
         record("Duplicate", systemImage: "plus.square.on.square")
         return copy.id
+    }
+
+    /// Duplicate an image layer, returning the new layer's id.
+    @discardableResult
+    func duplicateImageLayer(id: UUID, offset: CGFloat = 0.02) -> UUID? {
+        guard let index = imageLayers.firstIndex(where: { $0.id == id }) else { return nil }
+        let src = imageLayers[index]
+        let newLayer = ImageLayer(
+            id: UUID(), name: src.name + " copy", image: src.image,
+            frame: CGRect(
+                x: min(max(src.frame.minX + offset, 0), max(0, 1 - src.frame.width)),
+                y: min(max(src.frame.minY + offset, 0), max(0, 1 - src.frame.height)),
+                width: src.frame.width, height: src.frame.height
+            ),
+            opacity: src.opacity, isVisible: src.isVisible,
+            rotation: src.rotation, flipH: src.flipH, flipV: src.flipV,
+            mask: src.mask, isMaskEnabled: src.isMaskEnabled
+        )
+        imageLayers.insert(newLayer, at: index + 1)
+        selectedLayerID = newLayer.id
+        selectedLayerIDs = [newLayer.id]
+        record("Duplicate layer", systemImage: "plus.square.on.square")
+        return newLayer.id
     }
 
     /// Reorder an annotation in the draw stack. Later entries render on top.
