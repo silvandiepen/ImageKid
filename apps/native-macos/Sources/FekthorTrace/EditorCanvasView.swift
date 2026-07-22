@@ -8,16 +8,32 @@ import SwiftUI
 /// transform handles (scale + rotate lollipop), shape-drawing tools, and
 /// right-click point removal. Zoom/offset bindings share the app's
 /// navigation gestures.
+/// Workspace grid on the editor canvas: spacing/subdivisions in artboard
+/// units, a visibility flag (⌘' — hiding never erases the spacing) and
+/// snapping (⇧⌘'; hold ⌃ to disable while dragging). Trace-mode canvases
+/// never get one.
+struct EditorGridConfig: Equatable {
+    var spacing: Double
+    var subdivisions: Int
+    var visible: Bool
+    var snap: Bool
+}
+
 struct EditorCanvasView: View {
     @ObservedObject var session: EditorSession
     @Binding var zoom: CGFloat
     @Binding var offset: CGSize
+    var grid: EditorGridConfig? = nil
 
     @State private var activeAnchor: (path: Int, index: Int)? = nil
     @State private var draggingAnchor: (path: Int, index: Int)? = nil
     @State private var draggingHandle: (segment: Int, kind: Editing.HandleKind)? = nil
     @State private var draggingBody = false
-    @State private var lastDragPoint: Pt? = nil
+    /// Body-drag bookkeeping: the doc point the drag started at, and the
+    /// delta applied so far. Snapping quantises the CUMULATIVE delta (the
+    /// shape keeps its offset and moves in grid steps) instead of each point.
+    @State private var moveOrigin: Pt? = nil
+    @State private var moveApplied = Pt(0, 0)
     @State private var gestureBegan = false
     @State private var transformDrag: TransformDrag? = nil
     @State private var marqueeRect: CGRect? = nil
@@ -64,6 +80,9 @@ struct EditorCanvasView: View {
                 x: t.tx + t.s * doc.viewBox.minX, y: t.ty + t.s * doc.viewBox.minY,
                 width: t.s * doc.viewBox.width, height: t.s * doc.viewBox.height)
             ctx.fill(Path(board), with: .color(.white))
+            if let g = grid, g.visible, g.spacing > 0 {
+                drawGrid(g, in: &ctx, doc: doc, t: t)
+            }
             ctx.stroke(Path(board), with: .color(.gray.opacity(0.4)), lineWidth: 1)
 
             drawNodes(session.document.nodes, into: &ctx, base: cg, scale: t.s, opacity: 1)
@@ -96,6 +115,88 @@ struct EditorCanvasView: View {
         .gesture(dragGesture(in: size))
     }
 
+    // MARK: - Grid
+
+    /// Light grid lines across the artboard (major every `spacing`, lighter
+    /// subdivision lines between), fading in with zoom and skipped entirely
+    /// while cells are under ~4pt on screen.
+    private func drawGrid(
+        _ g: EditorGridConfig, in ctx: inout GraphicsContext, doc: GraphicDocument, t: T
+    ) {
+        let majorPx = g.spacing * Double(t.s)
+        guard majorPx >= 4 else { return }
+        let fade = min(1.0, (majorPx - 4) / 8)
+        let subs = max(0, g.subdivisions)
+        if subs > 0 {
+            let subStep = g.spacing / Double(subs + 1)
+            if subStep * Double(t.s) >= 4 {
+                var p = Path()
+                addGridLines(&p, doc: doc, step: subStep, t: t, skipEvery: subs + 1)
+                ctx.stroke(p, with: .color(.gray.opacity(0.10 * fade)), lineWidth: 0.5)
+            }
+        }
+        var p = Path()
+        addGridLines(&p, doc: doc, step: g.spacing, t: t, skipEvery: 0)
+        ctx.stroke(p, with: .color(.gray.opacity(0.22 * fade)), lineWidth: 0.5)
+    }
+
+    /// Vertical + horizontal lines every `step` across the viewBox. With
+    /// `skipEvery` > 0, every Nth line is left out (subdivision passes skip
+    /// the positions the major pass draws).
+    private func addGridLines(
+        _ p: inout Path, doc: GraphicDocument, step: Double, t: T, skipEvery: Int
+    ) {
+        let vb = doc.viewBox
+        let x0 = vb.minX
+        let y0 = vb.minY
+        let x1 = vb.minX + vb.width
+        let y1 = vb.minY + vb.height
+        let top = CGFloat(y0) * t.s + t.ty
+        let bottom = CGFloat(y1) * t.s + t.ty
+        let leading = CGFloat(x0) * t.s + t.tx
+        let trailing = CGFloat(x1) * t.s + t.tx
+        var i = 0
+        while true {
+            let x = x0 + Double(i) * step
+            if x > x1 + 1e-9 { break }
+            if skipEvery == 0 || i % skipEvery != 0 {
+                let vx = CGFloat(x) * t.s + t.tx
+                p.move(to: CGPoint(x: vx, y: top))
+                p.addLine(to: CGPoint(x: vx, y: bottom))
+            }
+            i += 1
+        }
+        i = 0
+        while true {
+            let y = y0 + Double(i) * step
+            if y > y1 + 1e-9 { break }
+            if skipEvery == 0 || i % skipEvery != 0 {
+                let vy = CGFloat(y) * t.s + t.ty
+                p.move(to: CGPoint(x: leading, y: vy))
+                p.addLine(to: CGPoint(x: trailing, y: vy))
+            }
+            i += 1
+        }
+    }
+
+    // MARK: - Snapping
+
+    /// The active snap step in document units — the finest visible grid
+    /// (subdivisions when configured). nil when snapping is off or ⌃ is
+    /// held (the temporary disable; ⌥ is taken by mirror/centre gestures).
+    private var snapStep: Double? {
+        guard let g = grid, g.snap, g.spacing > 0,
+            !NSEvent.modifierFlags.contains(.control)
+        else { return nil }
+        let subs = max(0, g.subdivisions)
+        return subs > 0 ? g.spacing / Double(subs + 1) : g.spacing
+    }
+
+    private func snapped(_ p: Pt) -> Pt {
+        guard let step = snapStep else { return p }
+        return Pt((p.x / step).rounded() * step, (p.y / step).rounded() * step)
+    }
+
     // MARK: - Rendering
 
     private func drawNodes(
@@ -115,7 +216,7 @@ struct EditorCanvasView: View {
                             a: m[0], b: m[1], c: m[2], d: m[3], tx: m[4], ty: m[5]
                         ).concatenating(base)
                 }
-                let groupOpacity = opacity * (g.style.opacity ?? 1)
+                let groupOpacity = opacity * (g.renderStyle.opacity ?? 1)
                 drawNodes(
                     g.children, into: &ctx, base: groupBase, scale: scale,
                     opacity: groupOpacity)
@@ -128,7 +229,7 @@ struct EditorCanvasView: View {
                             a: m[0], b: m[1], c: m[2], d: m[3], tx: m[4], ty: m[5]
                         ).concatenating(base)
                 }
-                let style = s.effectiveStyle
+                let style = s.renderStyle
                 let nodeOpacity = opacity * (style.opacity ?? 1)
                 var p = Path(CGPathBuilder.path(for: s.kind))
                 p = p.applying(shapeBase)
@@ -151,6 +252,21 @@ struct EditorCanvasView: View {
                 }
                 if let stroke = style.stroke, let c = stroke.renderColor {
                     let width = style.strokeWidth ?? 1
+                    // Zero-length round-capped lines are DOTS in SVG; the
+                    // path stroke would draw nothing.
+                    if case .line(let a, let b) = s.kind, a.x == b.x, a.y == b.y,
+                        case .keyword("round")? = style.value(of: "stroke-linecap")
+                    {
+                        let center = CGPoint(x: a.x, y: a.y).applying(shapeBase)
+                        let r = width * scale / 2
+                        ctx.fill(
+                            Path(
+                                ellipseIn: CGRect(
+                                    x: center.x - r, y: center.y - r,
+                                    width: 2 * r, height: 2 * r)),
+                            with: .color(color(c).opacity(nodeOpacity)))
+                        continue
+                    }
                     var strokeStyle = StrokeStyle(lineWidth: width * scale)
                     if case .keyword(let cap)? = style.value(of: "stroke-linecap") {
                         strokeStyle.lineCap =
@@ -374,7 +490,7 @@ struct EditorCanvasView: View {
     /// selected body → marquee (Select tool), or a shape-drawing start.
     private func beginDrag(_ v: DragGesture.Value, in size: CGSize) {
         if session.tool != .select {
-            drawStart = docPoint(from: v.startLocation, in: size)
+            drawStart = snapped(docPoint(from: v.startLocation, in: size))
             return
         }
         let doc = session.document
@@ -433,7 +549,8 @@ struct EditorCanvasView: View {
         if let hit, session.selection.contains(hit) {
             session.beginGesture()
             draggingBody = true
-            lastDragPoint = docPoint(from: v.startLocation, in: size)
+            moveOrigin = docPoint(from: v.startLocation, in: size)
+            moveApplied = Pt(0, 0)
             return
         }
         if hit == nil {
@@ -460,10 +577,17 @@ struct EditorCanvasView: View {
                 node: sel, path: active.path, segment: h.segment, kind: h.kind,
                 to: target, mirror: mirror)
         } else if let d = draggingAnchor, let sel = single {
-            session.moveAnchor(node: sel, path: d.path, anchor: d.index, to: target)
-        } else if draggingBody, let last = lastDragPoint {
-            session.translateSelection(dx: target.x - last.x, dy: target.y - last.y)
-            lastDragPoint = target
+            session.moveAnchor(node: sel, path: d.path, anchor: d.index, to: snapped(target))
+        } else if draggingBody, let origin = moveOrigin {
+            let raw = Pt(target.x - origin.x, target.y - origin.y)
+            let want: Pt
+            if let step = snapStep {
+                want = Pt((raw.x / step).rounded() * step, (raw.y / step).rounded() * step)
+            } else {
+                want = raw
+            }
+            session.translateSelection(dx: want.x - moveApplied.x, dy: want.y - moveApplied.y)
+            moveApplied = want
         } else if marqueeRect != nil {
             marqueeRect = CGRect(
                 x: min(v.startLocation.x, v.location.x),
@@ -492,7 +616,7 @@ struct EditorCanvasView: View {
         draggingAnchor = nil
         draggingHandle = nil
         draggingBody = false
-        lastDragPoint = nil
+        moveOrigin = nil
         guard !wasEditing else { return }
         // Click: select.
         let shift = NSEvent.modifierFlags.contains(.shift)
@@ -617,7 +741,7 @@ struct EditorCanvasView: View {
 
     private func updateDraft(_ v: DragGesture.Value, in size: CGSize) {
         guard let start = drawStart else { return }
-        let cur = docPoint(from: v.location, in: size)
+        let cur = snapped(docPoint(from: v.location, in: size))
         let flags = NSEvent.modifierFlags
         drawDraft = draftKind(
             from: start, to: cur, shift: flags.contains(.shift),
@@ -737,7 +861,7 @@ struct EditorCanvasView: View {
                     walk(g.children)
                 case .shape(let s):
                     let path = shapePath(s)
-                    let style = s.effectiveStyle
+                    let style = s.renderStyle
                     let hasFill: Bool
                     if let f = style.fill {
                         hasFill = f != PaintValue.none
@@ -749,6 +873,12 @@ struct EditorCanvasView: View {
                         continue
                     }
                     let width = max(style.strokeWidth ?? 1, 8 / Double(t.s))
+                    // Zero-length lines (dots) produce an empty stroked
+                    // copy; hit-test the cap disc directly.
+                    if case .line(let a, let b) = s.kind, a.x == b.x, a.y == b.y {
+                        if hypot(a.x - dp.x, a.y - dp.y) <= width / 2 { hit = s.id }
+                        continue
+                    }
                     let stroked = path.copy(
                         strokingWithWidth: width, lineCap: .round, lineJoin: .round,
                         miterLimit: 10)

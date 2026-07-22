@@ -15,19 +15,65 @@ extension Notification.Name {
     static let fekthorSendToBack = Notification.Name("fekthor.sendToBack")
     static let fekthorWorkspaceExport = Notification.Name("fekthor.workspaceExport")
     static let fekthorWorkspaceTokens = Notification.Name("fekthor.workspaceTokens")
+    static let fekthorWorkspaceSettings = Notification.Name("fekthor.workspaceSettings")
+    static let fekthorToggleGrid = Notification.Name("fekthor.toggleGrid")
+    static let fekthorToggleSnap = Notification.Name("fekthor.toggleSnap")
+    static let fekthorPathUnite = Notification.Name("fekthor.pathUnite")
+    static let fekthorPathSubtract = Notification.Name("fekthor.pathSubtract")
+    static let fekthorPathIntersect = Notification.Name("fekthor.pathIntersect")
+    static let fekthorPathExclude = Notification.Name("fekthor.pathExclude")
+}
+
+/// State the menu bar needs to reflect app context: whether a workspace is
+/// open (⌘N reads "New Icon"), whether the editor selection can combine
+/// (Path submenu), and the grid/snap toggles' checkmarks. Views update it;
+/// the App observes it so menus re-render.
+@MainActor
+final class MenuState: ObservableObject {
+    static let shared = MenuState()
+
+    @Published var workspaceOpen = false
+    @Published var canCombine = false
+    /// Grid visibility (⌘'). App-side because the engine's WorkspaceSettings
+    /// has no showGrid field; persisted globally in UserDefaults so hiding
+    /// never erases a workspace's configured spacing.
+    @Published var showGrid: Bool {
+        didSet { UserDefaults.standard.set(showGrid, forKey: Self.showGridKey) }
+    }
+    /// Snap to grid (⇧⌘'). Mirrors the open workspace's setting (persisted
+    /// through the workfile by ContentView); session-level for detached
+    /// editors.
+    @Published var snapToGrid = false
+
+    private static let showGridKey = "fekthor.showGrid"
+
+    private init() {
+        showGrid = UserDefaults.standard.object(forKey: Self.showGridKey) as? Bool ?? true
+    }
+}
+
+extension Color {
+    /// The app accent — a warm orange. Single source of truth is the asset
+    /// catalog's AccentColor (light #F0741E, dark #F58535), which the build
+    /// setting ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME also routes
+    /// into every `Color.accentColor` reference.
+    static let fekthorAccent = Color("AccentColor", bundle: .main)
 }
 
 @main
 struct FekthorApp: App {
+    @ObservedObject private var menuState = MenuState.shared
+
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .frame(minWidth: 940, minHeight: 620)
+                .tint(.fekthorAccent)
         }
         .windowToolbarStyle(.unified)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("New File") {
+                Button(menuState.workspaceOpen ? "New Icon" : "New File") {
                     NotificationCenter.default.post(name: .fekthorNewFile, object: nil)
                 }
                 .keyboardShortcut("n", modifiers: .command)
@@ -57,7 +103,34 @@ struct FekthorApp: App {
                 }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
             }
+            CommandGroup(after: .toolbar) {
+                Toggle(
+                    "Show Grid",
+                    isOn: Binding(
+                        get: { menuState.showGrid },
+                        set: { _ in
+                            NotificationCenter.default.post(name: .fekthorToggleGrid, object: nil)
+                        })
+                )
+                .keyboardShortcut("'", modifiers: .command)
+                Toggle(
+                    "Snap to Grid",
+                    isOn: Binding(
+                        get: { menuState.snapToGrid },
+                        set: { _ in
+                            NotificationCenter.default.post(name: .fekthorToggleSnap, object: nil)
+                        })
+                )
+                .keyboardShortcut("'", modifiers: [.command, .shift])
+                Divider()
+            }
             CommandMenu("Workspace") {
+                Button("Workspace Settings…") {
+                    NotificationCenter.default.post(name: .fekthorWorkspaceSettings, object: nil)
+                }
+                .keyboardShortcut(",", modifiers: [.command, .shift])
+                .disabled(!menuState.workspaceOpen)
+                Divider()
                 Button("Export Profiles…") {
                     NotificationCenter.default.post(name: .fekthorWorkspaceExport, object: nil)
                 }
@@ -76,6 +149,22 @@ struct FekthorApp: App {
                     NotificationCenter.default.post(name: .fekthorUngroup, object: nil)
                 }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
+                Divider()
+                Menu("Path") {
+                    Button("Unite") {
+                        NotificationCenter.default.post(name: .fekthorPathUnite, object: nil)
+                    }
+                    Button("Subtract") {
+                        NotificationCenter.default.post(name: .fekthorPathSubtract, object: nil)
+                    }
+                    Button("Intersect") {
+                        NotificationCenter.default.post(name: .fekthorPathIntersect, object: nil)
+                    }
+                    Button("Exclude") {
+                        NotificationCenter.default.post(name: .fekthorPathExclude, object: nil)
+                    }
+                }
+                .disabled(!menuState.canCombine)
                 Divider()
                 Button("Bring to Front") {
                     NotificationCenter.default.post(name: .fekthorBringToFront, object: nil)

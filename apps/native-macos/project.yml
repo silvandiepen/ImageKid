@@ -103,6 +103,8 @@ targets:
     platform: macOS
     sources:
       - path: Sources/FekthorTrace
+    resources:
+      - path: Sources/FekthorTrace/Resources/Assets.xcassets
     dependencies:
       - package: FekthorKit
       - package: ImageKidKit
@@ -119,6 +121,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hakobs.fekthor
         PRODUCT_NAME: Fekthor
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Fekthor
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.graphics-design

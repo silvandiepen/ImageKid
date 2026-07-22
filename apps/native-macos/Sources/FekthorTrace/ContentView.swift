@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @StateObject private var model = ConversionModel()
     @StateObject private var workspaceSession = WorkspaceSession()
+    @ObservedObject private var menuState = MenuState.shared
     @State private var editorSession: EditorSession? = nil
     @State private var showInspector = true
     @State private var zoom: CGFloat = 1
@@ -13,10 +14,22 @@ struct ContentView: View {
     /// When a raster is dropped on the gallery, the trace flow targets the
     /// workspace: the result saves into this category under this name.
     @State private var traceTarget: WorkspaceTraceTarget? = nil
+    /// Gallery selection, hoisted so ⌘N can default the new icon into the
+    /// selected icon's category even while the editor covers the gallery.
+    @State private var gallerySelection: String? = nil
+    /// Non-nil presents the New Icon prompt, pre-targeted at a category.
+    @State private var newIconRequest: NewIconRequest? = nil
+    /// The Workspace Settings sheet (gallery gear, or Workspace ▸ ⇧⌘,).
+    @State private var workspaceSettingsShown = false
 
     struct WorkspaceTraceTarget {
         var category: String
         var name: String
+    }
+
+    struct NewIconRequest: Identifiable {
+        var category: String
+        var id: String { category }
     }
 
     /// The trace flow is active: no editor session on top, and an image or
@@ -33,6 +46,7 @@ struct ContentView: View {
                     EditorWorkspaceView(
                         session: session, zoom: $zoom, offset: $offset,
                         backLabel: workspaceSession.workspace != nil ? "Gallery" : "Home",
+                        grid: editorGrid,
                         onClose: { editorSession = nil })
                 } else if model.sourceImage != nil || model.document != nil {
                     VStack(spacing: 0) {
@@ -48,7 +62,9 @@ struct ContentView: View {
                 } else if workspaceSession.workspace != nil {
                     WorkspaceGalleryView(
                         session: workspaceSession,
+                        selection: $gallerySelection,
                         onOpenEntry: { openEntry($0) },
+                        onNewIcon: { category in requestNewIcon(category: category) },
                         onDropRaster: { url, category in
                             traceTarget = WorkspaceTraceTarget(
                                 category: category,
@@ -70,7 +86,7 @@ struct ContentView: View {
                         onOpenRecent: { openRecentWorkspace($0) })
                 }
             }
-            .navigationTitle("Fekthor")
+            .navigationTitle(windowTitle)
             .toolbar { toolbarContent }
             .inspector(isPresented: inTraceMode ? $showInspector : .constant(false)) {
                 InspectorView(model: model)
@@ -94,7 +110,13 @@ struct ContentView: View {
             }
             .onAppear { model.loadLaunchArgumentIfPresent() }
             .onReceive(NotificationCenter.default.publisher(for: .fekthorNewFile)) { _ in
-                newFile()
+                // ⌘N in a workspace means "new icon"; the detached blank
+                // file remains the no-workspace behaviour.
+                if workspaceSession.workspace != nil {
+                    requestNewIcon()
+                } else {
+                    newFile()
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .fekthorOpen)) { _ in
                 openAny()
@@ -113,7 +135,17 @@ struct ContentView: View {
                 model.openPanel()
             }
             .background(objectCommandListeners)
+            .background(workspaceCommandListeners)
         }
+    }
+
+    /// The window title follows the context: open icon, workspace, or app.
+    private var windowTitle: String {
+        if let session = editorSession {
+            return session.fileURL?.lastPathComponent ?? "Untitled"
+        }
+        if workspaceSession.workspace != nil { return workspaceSession.folderName }
+        return "Fekthor"
     }
 
     /// Object-menu commands (group/ungroup, z-order) act on the editor
@@ -141,10 +173,163 @@ struct ContentView: View {
             }
     }
 
+    /// Grid/snap toggles (⌘' / ⇧⌘'), the Path boolean commands, the New
+    /// Icon sheet and menu-state sync — a second hidden host keeps the main
+    /// body type-checkable.
+    private var workspaceCommandListeners: some View {
+        Color.clear
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorToggleGrid)) { _ in
+                MenuState.shared.showGrid.toggle()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorToggleSnap)) { _ in
+                let snap = !MenuState.shared.snapToGrid
+                MenuState.shared.snapToGrid = snap
+                // Persist through the workfile when a workspace is open;
+                // otherwise it stays a session-level editor toggle.
+                if workspaceSession.workspace != nil {
+                    workspaceSession.setSnapToGrid(snap)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorPathUnite)) { _ in
+                editorSession?.combineSelection(.union)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorPathSubtract)) { _ in
+                editorSession?.combineSelection(.subtract)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorPathIntersect)) { _ in
+                editorSession?.combineSelection(.intersect)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorPathExclude)) { _ in
+                editorSession?.combineSelection(.exclude)
+            }
+            .onChange(of: workspaceSession.workspace != nil) { _, open in
+                MenuState.shared.workspaceOpen = open
+                if open {
+                    MenuState.shared.snapToGrid =
+                        workspaceSession.effectiveStandards.snapToGrid ?? false
+                }
+            }
+            .onChange(of: workspaceSession.settings.settings?.snapToGrid) { _, snap in
+                if workspaceSession.workspace != nil {
+                    MenuState.shared.snapToGrid = snap ?? false
+                }
+            }
+            .onAppear {
+                MenuState.shared.workspaceOpen = workspaceSession.workspace != nil
+            }
+            .sheet(item: $newIconRequest) { request in
+                NewIconSheet(
+                    session: workspaceSession,
+                    initialCategory: request.category,
+                    onCreate: { name, category in createIcon(named: name, category: category) })
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(for: .fekthorWorkspaceSettings)
+            ) { _ in
+                if workspaceSession.workspace != nil { workspaceSettingsShown = true }
+            }
+            .sheet(isPresented: $workspaceSettingsShown) {
+                WorkspaceSettingsSheet(session: workspaceSession)
+            }
+    }
+
     private func newFile() {
         editorSession = EditorSession.blank(size: 72)
         zoom = 1
         offset = .zero
+    }
+
+    // MARK: - New icon (the workspace's primary action)
+
+    /// Opens the New Icon prompt. Without an explicit category it targets
+    /// the icon open in the editor / selected in the gallery. A dirty
+    /// editor with a file is saved first — switching must never lose work.
+    private func requestNewIcon(category: String? = nil) {
+        guard workspaceSession.workspace != nil else {
+            newFile()
+            return
+        }
+        if let session = editorSession, session.dirty, session.fileURL != nil {
+            session.save()
+        }
+        newIconRequest = NewIconRequest(category: category ?? inferredCategory)
+    }
+
+    /// The category a context-less New Icon lands in: the editor's current
+    /// icon's category, else the gallery selection's, else the root.
+    private var inferredCategory: String {
+        guard let ws = workspaceSession.workspace else { return "" }
+        if let url = editorSession?.fileURL?.standardizedFileURL,
+            let entry = ws.entries.first(where: { $0.url.standardizedFileURL == url })
+        {
+            return entry.category
+        }
+        if let sel = gallerySelection,
+            let entry = ws.entries.first(where: { $0.id == sel })
+        {
+            return entry.category
+        }
+        return ""
+    }
+
+    /// Create → open in the editor immediately (create → draw → ⌘S → back
+    /// must be one unbroken loop). Returns false to keep the prompt open.
+    private func createIcon(named name: String, category: String) -> Bool {
+        guard let url = workspaceSession.createIcon(named: name, category: category) else {
+            return false
+        }
+        do {
+            let session = try EditorSession.open(url: url)
+            applyWorkspaceDefaults(to: session)
+            editorSession = session
+            gallerySelection = category.isEmpty ? name : category + "/" + name
+            zoom = 1
+            offset = .zero
+        } catch {
+            workspaceSession.status =
+                "Created \(name).svg, but it could not be opened: \(error.localizedDescription)"
+        }
+        return true
+    }
+
+    /// New shapes in a workspace icon are born with the workspace's drawing
+    /// defaults (stroke colour/width, fill).
+    private func applyWorkspaceDefaults(to session: EditorSession) {
+        guard workspaceSession.workspace != nil else { return }
+        let std = workspaceSession.effectiveStandards
+        var style = Style()
+        if let fill = std.defaultFill {
+            if fill == "none" {
+                style.set("fill", .paint(.none))
+            } else if let c = PaintValue.parseHex(fill) {
+                style.set("fill", .paint(.color(r: c.r, g: c.g, b: c.b)))
+            }
+        }
+        if let hex = std.defaultStrokeColor, let c = PaintValue.parseHex(hex) {
+            style.set("stroke", .paint(.color(r: c.r, g: c.g, b: c.b)))
+        }
+        if let width = std.defaultStrokeWidth {
+            style.set("stroke-width", .number(width, unit: nil))
+        }
+        if !style.declarations.isEmpty {
+            session.drawingStyle = style
+        }
+    }
+
+    /// The grid the editor canvas draws/snaps: workspace standards when a
+    /// workspace is open, the engine's `.standard` for detached editors.
+    /// Visibility (⌘') and snap (⇧⌘') come from the menu state.
+    private var editorGrid: EditorGridConfig? {
+        let std =
+            workspaceSession.workspace != nil
+            ? workspaceSession.effectiveStandards
+            : Workfile.WorkspaceSettings.standard
+        guard let spacing = std.gridSpacing, spacing > 0 else { return nil }
+        return EditorGridConfig(
+            spacing: spacing,
+            subdivisions: std.gridSubdivisions ?? 0,
+            visible: menuState.showGrid,
+            snap: menuState.snapToGrid)
     }
 
     /// One Open for everything: svg/fekthor go to the editor, rasters to trace.
@@ -205,7 +390,9 @@ struct ContentView: View {
     /// editor's Back returns to the gallery (the workspace stays open).
     private func openEntry(_ entry: IconEntry) {
         do {
-            editorSession = try EditorSession.open(url: entry.url)
+            let session = try EditorSession.open(url: entry.url)
+            applyWorkspaceDefaults(to: session)
+            editorSession = session
             zoom = 1
             offset = .zero
         } catch {
@@ -356,6 +543,8 @@ private struct EmptyStateView: View {
     var onOpenWorkspace: () -> Void = {}
     var onOpenRecent: (RecentWorkspace) -> Void = { _ in }
 
+    @StateObject private var recentPreviews = RecentPreviewStore()
+
     var body: some View {
         ZStack {
             Rectangle().fill(Color(nsColor: .windowBackgroundColor))
@@ -398,26 +587,14 @@ private struct EmptyStateView: View {
                         .buttonStyle(.link)
                 }
                 if !recents.isEmpty {
-                    VStack(spacing: 4) {
+                    VStack(spacing: 6) {
                         Text("Recent workspaces")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        ForEach(recents.prefix(4)) { recent in
-                            Button {
+                        ForEach(recents.prefix(5)) { recent in
+                            RecentWorkspaceRow(recent: recent, store: recentPreviews) {
                                 onOpenRecent(recent)
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "folder")
-                                    Text(recent.name)
-                                    Text(recent.path)
-                                        .font(.caption)
-                                        .foregroundStyle(.tertiary)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                        .frame(maxWidth: 320)
-                                }
                             }
-                            .buttonStyle(.link)
                         }
                     }
                 }
@@ -434,6 +611,26 @@ private struct EmptyStateView: View {
         icon: String, title: String, subtitle: String, enabled: Bool, badge: String? = nil,
         action: @escaping () -> Void
     ) -> some View {
+        HomeCard(
+            icon: icon, title: title, subtitle: subtitle, enabled: enabled, badge: badge,
+            action: action)
+    }
+}
+
+/// One home-screen action card: borderless, on an adaptive fill that reads
+/// as a card in both appearances (slightly lighter than the window in light
+/// mode, slightly darker-contrasting in dark), brightening on hover.
+private struct HomeCard: View {
+    let icon: String
+    let title: String
+    let subtitle: String
+    var enabled = true
+    var badge: String? = nil
+    var action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
         Button(action: action) {
             VStack(spacing: 10) {
                 Image(systemName: icon)
@@ -454,12 +651,21 @@ private struct EmptyStateView: View {
             }
             .frame(width: 190, height: 170)
             .background(
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(Color(nsColor: .controlBackgroundColor)))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14).strokeBorder(.quaternary))
+                ZStack {
+                    // Lighter than the window in light mode, darker in dark
+                    // mode — reads as a card in both without a border.
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                    if hovering && enabled {
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(Color.primary.opacity(0.05))
+                    }
+                }
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 14))
         }
         .buttonStyle(.plain)
+        .onHover { hovering = $0 }
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.6)
     }
@@ -1061,9 +1267,12 @@ struct EditorWorkspaceView: View {
     @Binding var offset: CGSize
     /// Where Back leads: "Home", or "Gallery" when a workspace is open.
     var backLabel: String = "Home"
+    /// Workspace grid (drawn + snapped by the canvas); nil hides it.
+    var grid: EditorGridConfig? = nil
     var onClose: () -> Void
 
     @State private var showStylePanel = true
+    @State private var confirmClose = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1071,7 +1280,7 @@ struct EditorWorkspaceView: View {
             Divider()
             HStack(spacing: 0) {
                 ZStack(alignment: .bottom) {
-                    EditorCanvasView(session: session, zoom: $zoom, offset: $offset)
+                    EditorCanvasView(session: session, zoom: $zoom, offset: $offset, grid: grid)
                         .overlay(
                             TrackpadCatcher(
                                 onPan: { dx, dy in
@@ -1108,12 +1317,37 @@ struct EditorWorkspaceView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
         }
+        // The window/tab title tracks the open icon and its dirty state.
+        .navigationTitle(session.fileURL?.lastPathComponent ?? "Untitled")
+        .navigationSubtitle(session.dirty ? "Edited" : "")
+        .onAppear { MenuState.shared.canCombine = session.selection.count >= 2 }
+        .onDisappear { MenuState.shared.canCombine = false }
+        .onChange(of: session.selection) { _, selection in
+            MenuState.shared.canCombine = selection.count >= 2
+        }
+        .confirmationDialog(
+            "Save the changes to \(session.fileURL?.lastPathComponent ?? "this file")?",
+            isPresented: $confirmClose
+        ) {
+            Button("Save and Close") {
+                session.save()
+                onClose()
+            }
+            Button("Discard Changes", role: .destructive) { onClose() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Your edits have not been saved.")
+        }
     }
 
     private var topBar: some View {
         HStack(spacing: 10) {
             Button {
-                onClose()
+                if session.dirty {
+                    confirmClose = true
+                } else {
+                    onClose()
+                }
             } label: {
                 Label(backLabel, systemImage: "chevron.left")
             }

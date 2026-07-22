@@ -273,6 +273,67 @@ final class EditorSession: ObservableObject {
         status = "Added \(tool.rawValue)."
     }
 
+    // MARK: - Path booleans
+
+    /// Combine the selected shapes (2+) with a boolean op, in document
+    /// order (first = subject). The result replaces the first input in
+    /// place — adopting its id/style, as `PathOps.combine` guarantees —
+    /// and the other inputs are removed. One undo snapshot; the result
+    /// becomes the selection.
+    func combineSelection(_ op: BoolOp) {
+        guard selection.count >= 2 else {
+            status = "Select two or more shapes to combine."
+            return
+        }
+        var ordered: [ShapeNode] = []
+        func collect(_ nodes: [GraphicNode]) {
+            for node in nodes {
+                switch node {
+                case .raw: continue
+                case .group(let g): collect(g.children)
+                case .shape(let s):
+                    if selection.contains(s.id) { ordered.append(s) }
+                }
+            }
+        }
+        collect(document.nodes)
+        guard ordered.count >= 2 else {
+            status = "Select two or more shapes to combine (groups don't combine)."
+            return
+        }
+        guard let combined = PathOps.combine(ordered, op: op) else {
+            status = "These shapes cannot be combined (open paths, or an empty result)."
+            return
+        }
+        let removeIDs = Set(ordered.map(\.id)).subtracting([combined.id])
+        beginGesture()
+        mutate { doc in
+            doc.replaceShape(id: combined.id, with: combined)
+            func prune(_ nodes: inout [GraphicNode]) {
+                nodes.removeAll {
+                    if case .shape(let s) = $0 { return removeIDs.contains(s.id) }
+                    return false
+                }
+                for i in nodes.indices {
+                    if case .group(var g) = nodes[i] {
+                        prune(&g.children)
+                        nodes[i] = .group(g)
+                    }
+                }
+            }
+            prune(&doc.nodes)
+        }
+        selection = [combined.id]
+        let label: String
+        switch op {
+        case .union: label = "United"
+        case .subtract: label = "Subtracted"
+        case .intersect: label = "Intersected"
+        case .exclude: label = "Excluded"
+        }
+        status = "\(label) \(ordered.count) shapes."
+    }
+
     func deleteSelection() {
         guard !selection.isEmpty else { return }
         beginGesture()

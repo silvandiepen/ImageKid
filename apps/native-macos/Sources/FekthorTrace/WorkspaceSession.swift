@@ -278,6 +278,7 @@ final class WorkspaceSession: ObservableObject {
     /// Empty collections collapse to nil so an untouched section never
     /// appears in the JSON (deterministic, diff-friendly files).
     private static func normalize(_ workfile: inout Workfile) {
+        if workfile.settings == Workfile.WorkspaceSettings() { workfile.settings = nil }
         if workfile.exportProfiles?.isEmpty == true { workfile.exportProfiles = nil }
         if workfile.styleTokens?.isEmpty == true { workfile.styleTokens = nil }
         if workfile.containers?.isEmpty == true { workfile.containers = nil }
@@ -326,6 +327,69 @@ final class WorkspaceSession: ObservableObject {
         workfileURL = url
         rememberRecent(folder: folderURL, workfile: url)
         return true
+    }
+
+    // MARK: - Workspace standards (icon size, grid, drawing defaults)
+
+    /// The stored standards as-is; nil fields mean "use the fallback".
+    var workspaceStandards: Workfile.WorkspaceSettings? { settings.settings }
+
+    /// Standards with `.standard` fallbacks applied per field.
+    var effectiveStandards: Workfile.WorkspaceSettings {
+        let raw = settings.settings
+        let std = Workfile.WorkspaceSettings.standard
+        return Workfile.WorkspaceSettings(
+            iconWidth: raw?.iconWidth ?? std.iconWidth,
+            iconHeight: raw?.iconHeight ?? std.iconHeight,
+            gridSpacing: raw?.gridSpacing ?? std.gridSpacing,
+            gridSubdivisions: raw?.gridSubdivisions ?? std.gridSubdivisions,
+            snapToGrid: raw?.snapToGrid ?? std.snapToGrid,
+            defaultStrokeColor: raw?.defaultStrokeColor ?? std.defaultStrokeColor,
+            defaultStrokeWidth: raw?.defaultStrokeWidth ?? std.defaultStrokeWidth,
+            defaultFill: raw?.defaultFill ?? std.defaultFill)
+    }
+
+    /// The snap toggle (⇧⌘'), persisted through the workfile.
+    func setSnapToGrid(_ snap: Bool) {
+        updateSettings { workfile in
+            var s = workfile.settings ?? Workfile.WorkspaceSettings()
+            s.snapToGrid = snap
+            workfile.settings = s
+        }
+    }
+
+    // MARK: - New icon
+
+    /// Writes a blank icon sized by the workspace standards into `category`
+    /// and returns its URL so the caller can open it in the editor
+    /// immediately. Collisions surface as the usual error alert.
+    func createIcon(named name: String, category: String) -> URL? {
+        guard let ws = workspace else { return nil }
+        let std = effectiveStandards
+        let doc = GraphicDocument.blank(
+            width: std.iconWidth ?? 24, height: std.iconHeight ?? 24)
+        do {
+            let change = try ws.create(name: name, category: category, svg: SVGWriter.write(doc))
+            status = "Created \(name).svg" + (category.isEmpty ? "." : " in \(category).")
+            rescanNow()
+            return change.svg
+        } catch {
+            errorMessage = Self.describe(error)
+            rescanNow()
+            return nil
+        }
+    }
+
+    /// The next free "icon_untitled" / "icon_untitled-2" name in a category.
+    func nextFreeIconName(in category: String) -> String {
+        let existing = Set(
+            (workspace?.entries ?? [])
+                .filter { $0.category == category }
+                .map { $0.name.lowercased() })
+        if !existing.contains("icon_untitled") { return "icon_untitled" }
+        var i = 2
+        while existing.contains("icon_untitled-\(i)") { i += 1 }
+        return "icon_untitled-\(i)"
     }
 
     // MARK: Containers

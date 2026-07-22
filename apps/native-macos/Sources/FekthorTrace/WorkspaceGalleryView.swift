@@ -9,7 +9,12 @@ import UniformTypeIdentifiers
 /// context menu's Open in Editor) routes an entry into the editor.
 struct WorkspaceGalleryView: View {
     @ObservedObject var session: WorkspaceSession
+    /// Hoisted to ContentView so ⌘N knows the selected icon's category
+    /// even while the editor is on top.
+    @Binding var selection: String?
     var onOpenEntry: (IconEntry) -> Void
+    /// Create a new icon in this category (the workspace's primary action).
+    var onNewIcon: (String) -> Void
     /// A raster file was dropped: (file URL, target category).
     var onDropRaster: (URL, String) -> Void
     var onClose: () -> Void
@@ -19,7 +24,6 @@ struct WorkspaceGalleryView: View {
     @State private var filtered: [IconEntry]? = nil
     @State private var sortMode: SortMode = .name
     @State private var collapsed: Set<String> = []
-    @State private var selection: String? = nil
     @State private var dropTargeted = false
 
     // Sheet-less alert state for the small text-input flows.
@@ -78,6 +82,14 @@ struct WorkspaceGalleryView: View {
             Text(countText)
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
+            // The primary action: a new icon in the selected category.
+            Button {
+                onNewIcon(targetCategory)
+            } label: {
+                Label("New Icon", systemImage: "plus")
+            }
+            .buttonStyle(.borderedProminent)
+            .help("Create a new icon (⌘N)")
             Spacer()
             HStack(spacing: 4) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
@@ -118,9 +130,47 @@ struct WorkspaceGalleryView: View {
                 Label("Export", systemImage: "square.and.arrow.up")
             }
             .help("Export profiles: run a pipeline over the workspace.")
+            Button {
+                // Hosted by ContentView so the Workspace menu (⇧⌘,) can
+                // open the same sheet from anywhere.
+                NotificationCenter.default.post(name: .fekthorWorkspaceSettings, object: nil)
+            } label: {
+                Label("Settings", systemImage: "gearshape")
+            }
+            .help("Workspace settings: icon size, grid, drawing defaults (⇧⌘,).")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .background(keyboardShortcutHosts)
+    }
+
+    /// Gallery keyboard basics as invisible key-equivalent hosts:
+    /// Return opens the selected icon, ⌘⌫ (the Finder convention) asks to
+    /// trash it.
+    private var keyboardShortcutHosts: some View {
+        Group {
+            Button {
+                if let entry = selectedEntry { onOpenEntry(entry) }
+            } label: {
+                EmptyView()
+            }
+            .keyboardShortcut(.return, modifiers: [])
+            .disabled(selectedEntry == nil)
+            Button {
+                if let entry = selectedEntry { deleteTarget = entry }
+            } label: {
+                EmptyView()
+            }
+            .keyboardShortcut(.delete, modifiers: .command)
+            .disabled(selectedEntry == nil)
+        }
+        .frame(width: 0, height: 0)
+        .opacity(0)
+    }
+
+    private var selectedEntry: IconEntry? {
+        guard let selection else { return nil }
+        return session.workspace?.entries.first { $0.id == selection }
     }
 
     private var statusBar: some View {
@@ -153,21 +203,21 @@ struct WorkspaceGalleryView: View {
                 ForEach(sections, id: \.category) { section in
                     Section {
                         if !collapsed.contains(section.category) {
-                            if section.entries.isEmpty {
-                                Text("No icons yet — move icons here or drop a PNG.")
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
-                                    .padding(.horizontal, 16)
-                                    .padding(.bottom, 12)
-                            } else {
-                                LazyVGrid(columns: columns, spacing: 14) {
-                                    ForEach(section.entries) { entry in
-                                        cell(for: entry)
+                            LazyVGrid(columns: columns, spacing: 14) {
+                                ForEach(section.entries) { entry in
+                                    cell(for: entry)
+                                }
+                                // Creating an icon is always one click away —
+                                // and the obvious first action in an empty
+                                // category.
+                                if filtered == nil {
+                                    NewIconCell {
+                                        onNewIcon(section.category)
                                     }
                                 }
-                                .padding(.horizontal, 16)
-                                .padding(.bottom, 14)
                             }
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 14)
                         }
                     } header: {
                         sectionHeader(section.category, count: section.entries.count)
@@ -185,45 +235,68 @@ struct WorkspaceGalleryView: View {
     }
 
     private var emptyGallery: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
             Image(systemName: filtered != nil ? "magnifyingglass" : "square.grid.3x3")
                 .font(.system(size: 30))
                 .foregroundStyle(.tertiary)
             Text(
                 filtered != nil
                     ? "No icons match “\(query)”."
-                    : "This folder has no SVG icons yet — drop a PNG to trace one, or add categories."
+                    : "This workspace has no icons yet."
             )
             .foregroundStyle(.secondary)
+            if filtered == nil {
+                Button {
+                    onNewIcon("")
+                } label: {
+                    Label("Create your first icon", systemImage: "plus")
+                }
+                .buttonStyle(.borderedProminent)
+                Text("…or drop a PNG to trace one, or an SVG to import it.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 80)
     }
 
     private func sectionHeader(_ category: String, count: Int) -> some View {
-        Button {
-            if collapsed.contains(category) {
-                collapsed.remove(category)
-            } else {
-                collapsed.insert(category)
+        HStack(spacing: 6) {
+            Button {
+                if collapsed.contains(category) {
+                    collapsed.remove(category)
+                } else {
+                    collapsed.insert(category)
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .rotationEffect(.degrees(collapsed.contains(category) ? 0 : 90))
+                    Text(category.isEmpty ? "Uncategorized" : category)
+                        .font(.subheadline.weight(.semibold))
+                    Text("\(count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
             }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "chevron.right")
+            .buttonStyle(.plain)
+            Button {
+                onNewIcon(category)
+            } label: {
+                Image(systemName: "plus")
                     .font(.caption.weight(.semibold))
-                    .rotationEffect(.degrees(collapsed.contains(category) ? 0 : 90))
-                Text(category.isEmpty ? "Uncategorized" : category)
-                    .font(.subheadline.weight(.semibold))
-                Text("\(count)")
-                    .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
-                Spacer()
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
+            .buttonStyle(.borderless)
+            .help(
+                "New icon in \(category.isEmpty ? "the workspace root" : category)")
+            Spacer()
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
         .background(Color(nsColor: .windowBackgroundColor).opacity(0.96))
     }
 
@@ -503,6 +576,45 @@ struct WorkspaceGalleryView: View {
             ) { _ in
                 tokensShown = true
             }
+    }
+}
+
+// MARK: - New-icon ghost cell
+
+/// The trailing "create one here" cell in every category grid: a dashed
+/// placeholder matching the icon-cell footprint.
+private struct NewIconCell: View {
+    var action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.accentColor.opacity(hovering ? 0.10 : 0.04))
+                    Image(systemName: "plus")
+                        .font(.title2)
+                        .foregroundStyle(hovering ? Color.accentColor : Color.secondary)
+                }
+                .frame(width: 96, height: 96)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(
+                            hovering ? Color.accentColor : Color(nsColor: .separatorColor),
+                            style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                )
+                Text("New Icon")
+                    .font(.caption)
+                    .foregroundStyle(hovering ? Color.accentColor : .secondary)
+                    .frame(width: 96)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help("Create a new icon in this category")
     }
 }
 
