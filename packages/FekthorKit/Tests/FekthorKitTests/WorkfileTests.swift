@@ -1,0 +1,44 @@
+import XCTest
+
+@testable import FekthorKit
+
+final class WorkfileTests: XCTestCase {
+    func testRoundTripAndDeterminism() throws {
+        let wf = Workfile(
+            folder: .init(path: "icons"),
+            artboards: [.init(name: "arrow-left", svg: "<svg viewBox=\"0 0 72 72\"/>")],
+            categories: ["arrows", "ui"],
+            exportProfiles: [.init(name: "web-outlined", actions: ["outlineStrokes"], output: "dist")],
+            styleTokens: [.init(name: "outline", value: "#010101")],
+            containers: [.init(container: "circle-badge", x: 12, y: 12, width: 48, height: 48, fit: "contain")])
+        let data = try wf.encoded()
+        XCTAssertEqual(try Workfile.decode(data), wf)
+        XCTAssertEqual(data, try wf.encoded())  // byte determinism
+        XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("\"version\" : 1"))
+    }
+
+    func testUnknownKeyTolerance() throws {
+        let json = """
+            {"version": 7, "futureFeature": {"nested": [1,2,3]}, "categories": ["x"]}
+            """
+        let wf = try Workfile.decode(Data(json.utf8))
+        XCTAssertEqual(wf.version, 7)
+        XCTAssertEqual(wf.categories, ["x"])
+        XCTAssertNil(wf.artboards)
+    }
+
+    func testEmbeddedArtboardSVGSurvives() throws {
+        var doc = GraphicDocument.blank(width: 72, height: 72, id: "icon")
+        doc.nodes = [
+            .shape(
+                ShapeNode(
+                    id: 0, kind: .line(Pt(18, 36), Pt(54, 36)),
+                    style: SVGStyle.parse("fill: none; stroke: #010101; stroke-width: 4px;")))
+        ]
+        let svg = SVGWriter.write(doc)
+        let wf = Workfile(artboards: [.init(name: "test", svg: svg)])
+        let back = try Workfile.decode(try wf.encoded())
+        let restored = try SVGReader.read(back.artboards![0].svg)
+        XCTAssertEqual(restored, doc)
+    }
+}
