@@ -188,15 +188,38 @@ struct DrawingInspector: View {
     private var fillPopover: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Toggle(fillEnabledBinding.wrappedValue ? "Filled" : "Transparent", isOn: fillEnabledBinding)
+                Text("Fill").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
                 Spacer()
-                if fillEnabledBinding.wrappedValue {
-                    ColorPicker("Fill colour", selection: fillColorBinding, supportsOpacity: true)
-                        .labelsHidden()
+                ColorPicker("Fill colour", selection: fillColorBinding, supportsOpacity: true)
+                    .labelsHidden()
+            }
+
+            // Swatches, with a transparent option as the first dot.
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 24, maximum: 30), spacing: 5)], spacing: 5) {
+                    Button { fillEnabledBinding.wrappedValue = false } label: {
+                        transparentSwatch(selected: !fillEnabledBinding.wrappedValue)
+                    }
+                    .buttonStyle(.plain)
+                    .help("No fill (transparent)")
+
+                    ForEach(library.sets) { set in
+                        ForEach(set.colors) { swatch in
+                            Button { fillColorBinding.wrappedValue = Color(nsColor: swatch.nsColor) } label: {
+                                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                    .fill(swatch.color)
+                                    .frame(height: 24)
+                                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.white.opacity(0.2)))
+                            }
+                            .buttonStyle(.plain)
+                            .help(swatch.hex)
+                        }
+                    }
                 }
             }
+            .frame(maxHeight: 108)
+
             if fillEnabledBinding.wrappedValue {
-                paletteSwatches { fillColorBinding.wrappedValue = Color(nsColor: $0) }
                 field("Opacity") {
                     labeledSlider(value: fillOpacityBinding, range: 0...1, step: 0.01, suffix: "%", percent: true)
                 }
@@ -204,6 +227,18 @@ struct DrawingInspector: View {
         }
         .padding(14)
         .frame(width: 248)
+    }
+
+    private func transparentSwatch(selected: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 5, style: .continuous)
+            .fill(Color.white.opacity(0.06))
+            .frame(height: 24)
+            .overlay(
+                Image(systemName: "circle.slash")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.55))
+            )
+            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(selected ? Color.accentColor : .white.opacity(0.25), lineWidth: selected ? 2 : 1))
     }
 
     /// Swatches from every set in the library (base first), for quick picking.
