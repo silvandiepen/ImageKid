@@ -16,7 +16,8 @@ struct HistoryPanel: View {
             offset: $offset,
             onMinimize: onMinimize,
             resizable: true,
-            size: $size
+            size: $size,
+            contentPadding: 0
         ) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
@@ -37,6 +38,8 @@ struct HistoryPanel: View {
                     .disabled(!session.canRedo)
                     .help("Redo")
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
 
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -46,6 +49,9 @@ struct HistoryPanel: View {
                                     .id(index)
                             }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 16)
+                        .thinScrollbars()
                     }
                     .frame(maxHeight: .infinity)
                     .onChange(of: session.historyIndex) { _, newValue in

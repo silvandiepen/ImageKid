@@ -6,22 +6,33 @@ enum DockablePanel: String, CaseIterable, Identifiable, Hashable {
     case files
     case layers
     case history
+    case swatches
 
     var id: String { rawValue }
 
     static let gridStep: CGFloat = 20
 
+    /// Consistent width for all panels.
+    static let panelWidth: CGFloat = 280
+
     var spec: DockPanelSpec<DockablePanel> {
         switch self {
         case .files:
             DockPanelSpec(id: self, title: "Files", systemImage: "photo.on.rectangle.angled",
-                          defaultPosition: CGSize(width: 0, height: 0), defaultSize: CGSize(width: 260, height: 360))
+                          defaultPosition: CGSize(width: 0, height: 0),
+                          defaultSize: CGSize(width: Self.panelWidth, height: 200))
         case .layers:
             DockPanelSpec(id: self, title: "Layers", systemImage: "square.3.layers.3d",
-                          defaultPosition: CGSize(width: 300, height: 0), defaultSize: CGSize(width: 280, height: 360))
+                          defaultPosition: CGSize(width: 0, height: 216),
+                          defaultSize: CGSize(width: Self.panelWidth, height: 400))
         case .history:
             DockPanelSpec(id: self, title: "History", systemImage: "clock.arrow.circlepath",
-                          defaultPosition: CGSize(width: 300, height: 400), defaultSize: CGSize(width: 280, height: 420))
+                          defaultPosition: CGSize(width: 0, height: 632),
+                          defaultSize: CGSize(width: Self.panelWidth, height: 240))
+        case .swatches:
+            DockPanelSpec(id: self, title: "Swatches", systemImage: "swatchpalette",
+                          defaultPosition: CGSize(width: 300, height: 0),
+                          defaultSize: CGSize(width: Self.panelWidth, height: 400))
         }
     }
 
@@ -35,7 +46,7 @@ extension PanelDockModel where ID == DockablePanel {
             gridStep: DockablePanel.gridStep,
             minSize: CGSize(width: 220, height: 200),
             maxSize: CGSize(width: 520, height: 900),
-            initiallyPresented: [.files]
+            initiallyPresented: [.files, .layers, .history]
         )
     }
 }

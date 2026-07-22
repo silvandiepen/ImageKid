@@ -4,6 +4,7 @@ struct ViewportToolbar: View {
     @ObservedObject var session: ImageSession
     let displayedScale: CGFloat
     @Binding var isCollapsed: Bool
+    var onEditSize: () -> Void = {}
     @State private var isShowingZoomMenu = false
     @State private var customZoomPercent = 100
 
@@ -23,10 +24,15 @@ struct ViewportToolbar: View {
             if isCollapsed {
                 zoomButton
             } else {
-            Text(sizeLabel)
-                .font(.system(.caption, design: .monospaced, weight: .semibold))
-                .foregroundStyle(.secondary)
+            Button(action: onEditSize) {
+                Text(sizeLabel)
+                    .font(.system(.caption, design: .monospaced, weight: .semibold))
+                    .foregroundStyle(.secondary)
                     .frame(minWidth: 104, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Resize / upscale…")
 
             Divider()
                 .frame(height: 20)

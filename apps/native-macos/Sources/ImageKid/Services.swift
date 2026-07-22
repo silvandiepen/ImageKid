@@ -253,7 +253,9 @@ struct WorkspaceItem: Identifiable {
     var title: String {
         switch media {
         case .image(let session):
-            return session.sourceURL?.lastPathComponent ?? "Pasted Image"
+            return session.documentURL?.lastPathComponent
+                ?? session.sourceURL?.lastPathComponent
+                ?? "Pasted Image"
         case .video(let session):
             return session.sourceURL.lastPathComponent
         }
@@ -479,12 +481,14 @@ enum ImageRenderer {
         }
 
         NSGraphicsContext.current?.imageInterpolation = .high
-        NSImage(cgImage: cropped, size: targetSize).draw(
-            in: CGRect(origin: .zero, size: targetSize),
-            from: .zero,
-            operation: .sourceOver,
-            fraction: 1
-        )
+        if !session.baseUnlocked {
+            NSImage(cgImage: cropped, size: targetSize).draw(
+                in: CGRect(origin: .zero, size: targetSize),
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1
+            )
+        }
 
         drawImageLayers(session: session, targetSize: targetSize)
 
@@ -513,7 +517,23 @@ enum ImageRenderer {
                 width: relativeFrame.width * targetSize.width,
                 height: relativeFrame.height * targetSize.height
             )
-            layer.renderedImage.draw(in: rect, from: .zero, operation: .sourceOver, fraction: layer.opacity)
+            if layer.rotation != 0 || layer.flipH || layer.flipV {
+                NSGraphicsContext.current?.saveGraphicsState()
+                let transform = NSAffineTransform()
+                transform.translateX(by: rect.midX, yBy: rect.midY)
+                if layer.rotation != 0 {
+                    transform.rotate(byDegrees: -layer.rotation) // AppKit is CCW-positive; match SwiftUI CW.
+                }
+                transform.scaleX(by: layer.flipH ? -1 : 1, yBy: layer.flipV ? -1 : 1)
+                transform.concat()
+                layer.renderedImage.draw(
+                    in: CGRect(x: -rect.width / 2, y: -rect.height / 2, width: rect.width, height: rect.height),
+                    from: .zero, operation: .sourceOver, fraction: layer.opacity
+                )
+                NSGraphicsContext.current?.restoreGraphicsState()
+            } else {
+                layer.renderedImage.draw(in: rect, from: .zero, operation: .sourceOver, fraction: layer.opacity)
+            }
         }
     }
 
@@ -585,26 +605,44 @@ enum ImageRenderer {
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
         NSGraphicsContext.current?.cgContext.setAlpha(annotation.opacity)
+        NSGraphicsContext.current?.cgContext.setBlendMode(annotation.blendMode.cg)
 
         switch annotation.kind {
         case .rectangle:
-            drawClosedPath(NSBezierPath(rect: rect), annotation: annotation, lineWidth: lineWidth)
+            let radius = annotation.cornerRadius * lineScale
+            let shift = -annotation.strokeAlignment.edgeShift * lineWidth
+            let strokeRect = rect.insetBy(dx: shift, dy: shift)
+            let strokeRadius = max(0, radius + annotation.strokeAlignment.edgeShift * lineWidth)
+            if let fill = annotation.fillColor {
+                fill.setFill()
+                roundedOutputPath(rect, radius: radius).fill()
+            }
+            let path = roundedOutputPath(strokeRect, radius: strokeRadius)
+            stroke(path, annotation: annotation, lineWidth: lineWidth, scale: lineScale)
 
         case .ellipse:
-            drawClosedPath(NSBezierPath(ovalIn: rect), annotation: annotation, lineWidth: lineWidth)
+            let shift = -annotation.strokeAlignment.edgeShift * lineWidth
+            let strokeRect = rect.insetBy(dx: shift, dy: shift)
+            if let fill = annotation.fillColor {
+                fill.setFill()
+                NSBezierPath(ovalIn: rect).fill()
+            }
+            stroke(NSBezierPath(ovalIn: strokeRect), annotation: annotation, lineWidth: lineWidth, scale: lineScale)
 
         case .line(let start, let end):
             let path = NSBezierPath()
             path.move(to: outputPoint(start, in: rect))
             path.line(to: outputPoint(end, in: rect))
-            stroke(path, color: annotation.strokeColor, lineWidth: lineWidth)
+            stroke(path, annotation: annotation, lineWidth: lineWidth, scale: lineScale)
 
         case .arrow(let start, let end):
             drawArrow(
                 from: outputPoint(start, in: rect),
                 to: outputPoint(end, in: rect),
                 color: annotation.strokeColor,
-                lineWidth: lineWidth
+                lineWidth: lineWidth,
+                annotation: annotation,
+                scale: lineScale
             )
 
         case .freehand(let points):
@@ -616,7 +654,7 @@ enum ImageRenderer {
             }
             path.lineJoinStyle = .round
             path.lineCapStyle = .round
-            stroke(path, color: annotation.strokeColor, lineWidth: lineWidth)
+            stroke(path, annotation: annotation, lineWidth: lineWidth, scale: lineScale)
 
         case .text(let value):
             let scale = targetSize.width / max(sourceSize.width * cropRect.width, 1)
@@ -648,20 +686,32 @@ enum ImageRenderer {
         }
     }
 
-    private static func drawClosedPath(_ path: NSBezierPath, annotation: Annotation, lineWidth: CGFloat) {
+    private static func roundedOutputPath(_ rect: CGRect, radius: CGFloat) -> NSBezierPath {
+        guard radius > 0 else { return NSBezierPath(rect: rect) }
+        let r = min(radius, min(abs(rect.width), abs(rect.height)) / 2)
+        return NSBezierPath(roundedRect: rect, xRadius: r, yRadius: r)
+    }
+
+    /// Stroke a shape/line path with the annotation's dash and colour.
+    private static func stroke(_ path: NSBezierPath, annotation: Annotation, lineWidth: CGFloat, scale: CGFloat) {
         path.lineWidth = lineWidth
-        if let fill = annotation.fillColor {
-            fill.setFill()
-            path.fill()
-        }
+        applyDash(path, annotation: annotation, lineWidth: lineWidth, scale: scale)
         annotation.strokeColor.setStroke()
         path.stroke()
     }
 
+    /// Plain stroke with an explicit colour (no dash) — used for arrow heads.
     private static func stroke(_ path: NSBezierPath, color: NSColor, lineWidth: CGFloat) {
         path.lineWidth = lineWidth
         color.setStroke()
         path.stroke()
+    }
+
+    private static func applyDash(_ path: NSBezierPath, annotation: Annotation, lineWidth: CGFloat, scale: CGFloat) {
+        let pattern = annotation.effectiveDash(lineWidth: annotation.lineWidth, scale: scale)
+        guard !pattern.isEmpty else { return }
+        if annotation.dashLength <= 0 && annotation.strokeStyle == .dotted { path.lineCapStyle = .round }
+        path.setLineDash(pattern, count: pattern.count, phase: annotation.dashOffset * scale)
     }
 
     private static func outputPoint(_ point: CGPoint, in rect: CGRect) -> CGPoint {
@@ -671,11 +721,11 @@ enum ImageRenderer {
         )
     }
 
-    private static func drawArrow(from start: CGPoint, to end: CGPoint, color: NSColor, lineWidth: CGFloat) {
+    private static func drawArrow(from start: CGPoint, to end: CGPoint, color: NSColor, lineWidth: CGFloat, annotation: Annotation, scale: CGFloat) {
         let path = NSBezierPath()
         path.move(to: start)
         path.line(to: end)
-        stroke(path, color: color, lineWidth: lineWidth)
+        stroke(path, annotation: annotation, lineWidth: lineWidth, scale: scale)
 
         let angle = atan2(end.y - start.y, end.x - start.x)
         let headLength = max(10, lineWidth * 4)

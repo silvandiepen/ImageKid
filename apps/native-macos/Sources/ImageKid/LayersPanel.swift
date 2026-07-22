@@ -1,5 +1,6 @@
 import SwiftUI
 import ImageKidKit
+import UniformTypeIdentifiers
 
 /// Lists annotation layers front-to-back, with selection, reordering,
 /// duplication and deletion. Front-most layer sits at the top of the list.
@@ -12,6 +13,8 @@ struct LayersPanel: View {
 
     @State private var editingID: UUID?
     @State private var editingText: String = ""
+    @State private var draggingID: UUID?
+    @State private var dropTargetID: UUID?
     @FocusState private var nameFieldFocused: Bool
 
     /// Front-most first (last in the draw array renders on top).
@@ -37,43 +40,47 @@ struct LayersPanel: View {
             offset: $offset,
             onMinimize: onMinimize,
             resizable: true,
-            size: $size
+            size: $size,
+            contentPadding: 0
         ) {
             VStack(alignment: .leading, spacing: 10) {
-                if session.annotations.isEmpty && session.imageLayers.isEmpty {
-                    VStack(spacing: 10) {
-                        Image(systemName: "square.3.layers.3d")
-                            .font(.system(size: 28, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.5))
-                        Text("Drag an image in, or add annotations — they appear here as layers.")
-                            .font(.caption)
-                            .multilineTextAlignment(.center)
-                            .foregroundStyle(.white.opacity(0.55))
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 120)
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 4) {
-                            ForEach(session.layerGroups) { group in
-                                groupHeader(group)
-                                if !group.isCollapsed {
-                                    ForEach(members(of: group)) { layer in
-                                        imageLayerRow(layer).padding(.leading, 18)
-                                    }
+                ScrollView {
+                    LazyVStack(spacing: 4) {
+                        ForEach(session.layerGroups) { group in
+                            groupHeader(group)
+                            if !group.isCollapsed {
+                                ForEach(members(of: group)) { layer in
+                                    imageLayerRow(layer).padding(.leading, 18)
                                 }
                             }
-                            ForEach(ungroupedLayers) { layer in
-                                imageLayerRow(layer)
-                            }
-                            ForEach(orderedLayers) { layer in
-                                row(layer)
-                            }
+                        }
+                        ForEach(ungroupedLayers) { layer in
+                            imageLayerRow(layer)
+                                .modifier(ReorderDrag(
+                                    id: layer.id, draggingID: $draggingID, dropTargetID: $dropTargetID,
+                                    onDrop: { src in session.reorderImageLayerVisual(moving: src, onto: layer.id) }
+                                ))
+                        }
+                        ForEach(orderedLayers) { layer in
+                            row(layer)
+                                .modifier(ReorderDrag(
+                                    id: layer.id, draggingID: $draggingID, dropTargetID: $dropTargetID,
+                                    onDrop: { src in session.reorderAnnotationVisual(moving: src, onto: layer.id) }
+                                ))
+                        }
+                        if !session.baseUnlocked {
+                            backgroundRow
                         }
                     }
-                    .frame(maxHeight: .infinity)
-
-                    controlBar
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                    .thinScrollbars()
                 }
+                .frame(maxHeight: .infinity)
+
+                controlBar
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 16)
             }
         }
     }
@@ -111,13 +118,28 @@ struct LayersPanel: View {
 
     private func imageLayerRow(_ layer: ImageLayer) -> some View {
         let isSelected = session.selectedLayerID == layer.id || session.selectedLayerIDs.contains(layer.id)
-        return HStack(spacing: 10) {
+        let editingMask = session.maskEditLayerID == layer.id
+        return HStack(spacing: 8) {
             Image(nsImage: layer.image)
                 .resizable()
                 .scaledToFill()
                 .frame(width: 24, height: 24)
                 .clipShape(RoundedRectangle(cornerRadius: 5))
                 .opacity(layer.isVisible ? 1 : 0.35)
+            if let mask = layer.mask {
+                Image(nsImage: mask)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 24, height: 24)
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5)
+                            .strokeBorder(editingMask ? Color.accentColor : .white.opacity(0.25), lineWidth: editingMask ? 2 : 1)
+                    )
+                    .opacity(layer.isMaskEnabled ? 1 : 0.4)
+                    .onTapGesture { session.beginMaskEdit(layerID: layer.id) }
+                    .help("Click to edit mask")
+            }
             nameLabel(id: layer.id, text: layer.name, isSelected: isSelected) {
                 session.renameImageLayer(id: layer.id, to: $0)
             }
@@ -165,12 +187,59 @@ struct LayersPanel: View {
                 appModel.removeBackgroundFromSelectedLayer()
             }
             .disabled(appModel.isRemovingBackground)
+            Divider()
+            Button(layer.hasMask ? "Edit Mask" : "Add Mask") {
+                session.beginMaskEdit(layerID: layer.id)
+            }
             if layer.hasMask {
                 Button(layer.isMaskEnabled ? "Disable Mask" : "Enable Mask") {
                     session.toggleLayerMask(id: layer.id)
                 }
                 Button("Delete Mask") { session.removeLayerMask(id: layer.id) }
             }
+        }
+    }
+
+    /// The open image itself, shown as the locked bottom layer.
+    private var backgroundRow: some View {
+        HStack(spacing: 10) {
+            Image(nsImage: session.workingSourceImage)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 24, height: 24)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+            Text("Background")
+                .font(.system(size: 13))
+                .foregroundStyle(.white.opacity(0.85))
+                .lineLimit(1)
+            Spacer()
+            if session.backgroundRemovedImage != nil {
+                Image(systemName: "theatermask.and.paintbrush")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.6))
+            }
+            Button {
+                session.unlockBackground()
+            } label: {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+            .buttonStyle(.plain)
+            .help("Unlock — make the background a movable layer")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contextMenu {
+            Button("Unlock Background") { session.unlockBackground() }
+        }
+        .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+        .contextMenu {
+            Button(session.backgroundRemovedImage != nil ? "Restore Background" : "Remove Background") {
+                appModel.removeBackground()
+            }
+            .disabled(!appModel.canRemoveBackground)
         }
     }
 
@@ -286,5 +355,60 @@ struct LayersPanel: View {
             return text.isEmpty ? "Text" : text
         }
         return layer.drawingMode?.label ?? "Shape"
+    }
+}
+
+/// Adds drag-to-reorder to a layer row: drag to pick up, drop onto another row
+/// to move it there. Shows a highlight line at the drop target.
+private struct ReorderDrag: ViewModifier {
+    let id: UUID
+    @Binding var draggingID: UUID?
+    @Binding var dropTargetID: UUID?
+    let onDrop: (UUID) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(draggingID == id ? 0.35 : 1)
+            .overlay(alignment: .top) {
+                if dropTargetID == id, draggingID != id, draggingID != nil {
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(Color.accentColor)
+                        .frame(height: 2)
+                        .offset(y: -3)
+                }
+            }
+            .onDrag {
+                draggingID = id
+                return NSItemProvider(object: id.uuidString as NSString)
+            }
+            .onDrop(of: [UTType.plainText], delegate: ReorderDropDelegate(
+                id: id, draggingID: $draggingID, dropTargetID: $dropTargetID, onDrop: onDrop
+            ))
+    }
+}
+
+private struct ReorderDropDelegate: DropDelegate {
+    let id: UUID
+    @Binding var draggingID: UUID?
+    @Binding var dropTargetID: UUID?
+    let onDrop: (UUID) -> Void
+
+    func dropEntered(info: DropInfo) {
+        if let dragging = draggingID, dragging != id { dropTargetID = id }
+    }
+
+    func dropExited(info: DropInfo) {
+        if dropTargetID == id { dropTargetID = nil }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        defer { draggingID = nil; dropTargetID = nil }
+        guard let source = draggingID, source != id else { return false }
+        onDrop(source)
+        return true
     }
 }
