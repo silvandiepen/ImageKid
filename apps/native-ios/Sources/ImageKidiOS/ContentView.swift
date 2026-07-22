@@ -325,6 +325,7 @@ struct ContentView: View {
     /// that need supporting controls reveal an inspector above the canvas.
     private var bottomToolbar: some View {
         HStack(spacing: 5) {
+            toolButton(.select)
             toolButton(.colour)
             toolButton(.crop)
             toolButton(.resize)
@@ -376,7 +377,7 @@ struct ContentView: View {
                     cropRect = CGRect(x: 0, y: 0, width: 1, height: 1)
                     activeTool = nil
                 })
-            case .draw, .text:
+            case .select, .draw, .text:
                 AnnotationInspector(
                     selectedTool: $annotationKind,
                     color: $annotationColor,
@@ -396,16 +397,7 @@ struct ContentView: View {
 
     private func toolButton(_ tool: EditorTool) -> some View {
         Button {
-            switch tool {
-            case .crop:
-                activate(tool)
-            case .draw:
-                activate(tool)
-            case .text:
-                activate(tool)
-            case .resize, .background, .colour:
-                activate(tool)
-            }
+            activate(tool)
         } label: {
             Image(systemName: tool.symbolName)
                 .font(.system(size: 18, weight: .medium))
@@ -431,7 +423,7 @@ struct ContentView: View {
             activeTool = nil
             return
         }
-        if tool != .draw, tool != .text { resetAnnotations() }
+        if tool != .draw, tool != .text, tool != .select { resetAnnotations() }
         if tool != .colour {
             currentSample = nil
             sampleLocation = nil
@@ -538,6 +530,7 @@ struct ContentView: View {
 }
 
 private enum EditorTool: String, CaseIterable, Identifiable {
+    case select
     case colour
     case crop
     case resize
@@ -549,6 +542,7 @@ private enum EditorTool: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
+        case .select: "Select"
         case .colour: "Colour picker"
         case .crop: "Crop"
         case .resize: "Resize"
@@ -560,6 +554,7 @@ private enum EditorTool: String, CaseIterable, Identifiable {
 
     var symbolName: String {
         switch self {
+        case .select: "cursorarrow"
         case .colour: "eyedropper"
         case .crop: "crop"
         case .resize: "arrow.up.left.and.arrow.down.right"
@@ -571,7 +566,7 @@ private enum EditorTool: String, CaseIterable, Identifiable {
 
     var usesEditingCanvas: Bool {
         switch self {
-        case .colour, .crop, .draw, .text: true
+        case .select, .colour, .crop, .draw, .text: true
         case .resize, .background: false
         }
     }
@@ -971,6 +966,11 @@ private struct InlineEditingCanvas: View {
     @State private var movingAnnotationIndex: Int?
     @State private var moveOriginalAnnotation: Annotation?
     @State private var didHitTestThisDrag = false
+    @State private var dragMoved = false
+    // Selection (Select tool) and inline text editing (Text tool, on-canvas).
+    @State private var selectedAnnotationID: UUID?
+    @State private var editingTextID: UUID?
+    @FocusState private var textEditorFocused: Bool
 
     var body: some View {
         GeometryReader { geo in
@@ -997,8 +997,9 @@ private struct InlineEditingCanvas: View {
                     cropOverlay(in: imageRect)
                 }
 
-                if activeTool == .draw || activeTool == .text {
+                if activeTool == .draw || activeTool == .text || activeTool == .select {
                     annotationOverlay(in: imageRect)
+                    selectionOverlay(in: imageRect)
                 }
 
                 if activeTool == .colour, let sampleLocation {
@@ -1017,6 +1018,9 @@ private struct InlineEditingCanvas: View {
             .contentShape(Rectangle())
             .gesture(canvasGesture(in: imageRect))
             .simultaneousGesture(zoomGesture())
+            .overlay(alignment: .topLeading) {
+                inlineTextEditor(in: imageRect)
+            }
             .overlay(alignment: .topTrailing) {
                 zoomControls
                     .padding(12)
@@ -1105,6 +1109,7 @@ private struct InlineEditingCanvas: View {
         Canvas { context, _ in
             for annotation in annotations + [draftAnnotation].compactMap({ $0 }) {
                 if annotation.isText {
+                    if annotation.id == editingTextID { continue } // shown live in the text field
                     let resolved = context.resolve(
                         Text(annotation.text.isEmpty ? " " : annotation.text)
                             .font(.system(size: annotation.fontSize(in: imageRect)))
@@ -1129,6 +1134,65 @@ private struct InlineEditingCanvas: View {
         .allowsHitTesting(false)
     }
 
+    /// Dashed outline around the selected annotation (Select tool).
+    @ViewBuilder
+    private func selectionOverlay(in imageRect: CGRect) -> some View {
+        if activeTool == .select, editingTextID == nil,
+           let id = selectedAnnotationID,
+           let annotation = annotations.first(where: { $0.id == id }) {
+            let box = annotation.hitBounds(in: imageRect)
+            if !box.isNull, !box.isInfinite {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                    .frame(width: box.width, height: box.height)
+                    .position(x: box.midX, y: box.midY)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
+    /// On-canvas text field for the text annotation being edited (inline, no sheet).
+    @ViewBuilder
+    private func inlineTextEditor(in imageRect: CGRect) -> some View {
+        if let id = editingTextID, let idx = annotations.firstIndex(where: { $0.id == id }) {
+            let origin = annotations[idx].textOrigin(in: imageRect)
+            let fontSize = annotations[idx].fontSize(in: imageRect)
+            TextField("Text", text: Binding(
+                get: { annotations.indices.contains(idx) ? annotations[idx].text : "" },
+                set: { if annotations.indices.contains(idx) { annotations[idx].text = $0 } }
+            ), axis: .vertical)
+            .font(.system(size: fontSize))
+            .foregroundColor(annotations[idx].color)
+            .textInputAutocapitalization(.sentences)
+            .autocorrectionDisabled(false)
+            .focused($textEditorFocused)
+            .submitLabel(.done)
+            .onSubmit { commitTextEditing() }
+            .frame(maxWidth: max(80, imageRect.maxX - origin.x))
+            .fixedSize(horizontal: false, vertical: true)
+            .offset(x: origin.x, y: origin.y)
+        }
+    }
+
+    /// Begin inline editing of a text annotation.
+    private func beginTextEditing(_ id: UUID) {
+        selectedAnnotationID = id
+        editingTextID = id
+        DispatchQueue.main.async { textEditorFocused = true }
+    }
+
+    /// Finish inline editing; discard the annotation if left empty.
+    private func commitTextEditing() {
+        textEditorFocused = false
+        if let id = editingTextID,
+           let idx = annotations.firstIndex(where: { $0.id == id }),
+           annotations[idx].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            annotations.remove(at: idx)
+            selectedAnnotationID = nil
+        }
+        editingTextID = nil
+    }
+
     /// Topmost annotation whose hit area contains `point` (view space), if any.
     private func hitTestAnnotation(at point: CGPoint, in imageRect: CGRect) -> Int? {
         for idx in annotations.indices.reversed() where annotations[idx].hitBounds(in: imageRect).contains(point) {
@@ -1147,16 +1211,21 @@ private struct InlineEditingCanvas: View {
                     )
                     return
                 }
-                // Draw/Text tools: if the drag starts on an existing annotation,
-                // move it instead of drawing — this is how a placed text is
-                // repositioned. Decided once, on the first change of the drag.
-                if activeTool == .draw || activeTool == .text {
+                // Track whether this gesture has actually dragged (vs a tap).
+                if abs(value.translation.width) > 4 || abs(value.translation.height) > 4 {
+                    dragMoved = true
+                }
+                // Select/Text tools: if the drag starts on an existing annotation,
+                // move it (this is how a placed text/shape is repositioned).
+                // Decided once, on the first change of the drag.
+                if activeTool == .select || activeTool == .text {
                     if !didHitTestThisDrag {
                         didHitTestThisDrag = true
                         if draftAnnotation == nil,
                            let idx = hitTestAnnotation(at: value.startLocation, in: imageRect) {
                             movingAnnotationIndex = idx
                             moveOriginalAnnotation = annotations[idx]
+                            selectedAnnotationID = annotations[idx].id
                         }
                     }
                     if let idx = movingAnnotationIndex, let original = moveOriginalAnnotation,
@@ -1166,8 +1235,11 @@ private struct InlineEditingCanvas: View {
                         annotations[idx] = original.translated(dx: dx, dy: dy)
                         return
                     }
+                    if activeTool == .select { return } // Select never draws.
                 }
                 switch activeTool {
+                case .select:
+                    break // handled above (select/move only, never draws)
                 case .colour:
                     guard let cgImage = image.normalizedCGImage() else { return }
                     let normalized = normalized(value.location, in: imageRect)
@@ -1203,23 +1275,58 @@ private struct InlineEditingCanvas: View {
                     committedPanOffset = panOffset
                     return
                 }
-                // Finish a move (draw/text tools): if we were repositioning an
+                // Finish a move (select/text tools): if we were repositioning an
                 // annotation, commit it and don't also draw or add new text.
                 let wasMoving = movingAnnotationIndex != nil
+                let tapped = !dragMoved
                 defer {
                     didHitTestThisDrag = false
                     movingAnnotationIndex = nil
                     moveOriginalAnnotation = nil
+                    dragMoved = false
                 }
                 if wasMoving { return }
+
+                // Any tap while inline-editing a text commits that edit first.
+                if editingTextID != nil, tapped {
+                    commitTextEditing()
+                    return
+                }
+
                 switch activeTool {
+                case .select:
+                    guard tapped else { break }
+                    if let idx = hitTestAnnotation(at: value.location, in: imageRect) {
+                        let hitID = annotations[idx].id
+                        // Tapping an already-selected text a second time edits it inline.
+                        if selectedAnnotationID == hitID, annotations[idx].isText {
+                            beginTextEditing(hitID)
+                        } else {
+                            selectedAnnotationID = hitID
+                        }
+                    } else {
+                        selectedAnnotationID = nil
+                    }
                 case .crop:
                     dragStartCrop = nil
                 case .draw:
                     if let draftAnnotation { annotations.append(draftAnnotation) }
                     draftAnnotation = nil
                 case .text:
-                    onTextLocation(normalized(value.location, in: imageRect))
+                    guard tapped else { break }
+                    // Tap an existing text to edit it; otherwise create a new one
+                    // and start typing inline (no sheet).
+                    if let idx = hitTestAnnotation(at: value.location, in: imageRect),
+                       annotations[idx].isText {
+                        beginTextEditing(annotations[idx].id)
+                    } else {
+                        var new = Annotation(kind: .text, color: annotationColor, widthFraction: annotationWidthFraction)
+                        new.start = normalized(value.location, in: imageRect)
+                        new.text = ""
+                        new.fontFraction = textSizeFraction
+                        annotations.append(new)
+                        beginTextEditing(new.id)
+                    }
                 case .colour, .resize, .background:
                     break
                 }
