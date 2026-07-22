@@ -156,6 +156,19 @@ stay visually identical.
 4. Gradient editing (Fill palette mode + on-canvas axis/stop handles —
    "better and easier than Illustrator") · live corners on paths.
 
+Backlog status 2026-07-23: items 1–4 SHIPPED (swatches/align/history/
+point-snap; layers/named-styles/classes; transform+distort/guide;
+linear+radial gradient editing). Multipoint/mesh gradients deliberately
+parked (Sil) — if ever: multipoint model in the workfile, export-time
+flattening (blurred-blob default / raster / radial-stack). Panel system
+gained shared magnetic stacking + minimize-to-chip (ImageKidKit, both
+apps + first iPad surface).
+
+Engine follow-ups from the gradient wave: SVGReader should retype
+modelled gradient defs (app-side normalizer in EditorGradients.swift
+retires then); ThumbnailRenderer still flattens gradients to the first
+stop; GradientStop lacks stop-opacity.
+
 ## Open items
 
 - Undo architecture decision (snapshots vs commands) due at P3 exit.
