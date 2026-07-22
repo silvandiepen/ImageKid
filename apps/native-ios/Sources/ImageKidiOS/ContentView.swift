@@ -64,11 +64,10 @@ struct ContentView: View {
                         .padding(.vertical, 8)
                         .background(.regularMaterial, in: Capsule())
                 } else if model.workingImage != nil {
-                    if isEditingTextInline {
-                        // Typing: controls live in the keyboard accessory bar.
-                        EmptyView()
-                    } else if activeTextID != nil {
-                        // A text is active → the text bar replaces the toolbar.
+                    if activeTextID != nil {
+                        // A text is selected or being typed → the text bar replaces
+                        // the toolbar. Keyboard avoidance lifts it above the
+                        // keyboard while typing.
                         textBar
                     } else {
                         toolInspector
@@ -370,66 +369,8 @@ struct ContentView: View {
     @ViewBuilder
     private var textBar: some View {
         if let id = activeTextID {
-            let binding = textBinding(id: id)
-            HStack(spacing: 12) {
-                ColorPicker("", selection: binding.color, supportsOpacity: false)
-                    .labelsHidden()
-                    .frame(width: 34)
-
-                Menu {
-                    ForEach(textSizeChoices, id: \.label) { choice in
-                        Button(choice.label) { binding.fontFraction.wrappedValue = choice.value }
-                    }
-                } label: {
-                    textBarChip(icon: "textformat.size", text: sizeLabel(binding.fontFraction.wrappedValue))
-                }
-
-                Menu {
-                    ForEach(textFontChoices, id: \.name) { choice in
-                        Button(choice.name) { binding.fontName.wrappedValue = choice.psName }
-                    }
-                } label: {
-                    textBarChip(icon: "character.cursor.ibeam", text: textFontLabel(binding.fontName.wrappedValue))
-                }
-
-                Spacer(minLength: 4)
-
-                Button { dismissText() } label: {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 16, weight: .semibold))
-                        .frame(width: 40, height: 40)
-                        .background(Color.accentColor, in: Circle())
-                        .foregroundStyle(.white)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(
-                ZStack {
-                    RoundedRectangle(cornerRadius: 30, style: .continuous).fill(.ultraThinMaterial)
-                    RoundedRectangle(cornerRadius: 30, style: .continuous).fill(Color.black.opacity(0.34))
-                }
-            )
-            .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).strokeBorder(.white.opacity(0.10)))
-            .shadow(color: .black.opacity(0.30), radius: 20, y: 8)
-            .environment(\.colorScheme, .dark)
+            TextToolbar(annotation: textBinding(id: id), onDone: dismissText)
         }
-    }
-
-    private func textBarChip(icon: String, text: String) -> some View {
-        HStack(spacing: 5) {
-            Image(systemName: icon).font(.system(size: 13, weight: .semibold))
-            Text(text).font(.footnote.weight(.semibold)).lineLimit(1)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(Color.white.opacity(0.12), in: Capsule())
-        .foregroundStyle(.white)
-    }
-
-    private func sizeLabel(_ fraction: CGFloat) -> String {
-        textSizeChoices.min(by: { abs($0.value - fraction) < abs($1.value - fraction) })?.label ?? "Size"
     }
 
     /// Finish with a text: drop it if empty, then clear selection/editing so the
@@ -1043,56 +984,215 @@ private struct AnnotationInspector: View {
 }
 
 /// Font choices offered for text annotations (label, PostScript name; nil = system).
+/// All are built into iOS — no download needed.
 let textFontChoices: [(name: String, psName: String?)] = [
     ("System", nil),
     ("Helvetica Neue", "HelveticaNeue"),
     ("Avenir Next", "AvenirNext-Regular"),
+    ("Avenir", "Avenir-Book"),
+    ("Futura", "Futura-Medium"),
+    ("Gill Sans", "GillSans"),
+    ("Optima", "Optima-Regular"),
+    ("Trebuchet MS", "TrebuchetMS"),
+    ("Verdana", "Verdana"),
+    ("Arial", "ArialMT"),
     ("Georgia", "Georgia"),
-    ("Times", "TimesNewRomanPSMT"),
-    ("Courier", "CourierNewPSMT"),
+    ("Times New Roman", "TimesNewRomanPSMT"),
+    ("Palatino", "Palatino-Roman"),
+    ("Baskerville", "Baskerville"),
+    ("Didot", "Didot"),
+    ("Hoefler Text", "HoeflerText-Regular"),
+    ("Cochin", "Cochin"),
+    ("American Typewriter", "AmericanTypewriter"),
+    ("Courier New", "CourierNewPSMT"),
     ("Menlo", "Menlo-Regular"),
+    ("Copperplate", "Copperplate"),
     ("Marker Felt", "MarkerFelt-Thin"),
+    ("Noteworthy", "Noteworthy-Light"),
+    ("Bradley Hand", "BradleyHandITCTT-Bold"),
     ("Snell Roundhand", "SnellRoundhand"),
-    ("Chalkboard", "ChalkboardSE-Regular")
+    ("Chalkboard", "ChalkboardSE-Regular"),
+    ("Chalkduster", "Chalkduster"),
+    ("Papyrus", "Papyrus"),
+    ("Zapfino", "Zapfino")
 ]
 
 func textFontLabel(_ psName: String?) -> String {
     textFontChoices.first(where: { $0.psName == psName })?.name ?? "Font"
 }
 
-/// Preset text sizes (label, fraction of image height).
-let textSizeChoices: [(label: String, value: CGFloat)] = [
-    ("XS", 0.03), ("S", 0.045), ("M", 0.06), ("L", 0.09), ("XL", 0.13), ("XXL", 0.18)
+/// A ready-made colour palette (like the macOS app) for quick picks.
+let textColorPalette: [Color] = [
+    Color(white: 0.0), Color(white: 0.25), Color(white: 0.5), Color(white: 0.75), .white,
+    .red, .orange, .yellow, .green, .mint,
+    .teal, .cyan, .blue, .indigo, .purple,
+    .pink, .brown,
+    Color(red: 0.86, green: 0.16, blue: 0.16), Color(red: 0.90, green: 0.49, blue: 0.13), Color(red: 0.95, green: 0.77, blue: 0.06),
+    Color(red: 0.18, green: 0.55, blue: 0.34), Color(red: 0.10, green: 0.46, blue: 0.55), Color(red: 0.17, green: 0.24, blue: 0.31),
+    Color(red: 0.20, green: 0.29, blue: 0.70), Color(red: 0.42, green: 0.24, blue: 0.60), Color(red: 0.78, green: 0.22, blue: 0.52)
 ]
 
-/// Live properties (colour, font, size) for the selected / editing text.
-private struct TextPropertiesPanel: View {
+/// Compact dark bar shown in place of the toolbar when a text is active:
+/// current colour, size and font (each opens a proper picker), plus a check to
+/// dismiss. Lifts above the keyboard while typing.
+private struct TextToolbar: View {
     @Binding var annotation: Annotation
-    let onClose: () -> Void
+    let onDone: () -> Void
+
+    @State private var showColor = false
+    @State private var showSize = false
+    @State private var showFont = false
 
     var body: some View {
-        InspectorPanel(title: "Text", systemImage: "textformat", onClose: onClose) {
-            VStack(spacing: 12) {
-                HStack(spacing: 12) {
-                    ColorPicker("Colour", selection: $annotation.color, supportsOpacity: false)
-                        .labelsHidden()
-                    Menu {
-                        ForEach(textFontChoices, id: \.name) { choice in
-                            Button(choice.name) { annotation.fontName = choice.psName }
-                        }
-                    } label: {
-                        Label(textFontLabel(annotation.fontName), systemImage: "character.cursor.ibeam")
-                            .frame(maxWidth: .infinity)
-                            .lineLimit(1)
-                    }
-                    .buttonStyle(.bordered)
+        HStack(spacing: 10) {
+            Button { showColor = true } label: {
+                chip {
+                    Circle().fill(annotation.color).frame(width: 20, height: 20)
+                        .overlay(Circle().strokeBorder(.white.opacity(0.7), lineWidth: 1))
                 }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Size").font(.caption).foregroundStyle(.secondary)
-                    Slider(value: $annotation.fontFraction, in: 0.02...0.25)
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: $showColor) {
+                ColorPalettePopover(color: $annotation.color).presentationCompactAdaptation(.popover)
+            }
+
+            Button { showSize = true } label: {
+                chip {
+                    HStack(spacing: 5) {
+                        Image(systemName: "textformat.size").font(.system(size: 13, weight: .semibold))
+                        Text("\(Int((annotation.fontFraction * 100).rounded()))").font(.footnote.weight(.semibold))
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: $showSize) {
+                SizePopover(fraction: $annotation.fontFraction).presentationCompactAdaptation(.popover)
+            }
+
+            Button { showFont = true } label: {
+                chip {
+                    Text(textFontLabel(annotation.fontName)).font(.footnote.weight(.semibold)).lineLimit(1)
+                }
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: $showFont) {
+                FontPopover(fontName: $annotation.fontName).presentationCompactAdaptation(.popover)
+            }
+
+            Spacer(minLength: 4)
+
+            Button(action: onDone) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(width: 40, height: 40)
+                    .background(Color.accentColor, in: Circle())
+                    .foregroundStyle(.white)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 30, style: .continuous).fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: 30, style: .continuous).fill(Color.black.opacity(0.34))
+            }
+        )
+        .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).strokeBorder(.white.opacity(0.10)))
+        .shadow(color: .black.opacity(0.30), radius: 20, y: 8)
+        .environment(\.colorScheme, .dark)
+    }
+
+    private func chip<C: View>(@ViewBuilder _ content: () -> C) -> some View {
+        content()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(Color.white.opacity(0.12), in: Capsule())
+            .foregroundStyle(.white)
+    }
+}
+
+/// Ready-made palette grid + a custom picker for the text colour.
+private struct ColorPalettePopover: View {
+    @Binding var color: Color
+    private let columns = Array(repeating: GridItem(.fixed(32), spacing: 10), count: 6)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Palette").font(.caption).foregroundStyle(.secondary)
+            LazyVGrid(columns: columns, spacing: 10) {
+                ForEach(Array(textColorPalette.enumerated()), id: \.offset) { _, swatch in
+                    Button { color = swatch } label: {
+                        Circle().fill(swatch).frame(width: 30, height: 30)
+                            .overlay(Circle().strokeBorder(.primary.opacity(0.2)))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            Divider()
+            ColorPicker("Custom colour", selection: $color, supportsOpacity: false)
+        }
+        .padding(16)
+        .frame(width: 280)
+    }
+}
+
+/// Fine size control with a slider and quick presets.
+private struct SizePopover: View {
+    @Binding var fraction: CGFloat
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Text size").font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Image(systemName: "textformat.size.smaller")
+                Slider(value: $fraction, in: 0.01...0.4)
+                Image(systemName: "textformat.size.larger")
+                Text("\(Int((fraction * 100).rounded()))")
+                    .font(.footnote.monospacedDigit().weight(.semibold))
+                    .frame(width: 30, alignment: .trailing)
+            }
+            HStack(spacing: 8) {
+                ForEach([0.03, 0.05, 0.08, 0.12, 0.2], id: \.self) { value in
+                    Button("\(Int(value * 100))") { fraction = CGFloat(value) }
+                        .buttonStyle(.bordered)
+                        .frame(maxWidth: .infinity)
                 }
             }
         }
+        .padding(16)
+        .frame(width: 320)
+    }
+}
+
+/// Scrollable font list, each name shown in its own typeface.
+private struct FontPopover: View {
+    @Binding var fontName: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(textFontChoices, id: \.name) { choice in
+                    Button { fontName = choice.psName } label: {
+                        HStack {
+                            Text(choice.name)
+                                .font(choice.psName.map { .custom($0, size: 18) } ?? .system(size: 18))
+                            Spacer()
+                            if fontName == choice.psName {
+                                Image(systemName: "checkmark").foregroundStyle(.tint)
+                            }
+                        }
+                        .padding(.vertical, 9)
+                        .padding(.horizontal, 4)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    Divider()
+                }
+            }
+            .padding(.horizontal, 12)
+        }
+        .frame(width: 270, height: 380)
     }
 }
 
@@ -1429,38 +1529,7 @@ private struct InlineEditingCanvas: View {
             .frame(maxWidth: max(80, imageRect.maxX - origin.x))
             .fixedSize(horizontal: false, vertical: true)
             .offset(x: origin.x, y: origin.y)
-            .toolbar {
-                ToolbarItemGroup(placement: .keyboard) {
-                    Menu {
-                        ForEach(textFontChoices, id: \.name) { choice in
-                            Button(choice.name) { setEditing { $0.fontName = choice.psName } }
-                        }
-                    } label: {
-                        Label(textFontLabel(annotations.first(where: { $0.id == id })?.fontName ?? nil),
-                              systemImage: "character.cursor.ibeam")
-                    }
-                    Button { setEditing { $0.fontFraction = max(0.02, $0.fontFraction - 0.01) } } label: {
-                        Image(systemName: "textformat.size.smaller")
-                    }
-                    Button { setEditing { $0.fontFraction = min(0.25, $0.fontFraction + 0.01) } } label: {
-                        Image(systemName: "textformat.size.larger")
-                    }
-                    ColorPicker("", selection: Binding(
-                        get: { annotations.first(where: { $0.id == id })?.color ?? .red },
-                        set: { newColor in setEditing { $0.color = newColor } }
-                    ), supportsOpacity: false)
-                    .labelsHidden()
-                    Spacer()
-                    Button("Done") { commitTextEditing() }
-                }
-            }
         }
-    }
-
-    /// Mutate the text annotation currently being edited.
-    private func setEditing(_ change: (inout Annotation) -> Void) {
-        guard let id = editingTextID, let i = annotations.firstIndex(where: { $0.id == id }) else { return }
-        change(&annotations[i])
     }
 
     /// Begin inline editing of a text annotation.
