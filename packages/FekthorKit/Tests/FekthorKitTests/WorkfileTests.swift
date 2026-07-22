@@ -44,6 +44,33 @@ final class WorkfileTests: XCTestCase {
 }
 
 extension WorkfileTests {
+    func testNamedStylesSwatchesAndGuideRoundTrip() throws {
+        var wf = Workfile()
+        wf.namedStyles = [
+            NamedStyle(
+                name: "brand-stroke",
+                declarations: [
+                    "stroke": "#010101", "stroke-width": "4", "stroke-linecap": "round",
+                    "stroke-linejoin": "miter", "fill": "none",
+                ])
+        ]
+        wf.swatches = ["#010101", "#ed2024", "#fff"]
+        wf.settings = .init(guideIcon: "grid-guide", showGuide: true)
+        let data = try wf.encoded()
+        XCTAssertEqual(try Workfile.decode(data), wf)
+        XCTAssertEqual(data, try wf.encoded())  // byte determinism incl. declaration map
+
+        // Old workfiles without the new keys decode with nils.
+        let old = try Workfile.decode(Data("""
+            {"version": 1, "settings": {"iconWidth": 24}}
+            """.utf8))
+        XCTAssertNil(old.namedStyles)
+        XCTAssertNil(old.swatches)
+        XCTAssertNil(old.settings?.guideIcon)
+        XCTAssertNil(old.settings?.showGuide)
+        XCTAssertEqual(old.settings?.iconWidth, 24)
+    }
+
     func testWorkspaceSettingsRoundTripAndTolerance() throws {
         var wf = Workfile()
         wf.settings = .init(iconWidth: 24, iconHeight: 24, gridSpacing: 1, snapToGrid: true)

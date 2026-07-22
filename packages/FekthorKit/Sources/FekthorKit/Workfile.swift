@@ -24,6 +24,10 @@ public struct Workfile: Codable, Equatable, Sendable {
     public var settings: WorkspaceSettings?
     public var exportProfiles: [ExportProfile]?
     public var styleTokens: [StyleToken]?
+    /// Named graphic styles bound to nodes by SVG class (see `NamedStyles`).
+    public var namedStyles: [NamedStyle]?
+    /// Workspace colour swatches: hex colour strings shown in the picker.
+    public var swatches: [String]?
     public var containers: [ContainerSlot]?
     /// Container memberships (P2): icon name → names of containers the icon
     /// is exported into (see `Containers.matrixExports`).
@@ -40,7 +44,8 @@ public struct Workfile: Codable, Equatable, Sendable {
         version: Int = 1, folder: FolderRef? = nil, artboards: [EmbeddedArtboard]? = nil,
         categories: [String]? = nil, settings: WorkspaceSettings? = nil,
         exportProfiles: [ExportProfile]? = nil,
-        styleTokens: [StyleToken]? = nil, containers: [ContainerSlot]? = nil,
+        styleTokens: [StyleToken]? = nil, namedStyles: [NamedStyle]? = nil,
+        swatches: [String]? = nil, containers: [ContainerSlot]? = nil,
         containerMemberships: [String: [String]]? = nil,
         entryRoles: [String: String]? = nil, partialLinks: [String: [String]]? = nil
     ) {
@@ -51,6 +56,8 @@ public struct Workfile: Codable, Equatable, Sendable {
         self.settings = settings
         self.exportProfiles = exportProfiles
         self.styleTokens = styleTokens
+        self.namedStyles = namedStyles
+        self.swatches = swatches
         self.containers = containers
         self.containerMemberships = containerMemberships
         self.entryRoles = entryRoles
@@ -97,12 +104,17 @@ public struct Workfile: Codable, Equatable, Sendable {
         public var defaultStrokeColor: String?
         public var defaultStrokeWidth: Double?
         public var defaultFill: String?
+        /// Name of the workspace SVG drawn dimmed behind every icon in the
+        /// editor (a shared construction guide); nil = no guide configured.
+        public var guideIcon: String?
+        /// Whether the guide icon is currently shown.
+        public var showGuide: Bool?
 
         public init(
             iconWidth: Double? = nil, iconHeight: Double? = nil, gridSpacing: Double? = nil,
             gridSubdivisions: Int? = nil, snapToGrid: Bool? = nil,
             defaultStrokeColor: String? = nil, defaultStrokeWidth: Double? = nil,
-            defaultFill: String? = nil
+            defaultFill: String? = nil, guideIcon: String? = nil, showGuide: Bool? = nil
         ) {
             self.iconWidth = iconWidth
             self.iconHeight = iconHeight
@@ -112,6 +124,8 @@ public struct Workfile: Codable, Equatable, Sendable {
             self.defaultStrokeColor = defaultStrokeColor
             self.defaultStrokeWidth = defaultStrokeWidth
             self.defaultFill = defaultFill
+            self.guideIcon = guideIcon
+            self.showGuide = showGuide
         }
 
         /// Fekthor's fallbacks, matching the open-icon conventions the
