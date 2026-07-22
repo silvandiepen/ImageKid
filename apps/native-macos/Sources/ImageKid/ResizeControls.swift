@@ -13,7 +13,7 @@ struct ResizeControls: View {
 
     var body: some View {
         FloatingToolPanel(
-            title: "Resize",
+            title: "Image Size",
             systemImage: "arrow.up.left.and.arrow.down.right",
             width: 310,
             offset: $offset,
@@ -21,7 +21,12 @@ struct ResizeControls: View {
         ) {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 12) {
-                    field("Resize") {
+                    Text("Resamples the whole document — canvas and every layer scale together.")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.5))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    field("New size") {
                         HStack(spacing: 8) {
                             TextField("Width", value: widthBinding, format: .number)
                                 .textFieldStyle(.roundedBorder)
@@ -55,11 +60,6 @@ struct ResizeControls: View {
                                 .foregroundStyle(.white.opacity(0.55))
                         }
                     }
-
-                    Text("Drag edges or corners on the image to set the output size.")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.55))
-                        .fixedSize(horizontal: false, vertical: true)
 
                     Button {
                         session.setDraftOutputSize(session.croppedPixelSize)

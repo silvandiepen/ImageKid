@@ -82,8 +82,10 @@ struct ImageWorkspaceView: View {
 
                 if appModel.activeTool == .resize {
                     ResizeOverlay(
+                        fullRect: imageRect,
                         imageRect: resizeDisplayRect(in: imageRect),
-                        size: session.draftOutputSize ?? session.effectivePixelSize
+                        size: session.draftOutputSize ?? session.effectivePixelSize,
+                        previewImage: workingImage
                     )
                 }
 
