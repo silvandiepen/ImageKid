@@ -235,15 +235,31 @@ public struct ShapeNode: Equatable, Sendable {
     public var style: Style
     public var attributes: NodeAttributes
     public var transform: TransformValue?
+    /// Style resolved from a document `<style>` block via the node's class
+    /// (rare legacy Illustrator exports). Render-only: the writer never
+    /// inlines it — the class attribute and the style block are preserved,
+    /// and `style` only gains declarations when the user edits the node.
+    public var classStyle: Style?
     public init(
         id: Int, kind: ShapeKind, style: Style = Style(),
-        attributes: NodeAttributes = NodeAttributes(), transform: TransformValue? = nil
+        attributes: NodeAttributes = NodeAttributes(), transform: TransformValue? = nil,
+        classStyle: Style? = nil
     ) {
         self.id = id
         self.kind = kind
         self.style = style
         self.attributes = attributes
         self.transform = transform
+        self.classStyle = classStyle
+    }
+
+    /// Effective style for rendering: class-resolved declarations first,
+    /// inline declarations override (CSS cascade: inline wins).
+    public var effectiveStyle: Style {
+        guard let classStyle else { return style }
+        var merged = classStyle
+        for d in style.declarations { merged.set(d.name, d.value) }
+        return merged
     }
 }
 
