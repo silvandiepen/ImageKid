@@ -147,6 +147,145 @@ final class Editing2Tests: XCTestCase {
         }
     }
 
+    // MARK: - Scale / rotate degrade rules
+
+    func testScaleRectStaysRectAndScalesRadii() {
+        let node = ShapeNode(id: 0, kind: .rect(x: 10, y: 10, width: 20, height: 10, rx: 2, ry: nil))
+        let scaled = Editing2.scaled(node, sx: 2, sy: 3, around: Pt(10, 10))
+        guard case .rect(let x, let y, let w, let h, let rx, let ry) = scaled.kind else {
+            return XCTFail("axis-aligned scale must keep the rect primitive")
+        }
+        XCTAssertEqual(x, 10)
+        XCTAssertEqual(y, 10)
+        XCTAssertEqual(w, 40)
+        XCTAssertEqual(h, 30)
+        XCTAssertEqual(rx!, 4, accuracy: 1e-9)
+        XCTAssertEqual(ry!, 6, accuracy: 1e-9)  // single radius splits per axis
+        XCTAssertNil(scaled.transform)
+    }
+
+    func testScaleRectNegativeFactorNormalizes() {
+        let node = ShapeNode(id: 0, kind: .rect(x: 0, y: 0, width: 10, height: 10, rx: nil, ry: nil))
+        let flipped = Editing2.scaled(node, sx: -1, sy: 1, around: Pt(0, 0))
+        guard case .rect(let x, _, let w, _, _, _) = flipped.kind else { return XCTFail() }
+        XCTAssertEqual(x, -10)
+        XCTAssertEqual(w, 10)
+    }
+
+    func testScaleCircleUniformStaysCircleNonUniformBecomesEllipse() {
+        let node = ShapeNode(id: 0, kind: .circle(center: Pt(10, 10), r: 5))
+        let uniform = Editing2.scaled(node, sx: 2, sy: 2, around: Pt(0, 0))
+        guard case .circle(let c, let r) = uniform.kind else { return XCTFail("uniform keeps circle") }
+        XCTAssertEqual(c, Pt(20, 20))
+        XCTAssertEqual(r, 10)
+        let stretched = Editing2.scaled(node, sx: 2, sy: 1, around: Pt(0, 0))
+        guard case .ellipse(let ec, let rx, let ry) = stretched.kind else {
+            return XCTFail("non-uniform degrades circle to ellipse")
+        }
+        XCTAssertEqual(ec, Pt(20, 10))
+        XCTAssertEqual(rx, 10)
+        XCTAssertEqual(ry, 5)
+    }
+
+    func testScaleEllipseAndLineKeepKinds() {
+        let e = ShapeNode(id: 0, kind: .ellipse(center: Pt(0, 0), rx: 4, ry: 2))
+        guard case .ellipse(_, let rx, let ry) = Editing2.scaled(e, sx: 0.5, sy: 3, around: Pt(0, 0)).kind
+        else { return XCTFail() }
+        XCTAssertEqual(rx, 2)
+        XCTAssertEqual(ry, 6)
+        let l = ShapeNode(id: 0, kind: .line(Pt(0, 0), Pt(10, 0)))
+        guard case .line(let a, let b) = Editing2.scaled(l, sx: 2, sy: 2, around: Pt(5, 0)).kind
+        else { return XCTFail() }
+        XCTAssertEqual(a, Pt(-5, 0))
+        XCTAssertEqual(b, Pt(15, 0))
+    }
+
+    func testScalePathMapsControlPoints() {
+        let rp = RefinedPath(
+            start: Pt(0, 0),
+            segments: [.cubic(c1: Pt(2, 4), c2: Pt(8, 4), to: Pt(10, 0))], closed: false)
+        let node = ShapeNode(id: 0, kind: .path([rp]))
+        let scaled = Editing2.scaled(node, sx: 2, sy: 0.5, around: Pt(0, 0))
+        guard case .path(let paths) = scaled.kind,
+            case .cubic(let c1, let c2, let to) = paths[0].segments[0]
+        else { return XCTFail() }
+        XCTAssertEqual(c1, Pt(4, 2))
+        XCTAssertEqual(c2, Pt(16, 2))
+        XCTAssertEqual(to, Pt(20, 0))
+    }
+
+    func testScaleComposesOntoExistingTransform() {
+        let node = ShapeNode(
+            id: 0, kind: .rect(x: 0, y: 0, width: 10, height: 10, rx: nil, ry: nil),
+            transform: TransformValue(raw: "translate(5 5)", matrix: [1, 0, 0, 1, 5, 5]))
+        let scaled = Editing2.scaled(node, sx: 2, sy: 2, around: Pt(0, 0))
+        if case .rect(let x, _, let w, _, _, _) = scaled.kind {
+            XCTAssertEqual(x, 0)  // geometry untouched; scale lives in the transform
+            XCTAssertEqual(w, 10)
+        } else {
+            XCTFail()
+        }
+        // Corner (10,10) → translate → (15,15) → scale ×2 → (30,30).
+        XCTAssertEqual(scaled.transform!.apply(Pt(10, 10)), Pt(30, 30))
+    }
+
+    func testRotateCircleStaysCircleCenterOrbits() {
+        let node = ShapeNode(id: 0, kind: .circle(center: Pt(10, 0), r: 3))
+        let rotated = Editing2.rotated(node, by: .pi / 2, around: Pt(0, 0))
+        guard case .circle(let c, let r) = rotated.kind else { return XCTFail() }
+        XCTAssertEqual(c.x, 0, accuracy: 1e-9)
+        XCTAssertEqual(c.y, 10, accuracy: 1e-9)
+        XCTAssertEqual(r, 3)
+        XCTAssertNil(rotated.transform)
+    }
+
+    func testRotateRectGainsTransformAttrKeepsPrimitive() {
+        let node = ShapeNode(id: 0, kind: .rect(x: 0, y: 0, width: 10, height: 6, rx: nil, ry: nil))
+        let rotated = Editing2.rotated(node, by: .pi / 4, around: Pt(5, 3))
+        guard case .rect = rotated.kind else { return XCTFail("rect keeps its primitive") }
+        guard let t = rotated.transform else { return XCTFail("rotation lands in a transform") }
+        XCTAssertTrue(t.raw.hasPrefix("rotate("))  // Model2Bridge convention
+        // Centre is the fixed point.
+        let c = t.apply(Pt(5, 3))
+        XCTAssertEqual(c.x, 5, accuracy: 1e-9)
+        XCTAssertEqual(c.y, 3, accuracy: 1e-9)
+    }
+
+    func testRotateLineAndPathMapPoints() {
+        let l = ShapeNode(id: 0, kind: .line(Pt(0, 0), Pt(10, 0)))
+        guard case .line(let a, let b) = Editing2.rotated(l, by: .pi, around: Pt(5, 0)).kind
+        else { return XCTFail() }
+        XCTAssertEqual(a.x, 10, accuracy: 1e-9)
+        XCTAssertEqual(b.x, 0, accuracy: 1e-9)
+        let rp = RefinedPath(start: Pt(0, 0), segments: [.line(to: Pt(10, 0))], closed: false)
+        let p = ShapeNode(id: 0, kind: .path([rp]))
+        let rotated = Editing2.rotated(p, by: .pi / 2, around: Pt(0, 0))
+        guard case .path(let paths) = rotated.kind else { return XCTFail() }
+        XCTAssertEqual(paths[0].segments[0].endPoint.x, 0, accuracy: 1e-9)
+        XCTAssertEqual(paths[0].segments[0].endPoint.y, 10, accuracy: 1e-9)
+        XCTAssertNil(rotated.transform)
+    }
+
+    func testRotateZeroAngleIsIdentity() {
+        let node = ShapeNode(id: 0, kind: .rect(x: 0, y: 0, width: 10, height: 6, rx: nil, ry: nil))
+        let rotated = Editing2.rotated(node, by: 0, around: Pt(3, 3))
+        XCTAssertEqual(rotated, node)
+    }
+
+    func testBoundsOfPrimitiveAndTransformedNode() {
+        let rect = ShapeNode(id: 0, kind: .rect(x: 2, y: 3, width: 10, height: 4, rx: nil, ry: nil))
+        guard let b = Editing2.bounds(of: rect) else { return XCTFail() }
+        XCTAssertEqual(b.minX, 2, accuracy: 1e-9)
+        XCTAssertEqual(b.maxX, 12, accuracy: 1e-9)
+        XCTAssertEqual(b.minY, 3, accuracy: 1e-9)
+        XCTAssertEqual(b.maxY, 7, accuracy: 1e-9)
+        // Rotated 90° about its centre: width/height swap.
+        let rotated = Editing2.rotated(rect, by: .pi / 2, around: Pt(7, 5))
+        guard let rb = Editing2.bounds(of: rotated) else { return XCTFail() }
+        XCTAssertEqual(rb.maxX - rb.minX, 4, accuracy: 1e-6)
+        XCTAssertEqual(rb.maxY - rb.minY, 10, accuracy: 1e-6)
+    }
+
     // MARK: - Z-order & group/ungroup (Model2Ops)
 
     private func shape(_ id: Int) -> GraphicNode {

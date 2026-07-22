@@ -282,4 +282,126 @@ public enum Editing2 {
         }
         return out
     }
+
+    // MARK: - Whole-node scale / rotate
+
+    /// The matrix for scale(sx, sy) about a fixed point:
+    /// translate(c) · scale · translate(-c).
+    static func scaleTransform(sx: Double, sy: Double, around c: Pt) -> TransformValue {
+        let m = [sx, 0, 0, sy, c.x - sx * c.x, c.y - sy * c.y]
+        return TransformValue(
+            raw: "matrix(" + m.map { SVGNum.text($0) }.joined(separator: " ") + ")", matrix: m)
+    }
+
+    /// Scale a node about a fixed point. Degrade rules:
+    /// - a node already carrying a `transform` keeps its kind and the scale
+    ///   composes onto the transform (outer), mirroring `translated`;
+    /// - rect stays rect (an axis-aligned scale maps rects to rects; corner
+    ///   radii scale per axis), circle stays circle under uniform scale and
+    ///   becomes an ellipse otherwise, ellipse stays ellipse,
+    ///   line/polyline/polygon map their points;
+    /// - paths map their control points (arcs cubicized first, like `bake` —
+    ///   affine maps preserve cubics but not arcs).
+    public static func scaled(_ node: ShapeNode, sx: Double, sy: Double, around c: Pt)
+        -> ShapeNode
+    {
+        var out = node
+        let t = scaleTransform(sx: sx, sy: sy, around: c)
+        if let existing = out.transform {
+            out.transform = t.concatenating(existing)
+            return out
+        }
+        func map(_ p: Pt) -> Pt { t.apply(p) }
+        switch out.kind {
+        case .path(let paths):
+            out.kind = .path(paths.map { bake($0, t) })
+        case .line(let a, let b):
+            out.kind = .line(map(a), map(b))
+        case .polyline(let pts):
+            out.kind = .polyline(pts.map(map))
+        case .polygon(let pts):
+            out.kind = .polygon(pts.map(map))
+        case .rect(let x, let y, let w, let h, let rx, let ry):
+            let p0 = map(Pt(x, y))
+            let p1 = map(Pt(x + w, y + h))
+            let ax = abs(sx)
+            let ay = abs(sy)
+            var nrx = rx.map { $0 * ax }
+            var nry = ry.map { $0 * ay }
+            // A single declared radius means rx == ry (SVG default); a
+            // non-uniform scale must split it into both.
+            if abs(ax - ay) > 1e-9 {
+                if nrx == nil, let base = ry { nrx = base * ax }
+                if nry == nil, let base = rx { nry = base * ay }
+            }
+            out.kind = .rect(
+                x: min(p0.x, p1.x), y: min(p0.y, p1.y),
+                width: abs(p1.x - p0.x), height: abs(p1.y - p0.y), rx: nrx, ry: nry)
+        case .circle(let center, let r):
+            if abs(abs(sx) - abs(sy)) < 1e-9 {
+                out.kind = .circle(center: map(center), r: r * abs(sx))
+            } else {
+                out.kind = .ellipse(center: map(center), rx: r * abs(sx), ry: r * abs(sy))
+            }
+        case .ellipse(let center, let rx, let ry):
+            out.kind = .ellipse(center: map(center), rx: rx * abs(sx), ry: ry * abs(sy))
+        }
+        return out
+    }
+
+    /// Rotate a node about a fixed point (radians; positive is clockwise on
+    /// screen with SVG's y-down axis). Degrade rules:
+    /// - a node already carrying a `transform` keeps its kind and the
+    ///   rotation composes onto the transform (outer);
+    /// - circle stays circle (its centre orbits), line/polyline/polygon map
+    ///   their points, paths map control points (arcs cubicized first);
+    /// - rect and ellipse keep their primitive and GAIN a
+    ///   `rotate(deg cx cy)` transform — the Model2Bridge convention for
+    ///   rotated primitives.
+    public static func rotated(_ node: ShapeNode, by radians: Double, around c: Pt) -> ShapeNode {
+        guard let t = Model2Bridge.rotationTransform(radians, about: c) else { return node }
+        var out = node
+        if let existing = out.transform {
+            out.transform = t.concatenating(existing)
+            return out
+        }
+        func map(_ p: Pt) -> Pt { t.apply(p) }
+        switch out.kind {
+        case .path(let paths):
+            out.kind = .path(paths.map { bake($0, t) })
+        case .line(let a, let b):
+            out.kind = .line(map(a), map(b))
+        case .polyline(let pts):
+            out.kind = .polyline(pts.map(map))
+        case .polygon(let pts):
+            out.kind = .polygon(pts.map(map))
+        case .rect, .ellipse:
+            out.transform = t
+        case .circle(let center, let r):
+            out.kind = .circle(center: map(center), r: r)
+        }
+        return out
+    }
+
+    /// Tight geometric bounds of the node's baked outline (curves flattened),
+    /// or nil for empty geometry. Drives the selection box and the live
+    /// w×h readout.
+    public static func bounds(of node: ShapeNode)
+        -> (minX: Double, minY: Double, maxX: Double, maxY: Double)?
+    {
+        var minX = Double.infinity
+        var minY = Double.infinity
+        var maxX = -Double.infinity
+        var maxY = -Double.infinity
+        for rp in bakedPaths(of: node) {
+            for p in PathRefine.flatten(rp) {
+                minX = Swift.min(minX, p.x)
+                minY = Swift.min(minY, p.y)
+                maxX = Swift.max(maxX, p.x)
+                maxY = Swift.max(maxY, p.y)
+            }
+        }
+        guard minX <= maxX else { return nil }
+        return (minX, minY, maxX, maxY)
+    }
 }
