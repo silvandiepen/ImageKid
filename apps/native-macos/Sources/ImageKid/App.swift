@@ -1482,6 +1482,10 @@ struct AppCommands: Commands {
                 .keyboardShortcut(Tool.resize.menuShortcutKey, modifiers: Tool.resize.menuShortcutModifiers)
                 .disabled(currentAppModel == nil)
 
+            Button("Invert Mask") { currentAppModel?.imageSession?.invertActiveMask() }
+                .keyboardShortcut("i", modifiers: .command)
+                .disabled(currentAppModel?.imageSession == nil)
+
             Menu("Rotate") {
                 Button("Rotate 90° Clockwise") { currentAppModel?.rotate90(clockwise: true) }
                     .keyboardShortcut("r", modifiers: .command)

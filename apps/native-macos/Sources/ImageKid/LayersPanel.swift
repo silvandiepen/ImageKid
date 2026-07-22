@@ -109,6 +109,13 @@ struct LayersPanel: View {
             session.selectionRect = nil
             if appModel.activeTool == .view { appModel.activeTool = .select }
         }
+        .contextMenu {
+            Button("Rename") { startRename(layer.id, current: label(for: layer)) }
+            Button("Duplicate") { session.duplicateAnnotation(id: layer.id) }
+            Button(layer.isVisible ? "Hide" : "Show") { session.toggleAnnotationVisibility(id: layer.id) }
+            Divider()
+            Button("Delete", role: .destructive) { session.removeAnnotation(id: layer.id) }
+        }
     }
 
     private func imageLayerRow(_ layer: ImageLayer) -> some View {
@@ -177,22 +184,34 @@ struct LayersPanel: View {
             session.selectedAnnotationID = nil
         }
         .contextMenu {
-            Button(layer.hasMask ? "Redo Background Mask" : "Remove Background (Mask)") {
-                session.selectedLayerID = layer.id
-                appModel.removeBackgroundFromSelectedLayer()
-            }
-            .disabled(appModel.isRemovingBackground)
+            Button("Rename") { startRename(layer.id, current: layer.name) }
+            Button("Duplicate") { session.duplicateImageLayer(id: layer.id) }
+            Button(layer.isVisible ? "Hide" : "Show") { session.toggleImageLayerVisibility(id: layer.id) }
             Divider()
             Button(layer.hasMask ? "Edit Mask" : "Add Mask") {
                 session.beginMaskEdit(layerID: layer.id)
             }
+            Button("Invert Mask") { session.invertLayerMask(id: layer.id) }
             if layer.hasMask {
                 Button(layer.isMaskEnabled ? "Disable Mask" : "Enable Mask") {
                     session.toggleLayerMask(id: layer.id)
                 }
                 Button("Delete Mask") { session.removeLayerMask(id: layer.id) }
             }
+            Button(layer.hasMask ? "Redo Background Mask" : "Remove Background (Mask)") {
+                session.selectedLayerID = layer.id
+                appModel.removeBackgroundFromSelectedLayer()
+            }
+            .disabled(appModel.isRemovingBackground)
+            Divider()
+            Button("Delete", role: .destructive) { session.removeImageLayer(id: layer.id) }
         }
+    }
+
+    private func startRename(_ id: UUID, current: String) {
+        editingText = current
+        editingID = id
+        nameFieldFocused = true
     }
 
     /// The open image itself, shown as the locked bottom layer.

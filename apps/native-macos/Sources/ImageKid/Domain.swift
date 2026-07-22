@@ -777,10 +777,10 @@ final class ImageSession: ObservableObject {
     @Published var showGrid = false
     @Published var snapToGrid = false
     @Published var gridSizePx: CGFloat = 64
-    /// Grid line colour (hex). Default subtle white.
-    @Published var gridColorHex: String = "#FFFFFF"
+    /// Grid line colour (hex). A mid grey so it reads on both light and dark canvases.
+    @Published var gridColorHex: String = "#808080"
     /// Grid line opacity, 0…1.
-    @Published var gridOpacity: Double = 0.18
+    @Published var gridOpacity: Double = 0.5
     /// Number of finer subdivisions drawn between the main grid lines (1 = none).
     @Published var gridSubdivisions: Int = 1
     /// Whether the floating Grid settings panel is showing.
@@ -1440,6 +1440,35 @@ final class ImageSession: ObservableObject {
         guard let index = imageLayers.firstIndex(where: { $0.id == id }), imageLayers[index].hasMask else { return }
         imageLayers[index].mask = nil
         record("Remove mask", systemImage: "trash")
+    }
+
+    /// Add a full-white mask (everything shown) to a layer that has none.
+    func addLayerMask(id: UUID) {
+        guard let index = imageLayers.firstIndex(where: { $0.id == id }), imageLayers[index].mask == nil else { return }
+        imageLayers[index].mask = MaskPainter.fullMask(size: imageLayers[index].image.size)
+        imageLayers[index].isMaskEnabled = true
+        record("Add mask", systemImage: "theatermask.and.paintbrush")
+    }
+
+    /// Invert a layer's mask (swap shown/hidden). Creates a white mask first if none,
+    /// so the layer becomes fully hidden.
+    func invertLayerMask(id: UUID) {
+        guard let index = imageLayers.firstIndex(where: { $0.id == id }) else { return }
+        if imageLayers[index].mask == nil {
+            imageLayers[index].mask = MaskPainter.fullMask(size: imageLayers[index].image.size)
+        }
+        if let mask = imageLayers[index].mask {
+            imageLayers[index].mask = MaskPainter.invert(mask)
+            imageLayers[index].isMaskEnabled = true
+        }
+        record("Invert mask", systemImage: "circle.righthalf.filled")
+    }
+
+    /// Invert whichever mask is active — the one being edited, else the selected layer's.
+    func invertActiveMask() {
+        if let id = maskEditLayerID ?? selectedLayerID {
+            invertLayerMask(id: id)
+        }
     }
 
     // MARK: - Mask editing

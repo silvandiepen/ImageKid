@@ -1,9 +1,20 @@
 import AppKit
 import CoreGraphics
+import CoreImage
 
 /// Edits a grayscale layer mask (white = keep, black = hide) with soft brushes
 /// and a flood-fill "magic wand".
 enum MaskPainter {
+    /// Invert a grayscale mask (white ⇄ black), i.e. swap shown and hidden.
+    static func invert(_ mask: NSImage) -> NSImage {
+        guard let tiff = mask.tiffRepresentation, let ci = CIImage(data: tiff) else { return mask }
+        let inverted = ci.applyingFilter("CIColorInvert")
+        let rep = NSCIImageRep(ciImage: inverted)
+        let out = NSImage(size: mask.size)
+        out.addRepresentation(rep)
+        return out
+    }
+
     /// A fully-opaque (white) mask sized to the layer image — nothing hidden yet.
     static func fullMask(size: CGSize) -> NSImage {
         let image = NSImage(size: size)
