@@ -19,8 +19,8 @@ struct ContentView: View {
     @State private var isEnhancing = false
     @State private var activeTool: EditorTool?
     @State private var cropRect = CGRect(x: 0, y: 0, width: 1, height: 1)
-    @State private var annotations: [Annotation] = []
     @State private var draftAnnotation: Annotation?
+    @State private var isEditingTextInline = false
     @State private var annotationKind: Annotation.Kind = .freehand
     @State private var annotationColor: Color = .red
     @State private var annotationWidthFraction: CGFloat = 0.008
@@ -30,6 +30,11 @@ struct ContentView: View {
     @State private var pendingTextLocation: CGPoint?
     @State private var currentSample: SampledColor?
     @State private var sampleLocation: CGPoint?
+
+    /// Editable, non-destructive annotations for the selected picture.
+    private var annotations: Binding<[Annotation]> {
+        Binding(get: { model.annotations }, set: { model.annotations = $0 })
+    }
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: $preferredColumn) {
@@ -63,7 +68,7 @@ struct ContentView: View {
             }
             .padding(.bottom, 6)
         }
-        .navigationTitle("ImageKid")
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { editorToolbar }
         .onChange(of: pickerItem) { _, newValue in
@@ -73,20 +78,23 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var editorToolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            PhotosPicker(selection: $pickerItem, matching: .any(of: [.images, .videos])) {
-                Label("Choose", systemImage: "photo.on.rectangle")
-            }
-        }
         ToolbarItemGroup(placement: .topBarTrailing) {
             if model.workingImage != nil {
                 Button { model.undo() } label: { Image(systemName: "arrow.uturn.backward") }
                     .disabled(!model.canUndo)
-                Button { model.redo() } label: { Image(systemName: "arrow.uturn.forward") }
-                    .disabled(!model.canRedo)
-                Button { isExporting = true } label: { Image(systemName: "square.and.arrow.up") }
+                // Show redo only when there's something to redo.
+                if model.canRedo {
+                    Button { model.redo() } label: { Image(systemName: "arrow.uturn.forward") }
+                }
             }
-            Button { isShowingSettings = true } label: { Image(systemName: "gearshape") }
+            Menu {
+                if model.workingImage != nil {
+                    Button { isExporting = true } label: { Label("Export…", systemImage: "square.and.arrow.up") }
+                }
+                Button { isShowingSettings = true } label: { Label("Settings", systemImage: "gearshape") }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
         }
     }
 
@@ -95,7 +103,8 @@ struct ContentView: View {
     private func withEditorSheets(_ content: some View) -> some View {
         content
             .sheet(isPresented: $isExporting) {
-                if let cgImage = model.workingImage?.normalizedCGImage() {
+                if let base = model.workingImage,
+                   let cgImage = displayWithAnnotations(base).normalizedCGImage() {
                     ExportView(image: cgImage)
                 }
             }
@@ -120,16 +129,6 @@ struct ContentView: View {
             }
             .sheet(isPresented: $isShowingSettings) {
                 SettingsView()
-            }
-            .alert("Add text", isPresented: $isEnteringText) {
-                TextField("Text", text: $textInput)
-                Button("Add") { addTextAnnotation() }
-                Button("Cancel", role: .cancel) {
-                    pendingTextLocation = nil
-                    textInput = ""
-                }
-            } message: {
-                Text("Type the words to place on the picture.")
             }
             .alert(
                 "Something went wrong",
@@ -181,7 +180,7 @@ struct ContentView: View {
                     borderColor: settings.canvasBorderColor,
                     showBorder: settings.showCanvasBorder,
                     cropRect: $cropRect,
-                    annotations: $annotations,
+                    annotations: annotations,
                     draftAnnotation: $draftAnnotation,
                     annotationKind: annotationToolKind,
                     annotationColor: annotationColor,
@@ -189,15 +188,12 @@ struct ContentView: View {
                     textSizeFraction: textSizeFraction,
                     currentSample: $currentSample,
                     sampleLocation: $sampleLocation,
-                    onTextLocation: { location in
-                        pendingTextLocation = location
-                        textInput = ""
-                        isEnteringText = true
-                    }
+                    isEditingText: $isEditingTextInline,
+                    onTextLocation: { _ in }
                 )
             } else {
                 ZoomableImageView(
-                    image: display,
+                    image: displayWithAnnotations(display),
                     cornerRadius: settings.imageCornerRadius,
                     borderColor: settings.canvasBorderColor,
                     showBorder: settings.showCanvasBorder
@@ -378,19 +374,23 @@ struct ContentView: View {
                     activeTool = nil
                 })
             case .select, .draw, .text:
-                AnnotationInspector(
-                    selectedTool: $annotationKind,
-                    color: $annotationColor,
-                    widthFraction: $annotationWidthFraction,
-                    textSizeFraction: $textSizeFraction,
-                    annotations: $annotations,
-                    defaultKind: activeTool == .text ? .text : .freehand,
-                    onCancel: {
-                        resetAnnotations()
-                        activeTool = nil
-                    },
-                    onApply: applyAnnotations
-                )
+                // While typing a text inline, hide the inspector so it doesn't
+                // cover the text on the canvas.
+                if !isEditingTextInline {
+                    AnnotationInspector(
+                        selectedTool: $annotationKind,
+                        color: $annotationColor,
+                        widthFraction: $annotationWidthFraction,
+                        textSizeFraction: $textSizeFraction,
+                        annotations: annotations,
+                        defaultKind: activeTool == .text ? .text : .freehand,
+                        onCancel: {
+                            resetAnnotations()
+                            activeTool = nil
+                        },
+                        onApply: applyAnnotations
+                    )
+                }
             }
         }
     }
@@ -440,31 +440,29 @@ struct ContentView: View {
         activeTool = tool
     }
 
+    /// Clears only the in-progress draft — annotations themselves persist and
+    /// stay editable (they are never baked except on export).
     private func resetAnnotations() {
-        annotations = []
         draftAnnotation = nil
         pendingTextLocation = nil
         textInput = ""
     }
 
-    private func addTextAnnotation() {
-        let trimmed = textInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let pendingTextLocation else { return }
-        var annotation = Annotation(kind: .text, color: annotationColor, widthFraction: annotationWidthFraction)
-        annotation.start = pendingTextLocation
-        annotation.text = trimmed
-        annotation.fontFraction = textSizeFraction
-        annotations.append(annotation)
-        self.pendingTextLocation = nil
-        textInput = ""
+    /// "Done": leave the annotation tools. Annotations stay editable; nothing is
+    /// flattened into the image (that only happens on export).
+    private func applyAnnotations() {
+        activeTool = nil
     }
 
-    private func applyAnnotations() {
-        guard let base = model.workingImage?.normalizedCGImage(),
-              let rendered = AnnotationRasterizer.render(annotations, onto: base) else { return }
-        model.applyEditedImage(rendered, status: "Annotated")
-        resetAnnotations()
-        activeTool = nil
+    /// A UIImage with the current annotations flattened on top, for view-mode
+    /// display and export. Returns the base unchanged when there are none.
+    private func displayWithAnnotations(_ base: UIImage) -> UIImage {
+        guard !model.annotations.isEmpty,
+              let cg = base.normalizedCGImage(),
+              let rendered = AnnotationRasterizer.render(model.annotations, onto: cg) else {
+            return base
+        }
+        return UIImage(cgImage: rendered)
     }
 
     /// The "Magic" entry point: a context menu grouping AI-powered actions —
@@ -954,6 +952,7 @@ private struct InlineEditingCanvas: View {
     let textSizeFraction: CGFloat
     @Binding var currentSample: SampledColor?
     @Binding var sampleLocation: CGPoint?
+    @Binding var isEditingText: Bool
     let onTextLocation: (CGPoint) -> Void
 
     @State private var dragStartCrop: CGRect?
@@ -1032,7 +1031,12 @@ private struct InlineEditingCanvas: View {
         HStack(spacing: 0) {
             zoomButton("minus") { setZoom(zoomScale / 1.5) }
                 .disabled(zoomScale <= 1.01)
-            Button { fitCanvas() } label: {
+            Menu {
+                Button("Fit") { fitCanvas() }
+                Button("200%") { setZoom(2) }
+                Button("400%") { setZoom(4) }
+                Button("800%") { setZoom(8) }
+            } label: {
                 Text(zoomScale <= 1.01 ? "Fit" : "\(Int((zoomScale * 100).rounded()))%")
                     .font(.footnote.weight(.semibold))
                     .monospacedDigit()
@@ -1178,6 +1182,7 @@ private struct InlineEditingCanvas: View {
     private func beginTextEditing(_ id: UUID) {
         selectedAnnotationID = id
         editingTextID = id
+        isEditingText = true
         DispatchQueue.main.async { textEditorFocused = true }
     }
 
@@ -1191,6 +1196,7 @@ private struct InlineEditingCanvas: View {
             selectedAnnotationID = nil
         }
         editingTextID = nil
+        isEditingText = false
     }
 
     /// Topmost annotation whose hit area contains `point` (view space), if any.

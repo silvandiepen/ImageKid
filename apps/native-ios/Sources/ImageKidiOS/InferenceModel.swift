@@ -97,6 +97,9 @@ struct EditorItem: Identifiable {
     var undoStack: [UIImage] = []
     var redoStack: [UIImage] = []
     var sampledColors: [SampledColor] = []
+    /// Non-destructive annotations (text/shapes) layered over `current`. Kept
+    /// editable and only flattened into pixels on export — never baked in place.
+    var annotations: [Annotation] = []
     /// The working image captured immediately before the last background removal,
     /// used as the restore source in Refine (may be cropped, unlike `sourceImage`).
     var preRemovalImage: UIImage?
@@ -213,6 +216,12 @@ final class InferenceModel: ObservableObject {
 
     /// The image currently shown and acted on.
     var workingImage: UIImage? { current }
+
+    /// Non-destructive annotations for the selected picture (persist, editable).
+    var annotations: [Annotation] {
+        get { active?.annotations ?? [] }
+        set { if let i = activeIndex { items[i].annotations = newValue } }
+    }
 
     var canUndo: Bool { active.map { !$0.undoStack.isEmpty } ?? false }
     var canRedo: Bool { active.map { !$0.redoStack.isEmpty } ?? false }
