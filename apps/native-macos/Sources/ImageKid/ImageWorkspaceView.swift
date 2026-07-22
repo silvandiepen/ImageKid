@@ -64,7 +64,7 @@ struct ImageWorkspaceView: View {
 
                 imageLayers(in: imageRect)
                 maskEditOverlay(in: imageRect)
-                gridOverlay(in: imageRect)
+                gridOverlay(in: imageRect, canvas: bounds)
                 annotations(in: imageRect)
                 imageSelection(in: imageRect)
                 draftDrawing(in: imageRect)
@@ -617,7 +617,7 @@ struct ImageWorkspaceView: View {
     }
 
     @ViewBuilder
-    private func gridOverlay(in imageRect: CGRect) -> some View {
+    private func gridOverlay(in imageRect: CGRect, canvas canvasBounds: CGRect) -> some View {
         if session.showGrid {
             let workingSize = session.effectivePixelSize
             let step = session.gridSizePx * imageRect.width / max(workingSize.width, 1)
@@ -626,37 +626,44 @@ struct ImageWorkspaceView: View {
                 let subdivisions = max(1, session.gridSubdivisions)
                 let subStep = step / CGFloat(subdivisions)
                 Canvas { context, _ in
+                    // Lines span the whole canvas but stay anchored (phase-aligned)
+                    // to the image's grid origin so they line up with the pixels.
+                    func verticalLines(spacing: CGFloat) -> Path {
+                        var p = Path()
+                        let offset = (imageRect.minX - canvasBounds.minX).truncatingRemainder(dividingBy: spacing)
+                        var x = canvasBounds.minX + offset - spacing
+                        while x <= canvasBounds.maxX + 0.5 {
+                            if x >= canvasBounds.minX - 0.5 {
+                                p.move(to: CGPoint(x: x, y: canvasBounds.minY))
+                                p.addLine(to: CGPoint(x: x, y: canvasBounds.maxY))
+                            }
+                            x += spacing
+                        }
+                        return p
+                    }
+                    func horizontalLines(spacing: CGFloat) -> Path {
+                        var p = Path()
+                        let offset = (imageRect.minY - canvasBounds.minY).truncatingRemainder(dividingBy: spacing)
+                        var y = canvasBounds.minY + offset - spacing
+                        while y <= canvasBounds.maxY + 0.5 {
+                            if y >= canvasBounds.minY - 0.5 {
+                                p.move(to: CGPoint(x: canvasBounds.minX, y: y))
+                                p.addLine(to: CGPoint(x: canvasBounds.maxX, y: y))
+                            }
+                            y += spacing
+                        }
+                        return p
+                    }
+
                     // Finer subdivision lines first (fainter), main grid on top.
                     if subdivisions > 1 && subStep > 2 {
-                        var subPath = Path()
-                        var sx = imageRect.minX
-                        while sx <= imageRect.maxX + 0.5 {
-                            subPath.move(to: CGPoint(x: sx, y: imageRect.minY))
-                            subPath.addLine(to: CGPoint(x: sx, y: imageRect.maxY))
-                            sx += subStep
-                        }
-                        var sy = imageRect.minY
-                        while sy <= imageRect.maxY + 0.5 {
-                            subPath.move(to: CGPoint(x: imageRect.minX, y: sy))
-                            subPath.addLine(to: CGPoint(x: imageRect.maxX, y: sy))
-                            sy += subStep
-                        }
+                        var subPath = verticalLines(spacing: subStep)
+                        subPath.addPath(horizontalLines(spacing: subStep))
                         context.stroke(subPath, with: .color(base.opacity(session.gridOpacity * 0.45)), lineWidth: 0.5)
                     }
 
-                    var path = Path()
-                    var x = imageRect.minX
-                    while x <= imageRect.maxX + 0.5 {
-                        path.move(to: CGPoint(x: x, y: imageRect.minY))
-                        path.addLine(to: CGPoint(x: x, y: imageRect.maxY))
-                        x += step
-                    }
-                    var y = imageRect.minY
-                    while y <= imageRect.maxY + 0.5 {
-                        path.move(to: CGPoint(x: imageRect.minX, y: y))
-                        path.addLine(to: CGPoint(x: imageRect.maxX, y: y))
-                        y += step
-                    }
+                    var path = verticalLines(spacing: step)
+                    path.addPath(horizontalLines(spacing: step))
                     context.stroke(path, with: .color(base.opacity(session.gridOpacity)), lineWidth: 0.6)
                 }
                 .allowsHitTesting(false)
