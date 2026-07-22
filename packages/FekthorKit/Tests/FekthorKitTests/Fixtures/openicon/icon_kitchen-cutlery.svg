@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="kitchen-cutlery" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72">
+  <path d="M13.5,58.5V13.5s13.5,0,9,31.5h-9" style="fill: #ed2024; opacity: .5;"/>
+  <ellipse cx="36" cy="49.5" rx="6.75" ry="9" style="fill: #ed2024; opacity: .5;"/>
+  <path d="M13.5,58.5V13.5s13.5,0,9,31.5h-9" style="fill: none; stroke: #010101; stroke-linecap: square; stroke-miterlimit: 10; stroke-width: 4px;"/>
+  <ellipse cx="36" cy="49.5" rx="6.75" ry="9" style="fill: none; stroke: #010101; stroke-linecap: square; stroke-miterlimit: 10; stroke-width: 4px;"/>
+  <path d="M64.12,22.5c0,7.46-4.53,18-10.12,18s-10.12-10.54-10.12-18,4.53-9,10.12-9,10.12,1.54,10.12,9Z" style="fill: none; stroke: #010101; stroke-linecap: square; stroke-miterlimit: 10; stroke-width: 4px;"/>
+  <line x1="36" y1="13.5" x2="36" y2="40.5" style="fill: none; stroke: #010101; stroke-linecap: square; stroke-miterlimit: 10; stroke-width: 4px;"/>
+  <line x1="54" y1="58.5" x2="54" y2="15" style="fill: none; stroke: #010101; stroke-linecap: square; stroke-miterlimit: 10; stroke-width: 4px;"/>
+</svg>
