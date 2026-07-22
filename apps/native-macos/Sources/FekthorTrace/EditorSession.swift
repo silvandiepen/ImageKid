@@ -14,6 +14,15 @@ final class EditorSession: ObservableObject {
         case fekthor
     }
 
+    /// The canvas tool. Drawing tools drag out primitives; Select owns the
+    /// existing click/marquee/anchor interactions.
+    enum Tool: String, CaseIterable {
+        case select
+        case rect
+        case ellipse
+        case line
+    }
+
     @Published var document: GraphicDocument
     @Published var selection: Set<Int> = []
     @Published var canUndo = false
@@ -21,11 +30,27 @@ final class EditorSession: ObservableObject {
     @Published var status: String
     /// Bumped on every mutation so the canvas invalidates.
     @Published var generation = 0
+    @Published var tool: Tool = .select
+    /// The style newly drawn shapes are born with. Starts at the icon-work
+    /// default (no fill, near-black 2pt stroke — SVG's spec-default black
+    /// fill is wrong for stroke icons) and follows the last style-panel edit.
+    @Published var drawingStyle: Style = EditorSession.defaultDrawingStyle
 
     private(set) var fileURL: URL?
     private(set) var fileKind: FileKind
     private var undoStack: [GraphicDocument] = []
     private var scoped = false
+    /// Non-nil while a style-panel control is coalescing its edits into the
+    /// snapshot taken at its first change (one undo step per control edit).
+    private var styleEditKey: String? = nil
+
+    static var defaultDrawingStyle: Style {
+        var s = Style()
+        s.set("fill", .paint(.none))
+        s.set("stroke", .paint(.color(r: 1, g: 1, b: 1)))  // #010101
+        s.set("stroke-width", .number(2, unit: nil))
+        return s
+    }
 
     init(document: GraphicDocument, fileURL: URL? = nil, fileKind: FileKind = .svg) {
         self.document = document
@@ -71,12 +96,14 @@ final class EditorSession: ObservableObject {
     // MARK: - Mutations (each drag/action snapshots once)
 
     func beginGesture() {
+        styleEditKey = nil  // a canvas gesture ends any coalesced panel edit
         undoStack.append(document)
         if undoStack.count > 50 { undoStack.removeFirst() }
         canUndo = true
     }
 
     func undo() {
+        styleEditKey = nil
         guard let doc = undoStack.popLast() else { return }
         document = doc
         canUndo = !undoStack.isEmpty
@@ -190,27 +217,60 @@ final class EditorSession: ObservableObject {
         }
     }
 
-    func setSelectionColor(_ color: Color, target: ColorTarget) {
-        guard !selection.isEmpty else { return }
-        let ns = NSColor(color).usingColorSpace(.sRGB) ?? .black
-        let paint = PaintValue.color(
-            r: UInt8(max(0, min(255, ns.redComponent * 255))),
-            g: UInt8(max(0, min(255, ns.greenComponent * 255))),
-            b: UInt8(max(0, min(255, ns.blueComponent * 255))))
-        for id in selection {
-            guard var shape = document.firstShape(id: id) else { continue }
-            switch target {
-            case .fill: shape.style.fill = paint
-            case .stroke: shape.style.stroke = paint
-            }
-            let updated = shape
-            mutate { $0.replaceShape(id: id, with: updated) }
+    // MARK: - Transforms (scale/rotate drags; caller snapshots once)
+
+    /// Replace several shapes in one mutation. Transform drags recompute
+    /// every selected shape from its gesture-start original each event, so
+    /// nothing accumulates; the caller calls `beginGesture()` at drag start.
+    func updateShapes(_ shapes: [ShapeNode]) {
+        guard !shapes.isEmpty else { return }
+        mutate { doc in
+            for s in shapes { doc.replaceShape(id: s.id, with: s) }
         }
     }
 
-    enum ColorTarget {
-        case fill
-        case stroke
+    // MARK: - Style edits (panel; one undo step per control interaction)
+
+    /// Apply a style mutation to every selected shape. `key` identifies the
+    /// control: repeated calls with the same key on the same selection
+    /// coalesce into the snapshot taken at the first change (a colour-well
+    /// or slider drag is ONE undo step). The drawing style follows suit so
+    /// new shapes are born with the last-used style.
+    func editSelectionStyle(_ key: String, _ apply: (inout Style) -> Void) {
+        var next = drawingStyle
+        apply(&next)
+        drawingStyle = next
+        guard !selection.isEmpty else { return }
+        let fullKey = key + "|" + selection.sorted().map(String.init).joined(separator: ",")
+        if styleEditKey != fullKey {
+            beginGesture()
+            styleEditKey = fullKey  // after beginGesture (which clears it)
+        }
+        let ids = selection
+        mutate { doc in
+            for id in ids {
+                guard var shape = doc.firstShape(id: id) else { continue }
+                apply(&shape.style)
+                doc.replaceShape(id: id, with: shape)
+            }
+        }
+    }
+
+    /// End the current coalesced style edit (control lost focus / slider up).
+    func endStyleEdit() {
+        styleEditKey = nil
+    }
+
+    // MARK: - Shape tools
+
+    /// Insert a freshly drawn primitive with the current drawing style,
+    /// select it. One undo step.
+    func insertShape(kind: ShapeKind) {
+        beginGesture()
+        let node = ShapeNode(id: document.nextNodeID, kind: kind, style: drawingStyle)
+        mutate { $0.nodes.append(.shape(node)) }
+        selection = [node.id]
+        status = "Added \(tool.rawValue)."
     }
 
     func deleteSelection() {
