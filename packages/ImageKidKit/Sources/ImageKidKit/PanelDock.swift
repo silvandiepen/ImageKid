@@ -126,40 +126,51 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
     }
 }
 
-/// Always-visible vertical rail of toggle buttons — one per panel. Each button
+/// Always-visible rail of toggle buttons — one per panel. Each button
 /// shows/hides its panel and is highlighted while the panel is open.
+/// Lay out vertically (default) or horizontally.
 public struct PanelDockRail<ID: Hashable>: View {
     @ObservedObject var model: PanelDockModel<ID>
+    let axis: Axis
 
-    public init(model: PanelDockModel<ID>) {
+    public init(model: PanelDockModel<ID>, axis: Axis = .vertical) {
         self.model = model
+        self.axis = axis
     }
 
     public var body: some View {
-        VStack(spacing: 8) {
+        let layout = axis == .horizontal
+            ? AnyLayout(HStackLayout(spacing: 8))
+            : AnyLayout(VStackLayout(spacing: 8))
+        layout {
             ForEach(model.order, id: \.self) { id in
                 if let spec = model.spec(id) {
-                    let isActive = model.isExpanded(id)
-                    Button {
-                        model.railToggle(id)
-                    } label: {
-                        Image(systemName: spec.systemImage)
-                            .font(.system(size: 15, weight: .semibold))
-                            .frame(width: 38, height: 38)
-                            .background(
-                                isActive ? Color.accentColor.opacity(0.9) : Color.black.opacity(0.80),
-                                in: RoundedRectangle(cornerRadius: 11, style: .continuous)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                    .strokeBorder(.white.opacity(isActive ? 0.0 : 0.12))
-                            )
-                            .foregroundStyle(.white)
-                    }
-                    .buttonStyle(.plain)
-                    .help((isActive ? "Hide " : "Show ") + spec.title)
+                    button(id: id, spec: spec)
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func button(id: ID, spec: DockPanelSpec<ID>) -> some View {
+        let isActive = model.isExpanded(id)
+        Button {
+            model.railToggle(id)
+        } label: {
+            Image(systemName: spec.systemImage)
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: 38, height: 38)
+                .background(
+                    isActive ? Color.accentColor.opacity(0.9) : Color.black.opacity(0.80),
+                    in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .strokeBorder(.white.opacity(isActive ? 0.0 : 0.12))
+                )
+                .foregroundStyle(.white)
+        }
+        .buttonStyle(.plain)
+        .help((isActive ? "Hide " : "Show ") + spec.title)
     }
 }

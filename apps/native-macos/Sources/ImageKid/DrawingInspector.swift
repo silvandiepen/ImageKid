@@ -44,6 +44,28 @@ struct DrawingInspector: View {
                     .pickerStyle(.segmented)
                 }
 
+                if modeBinding.wrappedValue == .freehand {
+                    field("Brush") {
+                        LazyVGrid(columns: columns, spacing: 8) {
+                            ForEach(brushPresets) { preset in
+                                brushButton(preset)
+                            }
+                        }
+                    }
+
+                    field("Smoothing") {
+                        HStack(spacing: 10) {
+                            Image(systemName: "scribble")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.white.opacity(0.55))
+                            Slider(value: $session.drawingSmoothing, in: 0...1, step: 0.05)
+                            Text("\(Int(session.drawingSmoothing * 100))%")
+                                .font(.caption.monospacedDigit())
+                                .frame(width: 40, alignment: .trailing)
+                        }
+                    }
+                }
+
                 if modeBinding.wrappedValue.supportsFill {
                     field("Fill") {
                         HStack {
@@ -103,6 +125,53 @@ struct DrawingInspector: View {
         GridItem(.flexible(), spacing: 8),
         GridItem(.flexible(), spacing: 8)
     ]
+
+    /// A freehand brush preset: a named bundle of width/opacity/style/smoothing.
+    private struct BrushPreset: Identifiable {
+        let id = UUID()
+        let name: String
+        let symbol: String
+        let width: CGFloat
+        let opacity: Double
+        let style: ShapeStrokeStyle
+        let smoothing: Double
+    }
+
+    private let brushPresets: [BrushPreset] = [
+        BrushPreset(name: "Pen", symbol: "pencil.tip", width: 4, opacity: 1.0, style: .solid, smoothing: 0.2),
+        BrushPreset(name: "Marker", symbol: "paintbrush.pointed", width: 14, opacity: 0.9, style: .solid, smoothing: 0.35),
+        BrushPreset(name: "Pencil", symbol: "pencil", width: 2, opacity: 0.85, style: .solid, smoothing: 0.1),
+        BrushPreset(name: "Highlighter", symbol: "highlighter", width: 24, opacity: 0.32, style: .solid, smoothing: 0.45)
+    ]
+
+    private func brushButton(_ preset: BrushPreset) -> some View {
+        let isActive = abs(session.drawingLineWidth - preset.width) < 0.5
+            && abs(session.drawingOpacity - preset.opacity) < 0.02
+            && abs(session.drawingSmoothing - preset.smoothing) < 0.02
+        return Button {
+            session.drawingLineWidth = preset.width
+            session.drawingOpacity = preset.opacity
+            session.drawingStrokeStyle = preset.style
+            session.drawingSmoothing = preset.smoothing
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: preset.symbol)
+                    .font(.system(size: 14, weight: .semibold))
+                Text(preset.name)
+                    .font(.caption.weight(.medium))
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 9)
+            .background(
+                isActive ? Color.accentColor : .white.opacity(0.075),
+                in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+            )
+        }
+        .buttonStyle(.plain)
+        .help("\(preset.name): \(Int(preset.width)) px, \(Int(preset.opacity * 100))% opacity")
+    }
 
     private var selectedDrawable: Annotation? {
         guard let annotation = session.selectedAnnotation, annotation.isDrawable else { return nil }

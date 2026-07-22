@@ -243,7 +243,7 @@ struct ImageWorkspaceView: View {
 
             // Movable, minimizable dockable panels + their minimized icon rail.
             dockablePanelsLayer
-                .padding(.top, 54)
+                .padding(.top, 14)
                 .padding(.leading, 18)
         }
     }
@@ -338,8 +338,10 @@ struct ImageWorkspaceView: View {
 
     @ViewBuilder
     private var dockablePanelsLayer: some View {
-        HStack(alignment: .top, spacing: 12) {
-            PanelDockRail(model: panelDock)
+        VStack(alignment: .leading, spacing: 12) {
+            PanelDockRail(model: panelDock, axis: .horizontal)
+                // Clear the window's traffic-light controls at the top-left.
+                .padding(.leading, 62)
 
             ZStack(alignment: .topLeading) {
                 if panelDock.isExpanded(.files) {
@@ -1208,7 +1210,8 @@ struct ImageWorkspaceView: View {
                 points: draftFreehandPoints,
                 start: value.startLocation,
                 location: value.location,
-                inside: imageRect
+                inside: imageRect,
+                minimumDistance: 1.5 + CGFloat(session.drawingSmoothing) * 12
             )
             return
         }

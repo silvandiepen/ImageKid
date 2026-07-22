@@ -566,6 +566,8 @@ final class ImageSession: ObservableObject {
     @Published var drawingLineWidth: CGFloat = 4
     @Published var drawingStrokeStyle: ShapeStrokeStyle = .solid
     @Published var drawingOpacity: Double = 1
+    /// Freehand brush smoothing (0 = raw, 1 = heavily smoothed sampling).
+    @Published var drawingSmoothing: Double = 0.3
     @Published var backgroundRemovedImage: NSImage?
     @Published var backgroundRefinementUndoImage: NSImage?
     @Published var backgroundRefinementMode: BackgroundRefinementMode = .remove
