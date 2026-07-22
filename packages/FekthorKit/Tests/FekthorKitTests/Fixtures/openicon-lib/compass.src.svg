@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="compass" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72">
+  <path d="M36,9c-14.91,0-27,12.09-27,27s12.09,27,27,27,27-12.09,27-27-12.09-27-27-27ZM39.18,39.18l-12.73,6.36,6.36-12.73,12.73-6.36-6.36,12.73Z" style="fill: #ed2024; opacity: .5;"/>
+  <circle cx="36" cy="36" r="27" style="fill: none; stroke: #231f20; stroke-miterlimit: 10; stroke-width: 4px;"/>
+  <polygon points="45.55 26.45 32.82 32.82 26.45 45.55 39.18 39.18 45.55 26.45" style="fill: none; stroke: #ed2024; stroke-miterlimit: 10; stroke-width: 4px;"/>
+</svg>
