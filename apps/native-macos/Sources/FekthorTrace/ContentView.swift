@@ -88,6 +88,10 @@ struct ContentView: View {
             }
             .navigationTitle(windowTitle)
             .toolbar { toolbarContent }
+            // The title/toolbar strip must not block the window's black
+            // glass: hide its default opaque background so the backdrop
+            // reads through the header like everywhere else.
+            .toolbarBackground(.hidden, for: .windowToolbar)
             .inspector(isPresented: inTraceMode ? $showInspector : .constant(false)) {
                 InspectorView(model: model)
                     .inspectorColumnWidth(min: 250, ideal: 290, max: 380)
@@ -1296,51 +1300,49 @@ struct EditorWorkspaceView: View {
     var grid: EditorGridConfig? = nil
     var onClose: () -> Void
 
-    @State private var showStylePanel = true
+    @ObservedObject private var panels = EditorPanelsState.shared
     @State private var confirmClose = false
 
     var body: some View {
         VStack(spacing: 0) {
             topBar
             Divider()
-            HStack(spacing: 0) {
-                ZStack(alignment: .bottom) {
-                    EditorCanvasView(session: session, zoom: $zoom, offset: $offset, grid: grid)
-                        .overlay(
-                            TrackpadCatcher(
-                                onPan: { dx, dy in
-                                    offset = CGSize(
-                                        width: offset.width + dx, height: offset.height + dy)
-                                },
-                                onZoom: { m in zoom = min(64, max(0.2, zoom * (1 + m))) },
-                                onDoubleClick: { _ in
-                                    // Double-click finishes a pen path OPEN
-                                    // (the second click landed as an anchor;
-                                    // the finish trims that duplicate) and
-                                    // leaves the other drawing tools; in
-                                    // Select it keeps its zoom meaning.
-                                    if session.tool == .pen {
-                                        if !session.penAnchors.isEmpty {
-                                            session.finishPenPath(
-                                                closed: false, trimDuplicate: true)
-                                        } else {
-                                            session.tool = .select
-                                        }
-                                    } else if session.tool != .select {
-                                        session.tool = .select
+            ZStack(alignment: .bottom) {
+                EditorCanvasView(session: session, zoom: $zoom, offset: $offset, grid: grid)
+                    .overlay(
+                        TrackpadCatcher(
+                            onPan: { dx, dy in
+                                offset = CGSize(
+                                    width: offset.width + dx, height: offset.height + dy)
+                            },
+                            onZoom: { m in zoom = min(64, max(0.2, zoom * (1 + m))) },
+                            onDoubleClick: { _ in
+                                // Double-click finishes a pen path OPEN
+                                // (the second click landed as an anchor;
+                                // the finish trims that duplicate) and
+                                // leaves the other drawing tools; in
+                                // Select it keeps its zoom meaning.
+                                if session.tool == .pen {
+                                    if !session.penAnchors.isEmpty {
+                                        session.finishPenPath(
+                                            closed: false, trimDuplicate: true)
                                     } else {
-                                        zoom = min(64, zoom * 1.6)
+                                        session.tool = .select
                                     }
+                                } else if session.tool != .select {
+                                    session.tool = .select
+                                } else {
+                                    zoom = min(64, zoom * 1.6)
                                 }
-                            )
+                            }
                         )
-                    editorZoomControls
-                }
-                if showStylePanel {
-                    Divider()
-                    EditorStylePanel(session: session)
-                }
+                    )
+                editorZoomControls
             }
+            // The style/combine palettes float above the canvas, inside the
+            // window (ImageKid's panel mechanic) — draggable, closable,
+            // positions persisted.
+            .overlay(EditorPanelsLayer(session: session))
             Divider()
             HStack {
                 Text(session.status).foregroundStyle(.secondary).lineLimit(1)
@@ -1426,13 +1428,20 @@ struct EditorWorkspaceView: View {
             // there is something to save; everything else stays neutral.
             .tint(session.dirty ? Color.fekthorAccent : .primary)
             .help("Save (⌘S)")
-            Button {
-                showStylePanel.toggle()
+            // Compact access to the floating palettes (same set as the
+            // Panels menu): checkmarked toggles for Fill / Stroke / Opacity
+            // / Combine.
+            Menu {
+                ForEach(EditorPanel.allCases) { panel in
+                    Toggle(panel.title, isOn: panels.toggleBinding(panel))
+                }
             } label: {
-                Label("Style", systemImage: "sidebar.trailing")
+                Label("Panels", systemImage: "square.grid.2x2")
                     .labelStyle(.iconOnly)
             }
-            .help("Show or hide the style panel")
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Show or hide the floating panels")
             // Backspace: while a pen path is in progress it removes the
             // last placed anchor; otherwise it deletes the selected nodes.
             Button {
@@ -1471,6 +1480,9 @@ struct EditorWorkspaceView: View {
         .tint(.primary)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        // Translucent, not opaque: the window's black glass reads through
+        // the bar; the thin material + divider keep it legible.
+        .background(.ultraThinMaterial)
         .background(ToolShortcutMonitor { session.tool = $0 })
     }
 

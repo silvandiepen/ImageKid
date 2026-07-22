@@ -24,6 +24,9 @@ struct WorkspaceGalleryView: View {
     @State private var query = ""
     /// nil = no active search (show everything).
     @State private var filtered: [IconEntry]? = nil
+    /// The search field collapses to its magnifying glass until clicked.
+    @State private var searchExpanded = false
+    @FocusState private var searchFocused: Bool
     @State private var sortMode: SortMode = .name
     @State private var collapsed: Set<String> = []
     @State private var dropTargeted = false
@@ -84,37 +87,36 @@ struct WorkspaceGalleryView: View {
             Text(countText)
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
-            // The primary action: a new icon in the selected category.
+            // The primary action: a new icon in the selected category — the
+            // one accent pill in an otherwise neutral header.
             Button {
                 onNewIcon(targetCategory)
             } label: {
                 Label("New Icon", systemImage: "plus")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .background(Color.fekthorAccent, in: Capsule())
+                    .contentShape(Capsule())
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.fekthorAccent)
+            .buttonStyle(.plain)
             .help("Create a new icon (⌘N)")
             Spacer()
-            HStack(spacing: 4) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search icons", text: $query)
-                    .textFieldStyle(.plain)
-                    .frame(width: 200)
-                if !query.isEmpty {
-                    Button {
-                        query = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
+            searchField
+            // Sort: icon-only menu with checkmarked modes.
+            Menu {
+                Picker("Sort", selection: $sortMode) {
+                    ForEach(SortMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } label: {
+                Image(systemName: "arrow.up.arrow.down")
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
-            Picker("Sort", selection: $sortMode) {
-                ForEach(SortMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-            }
-            .frame(width: 190)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Sort icons")
             // Small header actions: icon-only and neutral (never accent).
             Button {
                 newCategoryText = ""
@@ -147,7 +149,65 @@ struct WorkspaceGalleryView: View {
         .tint(.primary)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        // Translucent, not opaque: the window's black glass reads through
+        // the bar; the thin material + divider keep it legible.
+        .background(.ultraThinMaterial)
         .background(keyboardShortcutHosts)
+    }
+
+    /// Search collapses to its magnifying glass; clicking expands into the
+    /// focused field (animated width). Esc — or blurring an emptied field —
+    /// collapses back. The 150ms debounced search itself is unchanged
+    /// (`runSearch` via `.task(id:)`).
+    private var searchField: some View {
+        HStack(spacing: 4) {
+            Button {
+                if searchExpanded {
+                    searchFocused = true
+                } else {
+                    withAnimation(.easeOut(duration: 0.15)) { searchExpanded = true }
+                    // Focus once the field is enabled.
+                    DispatchQueue.main.async { searchFocused = true }
+                }
+            } label: {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Search icons")
+            TextField("Search icons", text: $query)
+                .textFieldStyle(.plain)
+                .focused($searchFocused)
+                .disabled(!searchExpanded)
+                .frame(width: searchExpanded ? 170 : 0)
+                .opacity(searchExpanded ? 1 : 0)
+                .clipped()
+                .onExitCommand {
+                    query = ""
+                    collapseSearch()
+                }
+            if searchExpanded && !query.isEmpty {
+                Button {
+                    query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, searchExpanded ? 8 : 4)
+        .padding(.vertical, 4)
+        .background(
+            .quaternary.opacity(searchExpanded ? 0.5 : 0),
+            in: RoundedRectangle(cornerRadius: 10)
+        )
+        .onChange(of: searchFocused) { _, focused in
+            if !focused && query.isEmpty { collapseSearch() }
+        }
+    }
+
+    private func collapseSearch() {
+        searchFocused = false
+        withAnimation(.easeOut(duration: 0.15)) { searchExpanded = false }
     }
 
     /// Gallery keyboard basics as invisible key-equivalent hosts:

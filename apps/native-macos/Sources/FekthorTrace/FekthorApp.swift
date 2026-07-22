@@ -102,6 +102,7 @@ struct WindowBackdrop: NSViewRepresentable {
 @main
 struct FekthorApp: App {
     @ObservedObject private var menuState = MenuState.shared
+    @ObservedObject private var panelsState = EditorPanelsState.shared
 
     private func postAlign(_ edge: AlignEdge) {
         NotificationCenter.default.post(name: .fekthorAlign, object: nil, userInfo: ["edge": edge])
@@ -261,6 +262,14 @@ struct FekthorApp: App {
                     NotificationCenter.default.post(name: .fekthorSendToBack, object: nil)
                 }
                 .keyboardShortcut("[", modifiers: [.command, .option])
+            }
+            // The editor's floating palettes; same toggles as the compact
+            // Panels menu in the editor top bar.
+            CommandMenu("Panels") {
+                ForEach(EditorPanel.allCases) { panel in
+                    Toggle(panel.title, isOn: panelsState.toggleBinding(panel))
+                        .disabled(!menuState.editorOpen)
+                }
             }
         }
     }
