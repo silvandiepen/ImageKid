@@ -1,4 +1,5 @@
 import AppKit
+import ImageKidCore
 import ImageIO
 import UniformTypeIdentifiers
 

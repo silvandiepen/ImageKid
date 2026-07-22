@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageKidCore
 import ImageKidKit
 
 /// Fast transforms for the selected image layer: rotate, flip, scale, reset.
