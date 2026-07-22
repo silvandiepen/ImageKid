@@ -101,10 +101,10 @@ struct RecentWorkspaceRow: View {
             .padding(.vertical, 7)
             .frame(width: 320)
             .background(
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: 12)
                     .fill(Color.primary.opacity(hovering ? 0.10 : 0.045))
             )
-            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .contentShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
@@ -127,7 +127,7 @@ struct RecentWorkspaceRow: View {
     private var previewGrid: some View {
         let thumbs = store.preview(for: recent)?.thumbnails ?? []
         ZStack {
-            RoundedRectangle(cornerRadius: 8).fill(.white)
+            RoundedRectangle(cornerRadius: 10).fill(Color.fekthorWell)
             if thumbs.isEmpty {
                 Image(systemName: "folder")
                     .font(.title3)

@@ -570,7 +570,8 @@ private struct EmptyStateView: View {
 
     var body: some View {
         ZStack {
-            Rectangle().fill(Color(nsColor: .windowBackgroundColor))
+            // Transparent: the window's black-glass backdrop shows through.
+            Color.clear
             VStack(spacing: 28) {
                 VStack(spacing: 6) {
                     Text("Fekthor").font(.largeTitle).fontWeight(.semibold)
@@ -1410,19 +1411,28 @@ struct EditorWorkspaceView: View {
                 session.undo()
             } label: {
                 Label("Undo", systemImage: "arrow.uturn.backward")
+                    .labelStyle(.iconOnly)
             }
             .keyboardShortcut("z", modifiers: .command)
             .disabled(!session.canUndo)
+            .help("Undo (⌘Z)")
             Button {
                 session.save()
             } label: {
                 Label("Save", systemImage: "square.and.arrow.down")
+                    .labelStyle(.iconOnly)
             }
+            // The one prominent header action: Save keeps the accent while
+            // there is something to save; everything else stays neutral.
+            .tint(session.dirty ? Color.fekthorAccent : .primary)
+            .help("Save (⌘S)")
             Button {
                 showStylePanel.toggle()
             } label: {
                 Label("Style", systemImage: "sidebar.trailing")
+                    .labelStyle(.iconOnly)
             }
+            .help("Show or hide the style panel")
             // Backspace: while a pen path is in progress it removes the
             // last placed anchor; otherwise it deletes the selected nodes.
             Button {
@@ -1457,25 +1467,29 @@ struct EditorWorkspaceView: View {
                 .frame(width: 0, height: 0)
                 .opacity(0)
         }
+        // Header controls stay neutral; only Save-when-dirty keeps the accent.
+        .tint(.primary)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .background(ToolShortcutMonitor { session.tool = $0 })
     }
 
-    /// Select / Rect / Ellipse / Line / Pen. ⌘1–⌘5 switch tools (plain
-    /// letters would steal keystrokes from the panel's text fields); Esc
-    /// and double-click return to Select.
+    /// Select / Rect / Ellipse / Line / Pen. Illustrator's single letters
+    /// (V/A, M, L, \, P) switch tools while no text field is being edited
+    /// (see `ToolShortcutMonitor`); ⌘1–⌘5 always work; Esc and double-click
+    /// return to Select.
     private var toolPicker: some View {
         Picker("", selection: $session.tool) {
             Image(systemName: "cursorarrow").tag(EditorSession.Tool.select)
-                .help("Select (⌘1)")
+                .help("Select (V or ⌘1)")
             Image(systemName: "square").tag(EditorSession.Tool.rect)
-                .help("Rectangle (⌘2)")
+                .help("Rectangle (M or ⌘2)")
             Image(systemName: "circle").tag(EditorSession.Tool.ellipse)
-                .help("Ellipse (⌘3)")
+                .help("Ellipse (L or ⌘3)")
             Image(systemName: "line.diagonal").tag(EditorSession.Tool.line)
-                .help("Line (⌘4)")
+                .help("Line (\\ or ⌘4)")
             Image(systemName: "pencil.tip").tag(EditorSession.Tool.pen)
-                .help("Pen (⌘5)")
+                .help("Pen (P or ⌘5)")
         }
         .pickerStyle(.segmented)
         .labelsHidden()
@@ -1521,5 +1535,71 @@ struct EditorWorkspaceView: View {
         .background(.regularMaterial, in: Capsule())
         .overlay(Capsule().strokeBorder(.quaternary))
         .padding(.bottom, 12)
+    }
+}
+
+/// Illustrator's single-letter tool shortcuts, alive only while the editor is
+/// on screen: V (and A, until a separate direct-selection tool exists) →
+/// Select, M → Rectangle, L → Ellipse, \ → Line, P → Pen. A local keyDown
+/// monitor that passes every event through untouched when it carries ⌘/⌥/⌃
+/// (menu equivalents like ⌘P must win), when a text field is being edited
+/// (the field editor is an NSTextView — letters must never steal keystrokes
+/// from the style panel), or when the key is unmapped (so Esc/Return/Delete
+/// pen handling is unaffected). Mapped letters switch the tool and are
+/// consumed; switching away mid-pen-path finishes the path safely via the
+/// tool's didSet.
+private struct ToolShortcutMonitor: NSViewRepresentable {
+    var onTool: (EditorSession.Tool) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = MonitorView()
+        view.onTool = onTool
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? MonitorView)?.onTool = onTool
+    }
+
+    final class MonitorView: NSView {
+        var onTool: ((EditorSession.Tool) -> Void)?
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, event.window === self.window else { return event }
+                guard event.modifierFlags.intersection([.command, .option, .control]).isEmpty
+                else { return event }
+                if let responder = self.window?.firstResponder, responder is NSText {
+                    return event
+                }
+                guard let letter = event.charactersIgnoringModifiers?.lowercased(),
+                    let tool = Self.tool(for: letter)
+                else { return event }
+                self.onTool?(tool)
+                return nil
+            }
+        }
+
+        private static func tool(for letter: String) -> EditorSession.Tool? {
+            switch letter {
+            case "v", "a": return .select
+            case "m": return .rect
+            case "l": return .ellipse
+            case "\\": return .line
+            case "p": return .pen
+            default: return nil
+            }
+        }
+
+        deinit {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+        }
     }
 }

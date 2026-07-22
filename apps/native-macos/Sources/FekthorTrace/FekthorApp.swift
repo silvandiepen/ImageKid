@@ -1,3 +1,4 @@
+import AppKit
 import FekthorKit
 import SwiftUI
 
@@ -57,6 +58,10 @@ final class MenuState: ObservableObject {
     /// through the workfile by ContentView); session-level for detached
     /// editors.
     @Published var snapToGrid = false
+    /// View ▸ Preview Composed Icons (⌥⌘P): the gallery also shows virtual
+    /// icon-in-container cells. Session-level — composed previews are never
+    /// written to disk, so the toggle need not persist either.
+    @Published var previewComposed = false
 
     private static let showGridKey = "fekthor.showGrid"
 
@@ -71,6 +76,27 @@ extension Color {
     /// setting ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME also routes
     /// into every `Color.accentColor` reference.
     static let fekthorAccent = Color("AccentColor", bundle: .main)
+
+    /// The light thumbnail well behind icon artwork. Not pure white — a soft
+    /// paper tone so white-on-white icons still read (with the well's dark
+    /// rim) while near-black corpus icons keep full contrast.
+    static let fekthorWell = Color(white: 0.88)
+}
+
+/// The window's black-glass backdrop: a behind-window blur with a dark tint,
+/// stretched under the whole app (the app runs forced-dark, so every material
+/// above it resolves dark too). Views that must stay readable — the artboard,
+/// thumbnail wells — keep their own opaque surfaces on top.
+struct WindowBackdrop: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .hudWindow
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
 @main
@@ -91,6 +117,10 @@ struct FekthorApp: App {
             ContentView()
                 .frame(minWidth: 940, minHeight: 620)
                 .tint(.fekthorAccent)
+                // Forced dark + the behind-window blur = black glass. The
+                // artboard and thumbnail wells keep their own light surfaces.
+                .preferredColorScheme(.dark)
+                .background(WindowBackdrop().ignoresSafeArea())
         }
         .windowToolbarStyle(.unified)
         .commands {
@@ -154,6 +184,10 @@ struct FekthorApp: App {
                         })
                 )
                 .keyboardShortcut("'", modifiers: [.command, .shift])
+                Divider()
+                Toggle("Preview Composed Icons", isOn: $menuState.previewComposed)
+                    .keyboardShortcut("p", modifiers: [.command, .option])
+                    .disabled(!menuState.workspaceOpen)
                 Divider()
             }
             CommandMenu("Workspace") {
