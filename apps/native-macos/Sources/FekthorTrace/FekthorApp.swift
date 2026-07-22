@@ -58,15 +58,24 @@ final class MenuState: ObservableObject {
     /// through the workfile by ContentView); session-level for detached
     /// editors.
     @Published var snapToGrid = false
+    /// Snap to points (⌥⌘'): dragged anchors, drawn shapes and moved
+    /// selections magnet onto other shapes' anchors and bounds
+    /// corners/centres. App-side and persisted globally in UserDefaults —
+    /// point snapping is an editor habit, not a workspace standard.
+    @Published var snapToPoints: Bool {
+        didSet { UserDefaults.standard.set(snapToPoints, forKey: Self.snapToPointsKey) }
+    }
     /// View ▸ Preview Composed Icons (⌥⌘P): the gallery also shows virtual
     /// icon-in-container cells. Session-level — composed previews are never
     /// written to disk, so the toggle need not persist either.
     @Published var previewComposed = false
 
     private static let showGridKey = "fekthor.showGrid"
+    private static let snapToPointsKey = "fekthor.snapToPoints"
 
     private init() {
         showGrid = UserDefaults.standard.object(forKey: Self.showGridKey) as? Bool ?? true
+        snapToPoints = UserDefaults.standard.bool(forKey: Self.snapToPointsKey)
     }
 }
 
@@ -185,6 +194,10 @@ struct FekthorApp: App {
                         })
                 )
                 .keyboardShortcut("'", modifiers: [.command, .shift])
+                // Direct binding (no notification round-trip): the toggle is
+                // app-global and persists itself via MenuState's didSet.
+                Toggle("Snap to Points", isOn: $menuState.snapToPoints)
+                    .keyboardShortcut("'", modifiers: [.command, .option])
                 Divider()
                 Toggle("Preview Composed Icons", isOn: $menuState.previewComposed)
                     .keyboardShortcut("p", modifiers: [.command, .option])

@@ -12,9 +12,12 @@ import SwiftUI
 enum EditorPanel: String, CaseIterable, Identifiable {
     case fill
     case stroke
+    case swatches
     case opacity
     case corners
     case combine
+    case align
+    case history
 
     var id: String { rawValue }
 
@@ -22,9 +25,12 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         switch self {
         case .fill: return "Fill"
         case .stroke: return "Stroke"
+        case .swatches: return "Swatches"
         case .opacity: return "Opacity"
         case .corners: return "Corners"
         case .combine: return "Combine"
+        case .align: return "Align"
+        case .history: return "History"
         }
     }
 
@@ -32,22 +38,29 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         switch self {
         case .fill: return "drop.fill"
         case .stroke: return "pencil.line"
+        case .swatches: return "paintpalette"
         case .opacity: return "circle.lefthalf.filled"
         case .corners: return "rectangle.roundedtop"
         case .combine: return "square.on.square.intersection.dashed"
+        case .align: return "align.horizontal.left"
+        case .history: return "clock.arrow.circlepath"
         }
     }
 
     /// First-run resting offset from the canvas's top-leading corner. The
     /// style column hugs the right of a minimum-size window; Opacity,
-    /// Corners and Combine sit one column in so nothing overlaps.
+    /// Corners and Combine sit one column in; Swatches, Align and History
+    /// stack down the leading edge so nothing overlaps.
     var defaultPosition: CGSize {
         switch self {
         case .fill: return CGSize(width: 660, height: 16)
         case .stroke: return CGSize(width: 660, height: 230)
+        case .swatches: return CGSize(width: 16, height: 16)
         case .opacity: return CGSize(width: 400, height: 16)
         case .corners: return CGSize(width: 400, height: 180)
         case .combine: return CGSize(width: 400, height: 380)
+        case .align: return CGSize(width: 16, height: 240)
+        case .history: return CGSize(width: 16, height: 400)
         }
     }
 }
@@ -133,6 +146,9 @@ final class EditorPanelsState: ObservableObject {
 /// only when the panel state itself (visibility, resting positions) changes.
 struct EditorPanelsLayer: View {
     let session: EditorSession
+    /// Plain reference (NOT observed at this level — same discipline as the
+    /// editor session): only the Swatches palette content observes it.
+    let workspace: WorkspaceSession
     @ObservedObject private var panels = EditorPanelsState.shared
 
     private static let snapStep: CGFloat = 20
@@ -146,6 +162,11 @@ struct EditorPanelsLayer: View {
             if panels.visible.contains(.stroke) {
                 palette(.stroke) { StrokePanelContent(session: session) }
             }
+            if panels.visible.contains(.swatches) {
+                palette(.swatches) {
+                    SwatchesPanelContent(session: session, workspace: workspace)
+                }
+            }
             if panels.visible.contains(.opacity) {
                 palette(.opacity) { OpacityPanelContent(session: session) }
             }
@@ -154,6 +175,12 @@ struct EditorPanelsLayer: View {
             }
             if panels.visible.contains(.combine) {
                 palette(.combine) { CombinePanelContent(session: session) }
+            }
+            if panels.visible.contains(.align) {
+                palette(.align) { AlignPanelContent(session: session) }
+            }
+            if panels.visible.contains(.history) {
+                palette(.history) { HistoryPanelContent(session: session) }
             }
         }
         .padding(12)
@@ -177,6 +204,336 @@ struct EditorPanelsLayer: View {
         // Explicit stable identity: the free drag lives in @GestureState,
         // which survives only as long as the panel view's identity does.
         .id(panel)
+    }
+}
+
+// MARK: - Swatches palette
+
+/// Colour swatches: the WORKSPACE swatches first (shared through the
+/// workfile — editable: + adds the current fill colour, right-click offers
+/// Set as Fill / Set as Stroke / Delete), then the unique plain colours the
+/// open document already uses (read-only). Click applies a swatch as the
+/// selection's fill (or the drawing style when nothing is selected);
+/// ⌥-click applies it as the stroke. Each apply is ONE undo step.
+struct SwatchesPanelContent: View {
+    @ObservedObject var session: EditorSession
+    @ObservedObject var workspace: WorkspaceSession
+
+    private var workspaceSwatches: [String] { workspace.settings.swatches ?? [] }
+
+    /// Unique plain colours used by the document's shapes, in document
+    /// order (each shape's fill before its stroke).
+    private var documentColors: [String] {
+        var seen: Set<String> = []
+        var out: [String] = []
+        func add(_ paint: PaintValue?) {
+            guard case .color(let r, let g, let b)? = paint else { return }
+            let hex = String(format: "#%02x%02x%02x", r, g, b)
+            if seen.insert(hex).inserted { out.append(hex) }
+        }
+        func walk(_ nodes: [GraphicNode]) {
+            for node in nodes {
+                switch node {
+                case .raw: continue
+                case .group(let g): walk(g.children)
+                case .shape(let s):
+                    let style = s.effectiveStyle
+                    add(style.fill)
+                    add(style.stroke)
+                }
+            }
+        }
+        walk(session.document.nodes)
+        return out
+    }
+
+    /// The colour "+" adds: the current fill when it is a plain colour,
+    /// else the current stroke. nil (no plain colour anywhere) disables +.
+    private var addableHex: String? {
+        let selection = StyleSelection(session: session)
+        if case .color(let r, let g, let b) = selection.summary(of: { $0.fill }) {
+            return String(format: "#%02x%02x%02x", r, g, b)
+        }
+        if case .color(let r, let g, let b) = selection.summary(of: { $0.stroke }) {
+            return String(format: "#%02x%02x%02x", r, g, b)
+        }
+        return nil
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Workspace")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if workspace.workspace != nil {
+                    addButton
+                }
+            }
+            if workspace.workspace == nil {
+                Text("Open a workspace to keep shared swatches.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else if workspaceSwatches.isEmpty {
+                Text("No swatches yet — + adds the current colour.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                swatchGrid(workspaceSwatches, editable: true)
+            }
+            Divider()
+            Text("In this document")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if documentColors.isEmpty {
+                Text("No plain colours in use.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                swatchGrid(documentColors, editable: false)
+            }
+            Text("Click: fill · ⌥-click: stroke")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    private var addButton: some View {
+        Button {
+            addSwatch()
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 10, weight: .semibold))
+                .frame(width: 20, height: 20)
+                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                .contentShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .disabled(addableHex == nil)
+        .opacity(addableHex == nil ? 0.4 : 1)
+        .help("Add the current fill colour (or stroke, when the fill is not a plain colour)")
+    }
+
+    private func swatchGrid(_ hexes: [String], editable: Bool) -> some View {
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 22, maximum: 22), spacing: 6)],
+            alignment: .leading, spacing: 6
+        ) {
+            ForEach(hexes, id: \.self) { hex in
+                swatch(hex, editable: editable)
+            }
+        }
+    }
+
+    private func swatch(_ hex: String, editable: Bool) -> some View {
+        Button {
+            apply(hex, asStroke: NSEvent.modifierFlags.contains(.option))
+        } label: {
+            RoundedRectangle(cornerRadius: 5)
+                .fill(swatchColor(hex))
+                .frame(width: 22, height: 22)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5)
+                        .strokeBorder(.white.opacity(0.25), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .help("\(hex) — click: fill · ⌥-click: stroke")
+        .contextMenu {
+            Button("Set as Fill") { apply(hex, asStroke: false) }
+            Button("Set as Stroke") { apply(hex, asStroke: true) }
+            if editable {
+                Divider()
+                Button("Delete", role: .destructive) { removeSwatch(hex) }
+            }
+        }
+    }
+
+    private func swatchColor(_ hex: String) -> Color {
+        guard let c = PaintValue.parseHex(hex) else { return .black }
+        return Color(
+            red: Double(c.r) / 255, green: Double(c.g) / 255, blue: Double(c.b) / 255)
+    }
+
+    /// Apply the swatch to the selection (or the drawing style when nothing
+    /// is selected) — one undo step per click, never coalesced.
+    private func apply(_ hex: String, asStroke: Bool) {
+        guard let c = PaintValue.parseHex(hex) else { return }
+        let paint = PaintValue.color(r: c.r, g: c.g, b: c.b)
+        if asStroke {
+            session.editSelectionStyle("stroke", label: "Stroke colour") { $0.stroke = paint }
+        } else {
+            session.editSelectionStyle("fill", label: "Fill colour") { $0.fill = paint }
+        }
+        session.endStyleEdit()
+    }
+
+    private func addSwatch() {
+        guard let hex = addableHex else { return }
+        workspace.updateSettings { workfile in
+            var list = workfile.swatches ?? []
+            guard !list.contains(hex) else { return }
+            list.append(hex)
+            workfile.swatches = list
+        }
+    }
+
+    private func removeSwatch(_ hex: String) {
+        workspace.updateSettings { workfile in
+            workfile.swatches?.removeAll { $0 == hex }
+        }
+    }
+}
+
+// MARK: - Align palette
+
+/// Illustrator's Align palette over the existing engine ops: six align
+/// buttons (left / centre / right, top / middle / bottom) and two
+/// distribute buttons (H / V). 2+ nodes align to their collective bounds;
+/// a single node aligns to the artboard (the tooltips say so); distribute
+/// needs 3+. Disabled states match the Object ▸ Align menu.
+struct AlignPanelContent: View {
+    @ObservedObject var session: EditorSession
+
+    private var canAlign: Bool { !session.selection.isEmpty }
+    private var canDistribute: Bool { session.selection.count >= 3 }
+    private var single: Bool { session.selection.count == 1 }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Align objects")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                alignButton(.left, "align.horizontal.left", "Align Left")
+                alignButton(.centerX, "align.horizontal.center", "Align Center")
+                alignButton(.right, "align.horizontal.right", "Align Right")
+                alignButton(.top, "align.vertical.top", "Align Top")
+                alignButton(.centerY, "align.vertical.center", "Align Middle")
+                alignButton(.bottom, "align.vertical.bottom", "Align Bottom")
+            }
+            Text("Distribute")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                distributeButton(.horizontal, "distribute.horizontal.center", "Distribute Horizontally")
+                distributeButton(.vertical, "distribute.vertical.center", "Distribute Vertically")
+            }
+            Text(hint)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var hint: String {
+        if !canAlign { return "Select something to align" }
+        if single { return "One node aligns to the artboard" }
+        if !canDistribute { return "Distribute needs three or more nodes" }
+        return " "
+    }
+
+    private func alignButton(_ edge: AlignEdge, _ symbol: String, _ name: String) -> some View {
+        Button {
+            session.alignSelection(edge)
+        } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .medium))
+                .frame(width: 28, height: 26)
+                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+                .contentShape(RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .disabled(!canAlign)
+        .opacity(canAlign ? 1 : 0.4)
+        .help(single ? "\(name) — a single node aligns to the artboard" : name)
+    }
+
+    private func distributeButton(
+        _ axis: DistributeAxis, _ symbol: String, _ name: String
+    ) -> some View {
+        Button {
+            session.distributeSelection(axis)
+        } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .medium))
+                .frame(width: 45, height: 26)
+                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+                .contentShape(RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .disabled(!canDistribute)
+        .opacity(canDistribute ? 1 : 0.4)
+        .help("\(name) (equalise the gaps between three or more nodes)")
+    }
+}
+
+// MARK: - History palette
+
+/// The labelled undo stack, newest-first: "Current" on top, then every
+/// snapshot (each labelled with the operation that FOLLOWED it). Clicking
+/// an older entry reverts to that snapshot — i.e. to the document as it was
+/// BEFORE that entry's operation ran. The current state is pushed as a
+/// "Revert" entry first, so clicking that entry afterwards brings the
+/// reverted-away state back (redo by history); the stack keeps its 50 cap.
+struct HistoryPanelContent: View {
+    @ObservedObject var session: EditorSession
+
+    var body: some View {
+        // Reading `generation`/`canUndo` via @ObservedObject keeps the list
+        // fresh: every stack change rides one of those publishes.
+        let entries = Array(session.history.reversed())
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Click a step to revert to the state before it")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            ScrollView {
+                VStack(spacing: 2) {
+                    currentRow
+                    ForEach(entries) { entry in
+                        row(entry)
+                    }
+                }
+            }
+            .frame(maxHeight: 240)
+            if entries.isEmpty {
+                Text("No edits yet.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var currentRow: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(Color.accentColor)
+                .frame(width: 6, height: 6)
+            Text("Current")
+                .font(.caption.weight(.semibold))
+            Spacer()
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func row(_ entry: EditorSession.HistoryEntry) -> some View {
+        Button {
+            session.revert(toHistoryID: entry.id)
+        } label: {
+            HStack {
+                Text(entry.label)
+                    .font(.caption)
+                    .lineLimit(1)
+                Spacer()
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+            .contentShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .help("Revert to the document as it was before “\(entry.label)”")
     }
 }
 

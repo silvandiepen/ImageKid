@@ -47,6 +47,8 @@ struct ContentView: View {
                         session: session, zoom: $zoom, offset: $offset,
                         backLabel: workspaceSession.workspace != nil ? "Gallery" : "Home",
                         grid: editorGrid,
+                        snapToPoints: menuState.snapToPoints,
+                        workspace: workspaceSession,
                         onClose: { editorSession = nil })
                 } else if model.sourceImage != nil || model.document != nil {
                     VStack(spacing: 0) {
@@ -1298,6 +1300,12 @@ struct EditorWorkspaceView: View {
     var backLabel: String = "Home"
     /// Workspace grid (drawn + snapped by the canvas); nil hides it.
     var grid: EditorGridConfig? = nil
+    /// View ▸ Snap to Points (⌥⌘'), passed through to the canvas.
+    var snapToPoints: Bool = false
+    /// The app's workspace session — the Swatches palette reads/writes the
+    /// shared swatches through it (works detached too: the panel shows a
+    /// hint while no workspace is open).
+    let workspace: WorkspaceSession
     var onClose: () -> Void
 
     @ObservedObject private var panels = EditorPanelsState.shared
@@ -1308,7 +1316,9 @@ struct EditorWorkspaceView: View {
             topBar
             Divider()
             ZStack(alignment: .bottom) {
-                EditorCanvasView(session: session, zoom: $zoom, offset: $offset, grid: grid)
+                EditorCanvasView(
+                    session: session, zoom: $zoom, offset: $offset, grid: grid,
+                    snapToPoints: snapToPoints)
                     .overlay(
                         TrackpadCatcher(
                             onPan: { dx, dy in
@@ -1342,7 +1352,7 @@ struct EditorWorkspaceView: View {
             // The style/combine palettes float above the canvas, inside the
             // window (ImageKid's panel mechanic) — draggable, closable,
             // positions persisted.
-            .overlay(EditorPanelsLayer(session: session))
+            .overlay(EditorPanelsLayer(session: session, workspace: workspace))
             Divider()
             HStack {
                 Text(session.status).foregroundStyle(.secondary).lineLimit(1)

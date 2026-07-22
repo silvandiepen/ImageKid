@@ -278,6 +278,7 @@ final class WorkspaceSession: ObservableObject {
     /// appears in the JSON (deterministic, diff-friendly files).
     private static func normalize(_ workfile: inout Workfile) {
         if workfile.settings == Workfile.WorkspaceSettings() { workfile.settings = nil }
+        if workfile.swatches?.isEmpty == true { workfile.swatches = nil }
         if workfile.exportProfiles?.isEmpty == true { workfile.exportProfiles = nil }
         if workfile.styleTokens?.isEmpty == true { workfile.styleTokens = nil }
         if workfile.containers?.isEmpty == true { workfile.containers = nil }

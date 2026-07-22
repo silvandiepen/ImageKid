@@ -25,6 +25,10 @@ struct EditorCanvasView: View {
     @Binding var zoom: CGFloat
     @Binding var offset: CGSize
     var grid: EditorGridConfig? = nil
+    /// View ▸ Snap to Points (⌥⌘'): dragged anchors, drawn shapes and moved
+    /// selections magnet onto other shapes' anchors and bounds
+    /// corners/centres. Point snap WINS over grid snap; ⌃ disables both.
+    var snapToPoints: Bool = false
 
     @State private var activeAnchor: (path: Int, index: Int)? = nil
     @State private var draggingAnchor: (path: Int, index: Int)? = nil
@@ -51,6 +55,11 @@ struct EditorCanvasView: View {
     /// The pointer is over the canvas (hover phase) — the tool cursor is
     /// only ours to set while this is true.
     @State private var pointerOverCanvas = false
+    /// Snap-to-points candidates (doc space), collected ONCE at gesture
+    /// start from the non-dragged shapes: anchors + bounds corners/centres.
+    @State private var snapMagnets: [Pt] = []
+    /// The magnet the drag is currently stuck to — drawn as an accent cross.
+    @State private var activeMagnet: Pt? = nil
 
     private let hitRadius: CGFloat = 8
     /// The selection frame sits this far outside the geometry so its scale
@@ -126,6 +135,19 @@ struct EditorCanvasView: View {
             if let band = marqueeRect {
                 ctx.fill(Path(band), with: .color(.blue.opacity(0.08)))
                 ctx.stroke(Path(band), with: .color(.blue.opacity(0.6)), lineWidth: 1)
+            }
+
+            // Snap-to-points: an accent cross on the magnet the drag is
+            // currently stuck to.
+            if let m = activeMagnet {
+                let v = CGPoint(x: m.x * t.s + t.tx, y: m.y * t.s + t.ty)
+                let arm: CGFloat = 5
+                var cross = Path()
+                cross.move(to: CGPoint(x: v.x - arm, y: v.y))
+                cross.addLine(to: CGPoint(x: v.x + arm, y: v.y))
+                cross.move(to: CGPoint(x: v.x, y: v.y - arm))
+                cross.addLine(to: CGPoint(x: v.x, y: v.y + arm))
+                ctx.stroke(cross, with: .color(.fekthorAccent), lineWidth: 1.5)
             }
         }
         .gesture(dragGesture(in: size))
@@ -245,6 +267,69 @@ struct EditorCanvasView: View {
         let subs = max(0, g.subdivisions)
         let step = subs > 0 ? g.spacing / Double(subs + 1) : g.spacing
         return Pt((p.x / step).rounded() * step, (p.y / step).rounded() * step)
+    }
+
+    // MARK: - Snap to points
+
+    /// Candidate magnets for the gesture that is starting: every NON-excluded
+    /// shape contributes its anchors plus its bounds corners and centre
+    /// (groups are walked; excluded = the shapes being dragged). Capped so a
+    /// traced document with thousands of anchors cannot stall a drag start.
+    private func collectMagnets(excluding excluded: Set<Int>) -> [Pt] {
+        guard snapToPoints else { return [] }
+        let cap = 600
+        var pts: [Pt] = []
+        func walk(_ nodes: [GraphicNode]) {
+            for node in nodes {
+                guard pts.count < cap else { return }
+                switch node {
+                case .raw: continue
+                case .group(let g): walk(g.children)
+                case .shape(let s):
+                    guard !excluded.contains(s.id) else { continue }
+                    for a in Editing2.anchors(of: s) {
+                        pts.append(a.position)
+                        if pts.count >= cap { return }
+                    }
+                    if let b = Editing2.bounds(of: s) {
+                        pts.append(Pt(b.minX, b.minY))
+                        pts.append(Pt(b.maxX, b.minY))
+                        pts.append(Pt(b.minX, b.maxY))
+                        pts.append(Pt(b.maxX, b.maxY))
+                        pts.append(Pt((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2))
+                    }
+                }
+            }
+        }
+        walk(session.document.nodes)
+        return pts
+    }
+
+    /// The nearest magnet within ~6pt on screen, or nil. ⌃ disables all
+    /// snapping (point and grid alike), matching the grid behaviour.
+    private func magnetNear(_ p: Pt, in size: CGSize) -> Pt? {
+        guard snapToPoints, !snapMagnets.isEmpty,
+            !NSEvent.modifierFlags.contains(.control)
+        else { return nil }
+        let t = transform(doc: session.document, in: size)
+        let tol = 6.0 / Double(t.s)
+        var best: (Pt, Double)? = nil
+        for m in snapMagnets {
+            let d = ((m.x - p.x) * (m.x - p.x) + (m.y - p.y) * (m.y - p.y)).squareRoot()
+            if d <= tol, best == nil || d < best!.1 { best = (m, d) }
+        }
+        return best?.0
+    }
+
+    /// Point snap first (it wins), grid snap second. Tracks `activeMagnet`
+    /// so the canvas can mark the point the drag is stuck to.
+    private func pointOrGridSnapped(_ p: Pt, in size: CGSize) -> Pt {
+        if let m = magnetNear(p, in: size) {
+            activeMagnet = m
+            return m
+        }
+        activeMagnet = nil
+        return snapped(p)
     }
 
     // MARK: - Rendering
@@ -544,7 +629,8 @@ struct EditorCanvasView: View {
             return
         }
         if session.tool != .select {
-            drawStart = snapped(docPoint(from: v.startLocation, in: size))
+            snapMagnets = collectMagnets(excluding: [])
+            drawStart = pointOrGridSnapped(docPoint(from: v.startLocation, in: size), in: size)
             return
         }
         let doc = session.document
@@ -555,7 +641,7 @@ struct EditorCanvasView: View {
                     let hv = CGPoint(
                         x: h.position.x * t.s + t.tx, y: h.position.y * t.s + t.ty)
                     if hypot(hv.x - v.startLocation.x, hv.y - v.startLocation.y) <= hitRadius {
-                        session.beginGesture()
+                        session.beginGesture(label: "Move handle")
                         draggingHandle = (h.segment, h.kind)
                         return
                     }
@@ -571,7 +657,8 @@ struct EditorCanvasView: View {
                 }
             }
             if let hit = best {
-                session.beginGesture()
+                session.beginGesture(label: "Move anchor")
+                snapMagnets = collectMagnets(excluding: session.selection)
                 draggingAnchor = (hit.0.path, hit.0.index)
                 activeAnchor = (hit.0.path, hit.0.index)
                 return
@@ -582,14 +669,14 @@ struct EditorCanvasView: View {
             let view = paddedViewRect(box, t: t)
             let knob = rotateKnobPoint(for: view)
             if hypot(knob.x - v.startLocation.x, knob.y - v.startLocation.y) <= hitRadius - 1 {
-                session.beginGesture()
+                session.beginGesture(label: "Rotate")
                 transformDrag = TransformDrag(kind: .rotate, originals: selectedOriginals(), box: box)
                 return
             }
             for h in BoxHandle.allCases {
                 let p = handlePoint(h, in: view)
                 if hypot(p.x - v.startLocation.x, p.y - v.startLocation.y) <= hitRadius - 1 {
-                    session.beginGesture()
+                    session.beginGesture(label: "Scale")
                     transformDrag = TransformDrag(
                         kind: .scale(h), originals: selectedOriginals(), box: box)
                     return
@@ -601,7 +688,8 @@ struct EditorCanvasView: View {
         guard !NSEvent.modifierFlags.contains(.command) else { return }
         let hit = hitNode(at: v.startLocation, in: size)
         if let hit, session.selection.contains(hit) {
-            session.beginGesture()
+            session.beginGesture(label: "Move")
+            snapMagnets = collectMagnets(excluding: session.selection)
             draggingBody = true
             moveOrigin = docPoint(from: v.startLocation, in: size)
             moveApplied = Pt(0, 0)
@@ -639,14 +727,25 @@ struct EditorCanvasView: View {
                 node: sel, path: active.path, segment: h.segment, kind: h.kind,
                 to: want, mirror: mirror)
         } else if let d = draggingAnchor, let sel = single {
-            session.moveAnchor(node: sel, path: d.path, anchor: d.index, to: snapped(target))
+            session.moveAnchor(
+                node: sel, path: d.path, anchor: d.index,
+                to: pointOrGridSnapped(target, in: size))
         } else if draggingBody, let origin = moveOrigin {
-            let raw = Pt(target.x - origin.x, target.y - origin.y)
+            // Point snap sticks the GRAB POINT to the magnet (the shape
+            // keeps its offset to the cursor); grid snap keeps quantising
+            // the cumulative delta as before.
             let want: Pt
-            if let step = snapStep {
-                want = Pt((raw.x / step).rounded() * step, (raw.y / step).rounded() * step)
+            if let m = magnetNear(target, in: size) {
+                activeMagnet = m
+                want = Pt(m.x - origin.x, m.y - origin.y)
             } else {
-                want = raw
+                activeMagnet = nil
+                let raw = Pt(target.x - origin.x, target.y - origin.y)
+                if let step = snapStep {
+                    want = Pt((raw.x / step).rounded() * step, (raw.y / step).rounded() * step)
+                } else {
+                    want = raw
+                }
             }
             session.translateSelection(dx: want.x - moveApplied.x, dy: want.y - moveApplied.y)
             moveApplied = want
@@ -660,7 +759,11 @@ struct EditorCanvasView: View {
     }
 
     private func endDrag(_ v: DragGesture.Value, in size: CGSize) {
-        defer { gestureBegan = false }
+        defer {
+            gestureBegan = false
+            snapMagnets = []
+            activeMagnet = nil
+        }
         if session.tool == .pen {
             endPen(v, in: size)
             return
@@ -807,7 +910,7 @@ struct EditorCanvasView: View {
 
     private func updateDraft(_ v: DragGesture.Value, in size: CGSize) {
         guard let start = drawStart else { return }
-        let cur = snapped(docPoint(from: v.location, in: size))
+        let cur = pointOrGridSnapped(docPoint(from: v.location, in: size), in: size)
         let flags = NSEvent.modifierFlags
         drawDraft = draftKind(
             from: start, to: cur, shift: flags.contains(.shift),
@@ -890,7 +993,9 @@ struct EditorCanvasView: View {
             return
         }
         penClosing = false
-        session.penAppendAnchor(at: snapped(docPoint(from: v.startLocation, in: size)))
+        snapMagnets = collectMagnets(excluding: [])
+        session.penAppendAnchor(
+            at: pointOrGridSnapped(docPoint(from: v.startLocation, in: size), in: size))
     }
 
     /// Dragging pulls the newest anchor's outgoing handle to the cursor

@@ -61,9 +61,20 @@ final class EditorSession: ObservableObject {
     /// fill is wrong for stroke icons) and follows the last style-panel edit.
     @Published var drawingStyle: Style = EditorSession.defaultDrawingStyle
 
+    /// One undo snapshot: the document as it was BEFORE the labelled
+    /// operation ran. The History palette lists these newest-first.
+    struct HistoryEntry: Identifiable {
+        let id: Int
+        let label: String
+        let document: GraphicDocument
+    }
+
     private(set) var fileURL: URL?
     private(set) var fileKind: FileKind
-    private var undoStack: [GraphicDocument] = []
+    /// The undo stack, with a short op label per snapshot (History palette).
+    /// Not @Published — every append rides a `canUndo`/`generation` publish.
+    private(set) var history: [HistoryEntry] = []
+    private var historyID = 0
     private var scoped = false
     /// Non-nil while a style-panel control is coalescing its edits into the
     /// snapshot taken at its first change (one undo step per control edit).
@@ -120,20 +131,43 @@ final class EditorSession: ObservableObject {
 
     // MARK: - Mutations (each drag/action snapshots once)
 
-    func beginGesture() {
+    /// Snapshot the current document as one undo step. `label` is the short
+    /// op name the History palette shows ("Move", "Fill colour", "Unite");
+    /// untouched call sites keep compiling via the default.
+    func beginGesture(label: String = "Edit") {
         styleEditKey = nil  // a canvas gesture ends any coalesced panel edit
-        undoStack.append(document)
-        if undoStack.count > 50 { undoStack.removeFirst() }
+        historyID += 1
+        history.append(HistoryEntry(id: historyID, label: label, document: document))
+        if history.count > 50 { history.removeFirst() }
         canUndo = true
     }
 
     func undo() {
         styleEditKey = nil
-        guard let doc = undoStack.popLast() else { return }
-        document = doc
-        canUndo = !undoStack.isEmpty
+        guard let entry = history.popLast() else { return }
+        document = entry.document
+        canUndo = !history.isEmpty
         dirty = true
         generation += 1
+    }
+
+    /// History palette: revert to an older snapshot (the state BEFORE that
+    /// entry's operation ran). The current state is pushed first as a
+    /// "Revert" entry, so clicking THAT entry afterwards brings the
+    /// reverted-away state back — redo by history. No entries are ever
+    /// discarded by a revert; the stack just grows (still capped at 50).
+    func revert(toHistoryID id: Int) {
+        guard let index = history.firstIndex(where: { $0.id == id }) else { return }
+        let entry = history[index]
+        guard entry.document != document else {
+            status = "Already at this state."
+            return
+        }
+        beginGesture(label: "Revert")
+        document = entry.document
+        dirty = true
+        generation += 1
+        status = "Reverted to before “\(entry.label)”."
     }
 
     private func mutate(_ change: (inout GraphicDocument) -> Void) {
@@ -166,7 +200,7 @@ final class EditorSession: ObservableObject {
             status = "This point cannot be removed (path is already minimal)."
             return
         }
-        beginGesture()
+        beginGesture(label: "Remove point")
         mutate { $0.replaceShape(id: id, with: removed) }
         status = "Removed point."
     }
@@ -175,7 +209,7 @@ final class EditorSession: ObservableObject {
     /// reported by `Editing2.closestPoint(of:to:)`. One undo step.
     func insertAnchor(node id: Int, path: Int, segment: Int, t: Double) {
         guard let shape = document.firstShape(id: id) else { return }
-        beginGesture()
+        beginGesture(label: "Add point")
         let inserted = Editing2.insertAnchor(shape, path: path, segment: segment, t: t)
         mutate { $0.replaceShape(id: id, with: inserted) }
         status = "Added point."
@@ -183,17 +217,25 @@ final class EditorSession: ObservableObject {
 
     // MARK: - Z-order (selection, one undo step each)
 
-    func bringForward() { reorderSelection("Brought forward.") { $0.bringForward($1) } }
-    func sendBackward() { reorderSelection("Sent backward.") { $0.sendBackward($1) } }
-    func bringToFront() { reorderSelection("Brought to front.") { $0.bringToFront($1) } }
-    func sendToBack() { reorderSelection("Sent to back.") { $0.sendToBack($1) } }
+    func bringForward() {
+        reorderSelection("Brought forward.", label: "Bring forward") { $0.bringForward($1) }
+    }
+    func sendBackward() {
+        reorderSelection("Sent backward.", label: "Send backward") { $0.sendBackward($1) }
+    }
+    func bringToFront() {
+        reorderSelection("Brought to front.", label: "Bring to front") { $0.bringToFront($1) }
+    }
+    func sendToBack() {
+        reorderSelection("Sent to back.", label: "Send to back") { $0.sendToBack($1) }
+    }
 
     private func reorderSelection(
-        _ message: String, _ op: (inout GraphicDocument, Set<Int>) -> Void
+        _ message: String, label: String, _ op: (inout GraphicDocument, Set<Int>) -> Void
     ) {
         guard !selection.isEmpty else { return }
         let ids = selection
-        beginGesture()
+        beginGesture(label: label)
         mutate { op(&$0, ids) }
         status = message
     }
@@ -206,7 +248,7 @@ final class EditorSession: ObservableObject {
         guard !selection.isEmpty else { return }
         let ids = selection
         var groupID: Int? = nil
-        beginGesture()
+        beginGesture(label: "Group")
         mutate { groupID = $0.groupNodes(ids) }
         if let groupID {
             selection = [groupID]
@@ -223,7 +265,7 @@ final class EditorSession: ObservableObject {
         guard !selection.isEmpty else { return }
         let ids = selection
         var freed: Set<Int> = []
-        beginGesture()
+        beginGesture(label: "Ungroup")
         mutate { freed = $0.ungroupNodes(ids) }
         if freed.isEmpty {
             undo()
@@ -261,14 +303,14 @@ final class EditorSession: ObservableObject {
     /// coalesce into the snapshot taken at the first change (a colour-well
     /// or slider drag is ONE undo step). The drawing style follows suit so
     /// new shapes are born with the last-used style.
-    func editSelectionStyle(_ key: String, _ apply: (inout Style) -> Void) {
+    func editSelectionStyle(_ key: String, label: String? = nil, _ apply: (inout Style) -> Void) {
         var next = drawingStyle
         apply(&next)
         drawingStyle = next
         guard !selection.isEmpty else { return }
         let fullKey = key + "|" + selection.sorted().map(String.init).joined(separator: ",")
         if styleEditKey != fullKey {
-            beginGesture()
+            beginGesture(label: label ?? Self.styleEditLabel(key))
             styleEditKey = fullKey  // after beginGesture (which clears it)
         }
         let ids = selection
@@ -284,6 +326,21 @@ final class EditorSession: ObservableObject {
     /// End the current coalesced style edit (control lost focus / slider up).
     func endStyleEdit() {
         styleEditKey = nil
+    }
+
+    /// The History label for a style-panel edit key.
+    private static func styleEditLabel(_ key: String) -> String {
+        switch key {
+        case "fill": return "Fill colour"
+        case "stroke": return "Stroke colour"
+        case "stroke-width": return "Stroke width"
+        case "opacity": return "Opacity"
+        case "dash": return "Dash pattern"
+        case "cap": return "Stroke cap"
+        case "join": return "Stroke join"
+        case "fill-rule": return "Fill rule"
+        default: return key.replacingOccurrences(of: "-", with: " ").capitalized
+        }
     }
 
     // MARK: - Corner radius (Corners palette)
@@ -311,7 +368,7 @@ final class EditorSession: ObservableObject {
         guard !ids.isEmpty else { return }
         let key = "corner-radius|" + ids.map(String.init).joined(separator: ",")
         if styleEditKey != key {
-            beginGesture()
+            beginGesture(label: "Corner radius")
             styleEditKey = key
         }
         mutate { doc in
@@ -339,7 +396,7 @@ final class EditorSession: ObservableObject {
         guard !rects.isEmpty else { return }
         let key = "corner-per|" + rects.map { String($0.id) }.joined(separator: ",")
         if styleEditKey != key {
-            beginGesture()
+            beginGesture(label: "Corner radii")
             styleEditKey = key
         }
         var converted = false
@@ -367,7 +424,7 @@ final class EditorSession: ObservableObject {
     func relinkRectRadius(rects: [CornerRect], radius: Double) {
         guard !rects.isEmpty else { return }
         styleEditKey = nil
-        beginGesture()
+        beginGesture(label: "Link corners")
         mutate { doc in
             for rect in rects {
                 guard var shape = doc.firstShape(id: rect.id) else { continue }
@@ -386,7 +443,7 @@ final class EditorSession: ObservableObject {
     /// Insert a freshly drawn primitive with the current drawing style,
     /// select it. One undo step.
     func insertShape(kind: ShapeKind) {
-        beginGesture()
+        beginGesture(label: "Draw \(tool.rawValue)")
         let node = ShapeNode(id: document.nextNodeID, kind: kind, style: drawingStyle)
         mutate { $0.nodes.append(.shape(node)) }
         selection = [node.id]
@@ -458,7 +515,7 @@ final class EditorSession: ObservableObject {
         }
         let path = Self.penPath(penAnchors, closed: closed)
         penAnchors = []
-        beginGesture()
+        beginGesture(label: "Pen path")
         let node = ShapeNode(id: document.nextNodeID, kind: .path([path]), style: drawingStyle)
         mutate { $0.nodes.append(.shape(node)) }
         selection = [node.id]
@@ -502,7 +559,7 @@ final class EditorSession: ObservableObject {
             status = "Already aligned."
             return
         }
-        beginGesture()
+        beginGesture(label: "Align")
         mutate { $0 = next }
         status = selection.count >= 2 ? "Aligned selection." : "Aligned to artboard."
     }
@@ -518,7 +575,7 @@ final class EditorSession: ObservableObject {
             status = "Already distributed."
             return
         }
-        beginGesture()
+        beginGesture(label: "Distribute")
         mutate { $0 = next }
         status = "Distributed selection."
     }
@@ -609,7 +666,14 @@ final class EditorSession: ObservableObject {
             return
         }
         let removeIDs = Set(ordered.map(\.id)).subtracting([combined.id])
-        beginGesture()
+        let opLabel: String
+        switch op {
+        case .union: opLabel = "Unite"
+        case .subtract: opLabel = "Subtract"
+        case .intersect: opLabel = "Intersect"
+        case .exclude: opLabel = "Exclude"
+        }
+        beginGesture(label: opLabel)
         mutate { doc in
             doc.replaceShape(id: combined.id, with: combined)
             func prune(_ nodes: inout [GraphicNode]) {
@@ -639,7 +703,7 @@ final class EditorSession: ObservableObject {
 
     func deleteSelection() {
         guard !selection.isEmpty else { return }
-        beginGesture()
+        beginGesture(label: "Delete")
         let ids = selection
         mutate { doc in
             func prune(_ nodes: inout [GraphicNode]) {
