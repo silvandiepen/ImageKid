@@ -36,6 +36,21 @@ The package form keeps the initial repository small, reviewable, and directly te
 - Geometry, crop-coordinate, freehand-input, and colour-coordinate mapping unit tests.
 - macOS CI build and test workflow.
 
+## Fekthor Trace (raster-to-vector companion)
+
+Fekthor Trace joined the monorepo as a separate macOS app target
+(`com.hakobs.fekthor.trace`, `apps/native-macos/Sources/FekthorTrace`) with its
+engine in `packages/FekthorKit` (SwiftPM, deterministic, 73 unit tests, its own
+`fekthor` CLI target and fixture-based eval harness). It vectorises raster
+images into editable SVG: Auto/Shapes/Strokes/Gradient modes with mode-aware
+quality scoring, Split/Overlay/Wipe comparison, Auto-tune settings search,
+opt-in variable-width stroke envelopes, node editing (anchors, Bezier handles,
+undo), and optional on-device Real-ESRGAN enhancement (explicit-action model
+download, same source as the companions). It depends on FekthorKit and
+ImageKidInference; like all apps here it never imports from another app.
+Thor remains the app's mascot/branding. The name "Fekthor" (without Trace) is
+reserved for a future vector-file editor.
+
 ## Incomplete or provisional
 
 - The live colour picker currently presents a colour swatch rather than a pixel-grid magnifier.
