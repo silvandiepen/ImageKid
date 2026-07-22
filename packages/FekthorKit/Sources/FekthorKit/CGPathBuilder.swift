@@ -92,3 +92,41 @@ public enum CGPathBuilder {
         path.closeSubpath()
     }
 }
+
+// MARK: - Model v2 geometry
+
+extension CGPathBuilder {
+    /// CGPath for an editor shape (primitives native, paths via segments).
+    public static func path(for kind: ShapeKind) -> CGPath {
+        let path = CGMutablePath()
+        switch kind {
+        case .path(let paths):
+            for rp in paths { appendRefined(rp, to: path) }
+        case .line(let a, let b):
+            path.move(to: cg(a))
+            path.addLine(to: cg(b))
+        case .polyline(let pts):
+            guard let first = pts.first else { break }
+            path.move(to: cg(first))
+            for p in pts.dropFirst() { path.addLine(to: cg(p)) }
+        case .polygon(let pts):
+            guard let first = pts.first else { break }
+            path.move(to: cg(first))
+            for p in pts.dropFirst() { path.addLine(to: cg(p)) }
+            path.closeSubpath()
+        case .rect(let x, let y, let w, let h, let rx, let ry):
+            let rect = CGRect(x: x, y: y, width: w, height: h)
+            let r = min(rx ?? ry ?? 0, min(w, h) / 2)
+            if r > 0.01 {
+                path.addRoundedRect(in: rect, cornerWidth: r, cornerHeight: min(ry ?? r, h / 2))
+            } else {
+                path.addRect(rect)
+            }
+        case .circle(let c, let r):
+            path.addEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))
+        case .ellipse(let c, let rx, let ry):
+            path.addEllipse(in: CGRect(x: c.x - rx, y: c.y - ry, width: 2 * rx, height: 2 * ry))
+        }
+        return path
+    }
+}

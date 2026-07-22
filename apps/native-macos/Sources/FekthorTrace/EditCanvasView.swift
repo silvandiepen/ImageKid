@@ -472,7 +472,7 @@ struct VectorEditLayer: View {
 /// Presents an AppKit context menu for right-clicks over the vector canvas.
 /// Never claims hit-testing (left clicks belong to editing below); right
 /// clicks are taken from the event stream via a local monitor.
-private struct RightClickCatcher: NSViewRepresentable {
+struct RightClickCatcher: NSViewRepresentable {
     /// Given the click point (top-left origin) and the view size, return the
     /// menu items to show. Empty list → no menu.
     let items: (CGPoint, CGSize) -> [(String, () -> Void)]
