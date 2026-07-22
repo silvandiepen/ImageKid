@@ -1105,6 +1105,12 @@ struct ImageWorkspaceView: View {
                 return mode
             }
 
+            // Move the already-selected item (even if occluded, e.g. a background
+            // layer selected from the panel) when the drag starts inside it.
+            if let mode = selectedItemMoveMode(at: point, imageRect: imageRect) {
+                return mode
+            }
+
             if let item = hitTopStackItem(at: point, imageRect: imageRect) {
                 session.selectionRect = nil
                 switch item {
@@ -1170,6 +1176,12 @@ struct ImageWorkspaceView: View {
             }
 
             if let mode = selectedLayerResizeMode(at: point, imageRect: imageRect) {
+                return mode
+            }
+
+            // Move the already-selected item (even if occluded, e.g. a background
+            // layer selected from the panel) when the drag starts inside it.
+            if let mode = selectedItemMoveMode(at: point, imageRect: imageRect) {
                 return mode
             }
 
@@ -1390,11 +1402,11 @@ struct ImageWorkspaceView: View {
         guard let annotation else { return }
         session.annotations.append(annotation)
         session.record("Add \(session.drawingMode.label.lowercased())", systemImage: session.drawingMode.symbolName)
-        // Select the shape just drawn so it can be adjusted immediately.
-        // Freehand keeps the brush active for continued drawing.
+        // Select the shape so its settings show, but stay in the Draw tool so the
+        // next drag draws another shape directly. Freehand keeps drawing too.
         if session.drawingMode != .freehand {
             session.selectedAnnotationID = annotation.id
-            appModel.activeTool = .select
+            session.selectedLayerID = nil
         } else {
             session.selectedAnnotationID = nil
         }
@@ -1607,6 +1619,25 @@ struct ImageWorkspaceView: View {
         let rect = GeometryMapper.viewRect(from: displayed, in: imageRect)
         let center = CGPoint(x: rect.midX, y: rect.midY)
         return rect.contains(unrotatePoint(point, around: center, degrees: layer.rotation))
+    }
+
+    private func selectedStackItem() -> StackItem? {
+        if let id = session.selectedLayerID, let l = session.imageLayers.first(where: { $0.id == id }) { return .layer(l) }
+        if let id = session.selectedAnnotationID, let a = session.annotations.first(where: { $0.id == id }) { return .annotation(a) }
+        return nil
+    }
+
+    /// If a drag starts inside the already-selected item, move that item — even if
+    /// something is on top. Lets you move an occluded/background layer selected
+    /// from the Layers panel.
+    private func selectedItemMoveMode(at point: CGPoint, imageRect: CGRect) -> DragMode? {
+        guard let sel = selectedStackItem() else { return nil }
+        switch sel {
+        case .layer(let l):
+            return layerContains(l, at: point, imageRect: imageRect) ? layerMoveModeFor(l) : nil
+        case .annotation(let a):
+            return annotationContains(a, at: point, imageRect: imageRect) ? annotationMoveMode(a) : nil
+        }
     }
 
     /// The top-most stack item (by shared z) under the point — layer or annotation.
