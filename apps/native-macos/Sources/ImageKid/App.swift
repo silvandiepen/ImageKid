@@ -669,7 +669,8 @@ final class AppModel: ObservableObject {
             frame: frame,
             strokeColor: .clear,
             fillColor: color,
-            lineWidth: 0
+            lineWidth: 0,
+            z: session.nextStackZ
         )
         session.annotations.append(fill)
         session.record("Fill selection", systemImage: "paintbrush.fill")

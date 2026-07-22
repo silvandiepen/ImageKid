@@ -470,6 +470,8 @@ struct Annotation: Identifiable {
     var textAlignment: AnnotationTextAlignment
     var customName: String?
     var isVisible: Bool
+    /// Shared stack order across image layers and annotations (higher = on top).
+    var z: Double
 
     init(
         id: UUID = UUID(),
@@ -492,7 +494,8 @@ struct Annotation: Identifiable {
         lineHeight: CGFloat = 1.1,
         textAlignment: AnnotationTextAlignment = .leading,
         customName: String? = nil,
-        isVisible: Bool = true
+        isVisible: Bool = true,
+        z: Double = 0
     ) {
         self.id = id
         self.kind = kind
@@ -515,6 +518,7 @@ struct Annotation: Identifiable {
         self.textAlignment = textAlignment
         self.customName = customName
         self.isVisible = isVisible
+        self.z = z
     }
 
     /// The dash pattern to render with: custom (dashLength/dashGap scaled by the
@@ -602,6 +606,8 @@ struct ImageLayer: Identifiable {
     /// layer image when `isMaskEnabled` is true; the original pixels are kept.
     var mask: NSImage?
     var isMaskEnabled: Bool
+    /// Shared stack order across image layers and annotations (higher = on top).
+    var z: Double
 
     init(
         id: UUID = UUID(),
@@ -614,7 +620,8 @@ struct ImageLayer: Identifiable {
         flipH: Bool = false,
         flipV: Bool = false,
         mask: NSImage? = nil,
-        isMaskEnabled: Bool = true
+        isMaskEnabled: Bool = true,
+        z: Double = 0
     ) {
         self.id = id
         self.name = name
@@ -627,6 +634,7 @@ struct ImageLayer: Identifiable {
         self.flipV = flipV
         self.mask = mask
         self.isMaskEnabled = isMaskEnabled
+        self.z = z
     }
 
     var hasMask: Bool { mask != nil }
@@ -640,6 +648,26 @@ struct ImageLayer: Identifiable {
 
 /// An organisational group over image layers. Toggling group visibility gates
 /// all members; members keep their own z-order in the flat layer stack.
+/// One entry in the unified layer stack — an image layer or a vector annotation.
+enum StackItem: Identifiable {
+    case layer(ImageLayer)
+    case annotation(Annotation)
+
+    var id: UUID {
+        switch self {
+        case .layer(let l): return l.id
+        case .annotation(let a): return a.id
+        }
+    }
+    var z: Double {
+        switch self {
+        case .layer(let l): return l.z
+        case .annotation(let a): return a.z
+        }
+    }
+    var isLayer: Bool { if case .layer = self { return true }; return false }
+}
+
 struct LayerGroup: Identifiable {
     let id: UUID
     var name: String
@@ -868,8 +896,71 @@ final class ImageSession: ObservableObject {
         baseUnlocked = snapshot.baseUnlocked
     }
 
+    // MARK: - Unified layer stack (image layers + annotations share a z order)
+
+    /// z value for a brand-new item so it lands on top of everything.
+    var nextStackZ: Double {
+        ((imageLayers.map(\.z) + annotations.map(\.z)).max() ?? 0) + 1
+    }
+
+    /// Lowest z in the stack (used to place an unlocked background at the bottom).
+    var minStackZ: Double {
+        (imageLayers.map(\.z) + annotations.map(\.z)).min() ?? 0
+    }
+
+    /// Image layers + annotations as one stack, bottom-to-top (z ascending).
+    var stackBottomToTop: [StackItem] {
+        (imageLayers.map(StackItem.layer) + annotations.map(StackItem.annotation))
+            .sorted { $0.z < $1.z }
+    }
+
+    /// Top-to-bottom (for the Layers panel).
+    var stackTopToBottom: [StackItem] { stackBottomToTop.reversed() }
+
+    /// Give every item a distinct z. Legacy sessions (all z == 0) migrate to the
+    /// old implicit order: image layers below, annotations on top.
+    func normalizeStackZ() {
+        struct Ref { let z: Double; let kind: Int; let idx: Int; let isLayer: Bool; let id: UUID }
+        var refs: [Ref] = []
+        for (i, l) in imageLayers.enumerated() { refs.append(Ref(z: l.z, kind: 0, idx: i, isLayer: true, id: l.id)) }
+        for (i, a) in annotations.enumerated() { refs.append(Ref(z: a.z, kind: 1, idx: i, isLayer: false, id: a.id)) }
+        refs.sort { lhs, rhs in
+            if lhs.z != rhs.z { return lhs.z < rhs.z }
+            if lhs.kind != rhs.kind { return lhs.kind < rhs.kind }
+            return lhs.idx < rhs.idx
+        }
+        for (newZ, ref) in refs.enumerated() {
+            if ref.isLayer {
+                if let i = imageLayers.firstIndex(where: { $0.id == ref.id }) { imageLayers[i].z = Double(newZ) }
+            } else {
+                if let i = annotations.firstIndex(where: { $0.id == ref.id }) { annotations[i].z = Double(newZ) }
+            }
+        }
+    }
+
+    /// Drag-reorder in the unified stack: move `sourceID` so it takes `targetID`'s
+    /// slot (dropping just above the target visually).
+    func reorderStack(moving sourceID: UUID, above targetID: UUID) {
+        guard sourceID != targetID else { return }
+        normalizeStackZ()
+        var order = stackTopToBottom.map(\.id) // top-to-bottom
+        guard let from = order.firstIndex(of: sourceID) else { return }
+        let moved = order.remove(at: from)
+        guard let to = order.firstIndex(of: targetID) else { return }
+        order.insert(moved, at: to)
+        // order is top-to-bottom → assign descending z.
+        let count = order.count
+        for (i, id) in order.enumerated() {
+            let newZ = Double(count - 1 - i)
+            if let li = imageLayers.firstIndex(where: { $0.id == id }) { imageLayers[li].z = newZ }
+            else if let ai = annotations.firstIndex(where: { $0.id == id }) { annotations[ai].z = newZ }
+        }
+        record("Reorder layer", systemImage: "arrow.up.arrow.down")
+    }
+
     /// Seed the timeline with the opened image as the first step.
     func seedHistory() {
+        normalizeStackZ()
         history = [HistoryEntry(name: "Open", systemImage: "photo", snapshot: currentSnapshot())]
         historyIndex = 0
     }
@@ -1097,7 +1188,8 @@ final class ImageSession: ObservableObject {
             lineHeight: src.lineHeight,
             textAlignment: src.textAlignment,
             customName: src.customName,
-            isVisible: src.isVisible
+            isVisible: src.isVisible,
+            z: nextStackZ
         )
         annotations.insert(copy, at: index + 1)
         selectedAnnotationID = copy.id
@@ -1119,7 +1211,7 @@ final class ImageSession: ObservableObject {
             ),
             opacity: src.opacity, isVisible: src.isVisible,
             rotation: src.rotation, flipH: src.flipH, flipV: src.flipV,
-            mask: src.mask, isMaskEnabled: src.isMaskEnabled
+            mask: src.mask, isMaskEnabled: src.isMaskEnabled, z: nextStackZ
         )
         imageLayers.insert(newLayer, at: index + 1)
         selectedLayerID = newLayer.id
@@ -1199,7 +1291,8 @@ final class ImageSession: ObservableObject {
         let layer = ImageLayer(
             name: name,
             image: image,
-            frame: CGRect(x: (1 - w) / 2, y: (1 - h) / 2, width: w, height: h)
+            frame: CGRect(x: (1 - w) / 2, y: (1 - h) / 2, width: w, height: h),
+            z: nextStackZ
         )
         imageLayers.append(layer)
         selectedLayerID = layer.id
@@ -1222,7 +1315,8 @@ final class ImageSession: ObservableObject {
         let layer = ImageLayer(
             name: "Background",
             image: workingSourceImage,
-            frame: CGRect(x: 0, y: 0, width: 1, height: 1)
+            frame: CGRect(x: 0, y: 0, width: 1, height: 1),
+            z: minStackZ - 1
         )
         imageLayers.insert(layer, at: 0)
         baseUnlocked = true

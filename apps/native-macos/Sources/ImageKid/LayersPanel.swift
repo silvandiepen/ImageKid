@@ -46,26 +46,13 @@ struct LayersPanel: View {
             VStack(alignment: .leading, spacing: 10) {
                 ScrollView {
                     LazyVStack(spacing: 4) {
-                        ForEach(session.layerGroups) { group in
-                            groupHeader(group)
-                            if !group.isCollapsed {
-                                ForEach(members(of: group)) { layer in
-                                    imageLayerRow(layer).padding(.leading, 18)
-                                }
-                            }
-                        }
-                        ForEach(ungroupedLayers) { layer in
-                            imageLayerRow(layer)
+                        // One unified stack, top-to-bottom — image layers and shapes
+                        // interleaved by their shared z order.
+                        ForEach(session.stackTopToBottom) { item in
+                            stackRow(item)
                                 .modifier(ReorderDrag(
-                                    id: layer.id, draggingID: $draggingID, dropTargetID: $dropTargetID,
-                                    onDrop: { src in session.reorderImageLayerVisual(moving: src, onto: layer.id) }
-                                ))
-                        }
-                        ForEach(orderedLayers) { layer in
-                            row(layer)
-                                .modifier(ReorderDrag(
-                                    id: layer.id, draggingID: $draggingID, dropTargetID: $dropTargetID,
-                                    onDrop: { src in session.reorderAnnotationVisual(moving: src, onto: layer.id) }
+                                    id: item.id, draggingID: $draggingID, dropTargetID: $dropTargetID,
+                                    onDrop: { src in session.reorderStack(moving: src, above: item.id) }
                                 ))
                         }
                         if !session.baseUnlocked {
@@ -82,6 +69,14 @@ struct LayersPanel: View {
                     .padding(.horizontal, 16)
                     .padding(.bottom, 16)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func stackRow(_ item: StackItem) -> some View {
+        switch item {
+        case .layer(let layer): imageLayerRow(layer)
+        case .annotation(let annotation): row(annotation)
         }
     }
 

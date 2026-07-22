@@ -89,6 +89,7 @@ private struct IKAnnotation: Codable {
     var textAlignment: String
     var customName: String?
     var isVisible: Bool
+    var z: Double?
 
     init(_ a: Annotation) {
         id = a.id
@@ -112,6 +113,7 @@ private struct IKAnnotation: Codable {
         textAlignment = a.textAlignment.rawValue
         customName = a.customName
         isVisible = a.isVisible
+        z = a.z
     }
 
     var annotation: Annotation {
@@ -136,7 +138,8 @@ private struct IKAnnotation: Codable {
             lineHeight: lineHeight,
             textAlignment: AnnotationTextAlignment(rawValue: textAlignment) ?? .leading,
             customName: customName,
-            isVisible: isVisible
+            isVisible: isVisible,
+            z: z ?? 0
         )
     }
 }
@@ -153,6 +156,7 @@ private struct IKLayer: Codable {
     var flipV: Bool
     var mask: String?
     var isMaskEnabled: Bool
+    var z: Double?
 
     init?(_ layer: ImageLayer) {
         guard let image = IKImageCoder.encode(layer.image) else { return nil }
@@ -167,6 +171,7 @@ private struct IKLayer: Codable {
         flipV = layer.flipV
         mask = layer.mask.flatMap { IKImageCoder.encode($0) }
         isMaskEnabled = layer.isMaskEnabled
+        z = layer.z
     }
 
     var layer: ImageLayer? {
@@ -175,7 +180,8 @@ private struct IKLayer: Codable {
             id: id, name: name, image: nsImage, frame: frame.cg,
             opacity: opacity, isVisible: isVisible, rotation: rotation,
             flipH: flipH, flipV: flipV,
-            mask: IKImageCoder.decode(mask), isMaskEnabled: isMaskEnabled
+            mask: IKImageCoder.decode(mask), isMaskEnabled: isMaskEnabled,
+            z: z ?? 0
         )
     }
 }

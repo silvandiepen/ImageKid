@@ -72,10 +72,9 @@ struct ImageWorkspaceView: View {
                         .position(x: imageRect.midX, y: imageRect.midY)
                 }
 
-                imageLayers(in: imageRect)
+                stackedContent(in: imageRect)
                 maskEditOverlay(in: imageRect)
                 gridOverlay(in: imageRect, canvas: bounds)
-                annotations(in: imageRect)
                 imageSelection(in: imageRect)
                 draftDrawing(in: imageRect)
 
@@ -617,27 +616,39 @@ struct ImageWorkspaceView: View {
         }
     }
 
+    /// The unified stack: image layers and annotations rendered in one shared
+    /// z-order (bottom to top), so shapes and image layers freely interleave.
     @ViewBuilder
-    private func imageLayers(in imageRect: CGRect) -> some View {
-        ForEach(session.imageLayers) { layer in
-            if session.isLayerEffectivelyVisible(layer), let displayedFrame = displayedAnnotationFrame(layer.frame) {
-                let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
-                // Show the full (unmasked) image while editing its mask.
-                let displayImage = session.maskEditLayerID == layer.id ? layer.image : layer.renderedImage
-                Image(nsImage: displayImage)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: rect.width, height: rect.height)
-                    .opacity(layer.opacity)
-                    .scaleEffect(x: layer.flipH ? -1 : 1, y: layer.flipV ? -1 : 1)
-                    .rotationEffect(.degrees(layer.rotation))
-                    .position(x: rect.midX, y: rect.midY)
-                    .allowsHitTesting(false)
+    private func stackedContent(in imageRect: CGRect) -> some View {
+        ForEach(session.stackBottomToTop) { item in
+            switch item {
+            case .layer(let layer):
+                imageLayerView(layer, in: imageRect)
+            case .annotation(let annotation):
+                annotationView(annotation, in: imageRect)
+            }
+        }
+    }
 
-                if session.selectedLayerID == layer.id {
-                    rotatedLayerSelectionOverlay(for: rect, rotation: layer.rotation)
-                        .allowsHitTesting(false)
-                }
+    @ViewBuilder
+    private func imageLayerView(_ layer: ImageLayer, in imageRect: CGRect) -> some View {
+        if session.isLayerEffectivelyVisible(layer), let displayedFrame = displayedAnnotationFrame(layer.frame) {
+            let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
+            // Show the full (unmasked) image while editing its mask.
+            let displayImage = session.maskEditLayerID == layer.id ? layer.image : layer.renderedImage
+            Image(nsImage: displayImage)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: rect.width, height: rect.height)
+                .opacity(layer.opacity)
+                .scaleEffect(x: layer.flipH ? -1 : 1, y: layer.flipV ? -1 : 1)
+                .rotationEffect(.degrees(layer.rotation))
+                .position(x: rect.midX, y: rect.midY)
+                .allowsHitTesting(false)
+
+            if session.selectedLayerID == layer.id {
+                rotatedLayerSelectionOverlay(for: rect, rotation: layer.rotation)
+                    .allowsHitTesting(false)
             }
         }
     }
@@ -787,23 +798,21 @@ struct ImageWorkspaceView: View {
     }
 
     @ViewBuilder
-    private func annotations(in imageRect: CGRect) -> some View {
-        ForEach(session.annotations) { annotation in
-            if annotation.isVisible, let displayedFrame = displayedAnnotationFrame(annotation.frame) {
-                let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
+    private func annotationView(_ annotation: Annotation, in imageRect: CGRect) -> some View {
+        if annotation.isVisible, let displayedFrame = displayedAnnotationFrame(annotation.frame) {
+            let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
 
-                if editingTextID != annotation.id {
-                    let m = drawableMargin(annotation)
-                    annotationContent(annotation)
-                        .frame(width: rect.width + 2 * m, height: rect.height + 2 * m)
-                        .position(x: rect.midX, y: rect.midY)
-                        .blendMode(annotation.blendMode.swiftUI)
-                        .opacity(annotation.opacity)
-                }
+            if editingTextID != annotation.id {
+                let m = drawableMargin(annotation)
+                annotationContent(annotation)
+                    .frame(width: rect.width + 2 * m, height: rect.height + 2 * m)
+                    .position(x: rect.midX, y: rect.midY)
+                    .blendMode(annotation.blendMode.swiftUI)
+                    .opacity(annotation.opacity)
+            }
 
-                if session.selectedAnnotationID == annotation.id {
-                    selectionOverlay(for: rect, annotation: annotation)
-                }
+            if session.selectedAnnotationID == annotation.id {
+                selectionOverlay(for: rect, annotation: annotation)
             }
         }
     }
@@ -1096,13 +1105,12 @@ struct ImageWorkspaceView: View {
                 return mode
             }
 
-            if let annotation = hitAnnotation(at: point, imageRect: imageRect) {
+            if let item = hitTopStackItem(at: point, imageRect: imageRect) {
                 session.selectionRect = nil
-                return annotationMoveMode(annotation)
-            }
-
-            if let mode = layerMoveMode(at: point, imageRect: imageRect) {
-                return mode
+                switch item {
+                case .annotation(let a): return annotationMoveMode(a)
+                case .layer(let l): return layerMoveModeFor(l)
+                }
             }
 
             session.selectedAnnotationID = nil
@@ -1165,12 +1173,11 @@ struct ImageWorkspaceView: View {
                 return mode
             }
 
-            if let annotation = hitAnnotation(at: point, imageRect: imageRect) {
-                return annotationMoveMode(annotation)
-            }
-
-            if let mode = layerMoveMode(at: point, imageRect: imageRect) {
-                return mode
+            if let item = hitTopStackItem(at: point, imageRect: imageRect) {
+                switch item {
+                case .annotation(let a): return annotationMoveMode(a)
+                case .layer(let l): return layerMoveModeFor(l)
+                }
             }
 
             session.selectedAnnotationID = nil
@@ -1461,7 +1468,8 @@ struct ImageWorkspaceView: View {
             dashGap: session.drawingDashGap,
             dashOffset: session.drawingDashOffset,
             blendMode: session.drawingBlendMode,
-            opacity: session.drawingOpacity
+            opacity: session.drawingOpacity,
+            z: session.nextStackZ
         )
     }
 
@@ -1482,7 +1490,8 @@ struct ImageWorkspaceView: View {
             strokeColor: library.foreground,
             lineWidth: session.drawingLineWidth,
             strokeStyle: session.drawingStrokeStyle,
-            opacity: session.drawingOpacity
+            opacity: session.drawingOpacity,
+            z: session.nextStackZ
         )
     }
 
@@ -1502,7 +1511,8 @@ struct ImageWorkspaceView: View {
                 fromDisplayNormalized: displayFrame,
                 cropRect: session.cropRect
             ),
-            strokeColor: library.foreground
+            strokeColor: library.foreground,
+            z: session.nextStackZ
         )
         session.annotations.append(annotation)
         session.selectedAnnotationID = annotation.id
@@ -1583,11 +1593,28 @@ struct ImageWorkspaceView: View {
     }
 
     private func hitLayer(at point: CGPoint, imageRect: CGRect) -> ImageLayer? {
-        session.imageLayers.reversed().first { layer in
-            guard session.isLayerEffectivelyVisible(layer), let displayed = displayedAnnotationFrame(layer.frame) else { return false }
-            let rect = GeometryMapper.viewRect(from: displayed, in: imageRect)
-            let center = CGPoint(x: rect.midX, y: rect.midY)
-            return rect.contains(unrotatePoint(point, around: center, degrees: layer.rotation))
+        session.imageLayers.reversed().first { layer in layerContains(layer, at: point, imageRect: imageRect) }
+    }
+
+    private func annotationContains(_ annotation: Annotation, at point: CGPoint, imageRect: CGRect) -> Bool {
+        guard annotation.isVisible, let displayed = displayedAnnotationFrame(annotation.frame) else { return false }
+        return GeometryMapper.viewRect(from: displayed, in: imageRect).insetBy(dx: -6, dy: -6).contains(point)
+    }
+
+    private func layerContains(_ layer: ImageLayer, at point: CGPoint, imageRect: CGRect) -> Bool {
+        guard session.isLayerEffectivelyVisible(layer), let displayed = displayedAnnotationFrame(layer.frame) else { return false }
+        let rect = GeometryMapper.viewRect(from: displayed, in: imageRect)
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        return rect.contains(unrotatePoint(point, around: center, degrees: layer.rotation))
+    }
+
+    /// The top-most stack item (by shared z) under the point — layer or annotation.
+    private func hitTopStackItem(at point: CGPoint, imageRect: CGRect) -> StackItem? {
+        session.stackTopToBottom.first { item in
+            switch item {
+            case .annotation(let a): return annotationContains(a, at: point, imageRect: imageRect)
+            case .layer(let l): return layerContains(l, at: point, imageRect: imageRect)
+            }
         }
     }
 
@@ -1639,8 +1666,12 @@ struct ImageWorkspaceView: View {
 
     private func layerMoveMode(at point: CGPoint, imageRect: CGRect) -> DragMode? {
         guard let layer = hitLayer(at: point, imageRect: imageRect) else { return nil }
+        return layerMoveModeFor(layer)
+    }
+
+    /// Start moving a specific image layer; Option-drag duplicates it.
+    private func layerMoveModeFor(_ layer: ImageLayer) -> DragMode {
         session.selectionRect = nil
-        // Option-drag duplicates the layer and drags the copy.
         if NSEvent.modifierFlags.contains(.option),
            let copyID = session.duplicateImageLayer(id: layer.id, offset: 0),
            let copy = session.imageLayers.first(where: { $0.id == copyID }) {
