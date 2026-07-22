@@ -3,6 +3,7 @@ import SwiftUI
 import ImageKidKit
 
 struct TextInspector: View {
+    @EnvironmentObject private var library: ColorLibrary
     @ObservedObject var session: ImageSession
     let annotationID: UUID
     @Binding var offset: CGSize
@@ -96,6 +97,8 @@ struct TextInspector: View {
                     ColorPicker("Text colour", selection: colorBinding, supportsOpacity: true)
                         .labelsHidden()
                 }
+
+                BaseSwatchStrip(colors: library.baseColors) { colorBinding.wrappedValue = Color(nsColor: $0) }
 
                 Rectangle()
                     .fill(.white.opacity(0.09))

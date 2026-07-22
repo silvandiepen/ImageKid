@@ -326,6 +326,15 @@ struct ImageWorkspaceView: View {
                     )
                     .transition(panelCollapse)
                 }
+                if panelDock.isExpanded(.swatches) {
+                    SwatchesPanel(
+                        offset: panelDock.positionBinding(.swatches),
+                        size: panelDock.sizeBinding(.swatches),
+                        onMinimize: { panelDock.minimize(.swatches) },
+                        onPick: { applySwatchColor($0) }
+                    )
+                    .transition(panelCollapse)
+                }
             }
             .animation(.spring(response: 0.34, dampingFraction: 0.82), value: panelDock.presented)
             .animation(.spring(response: 0.34, dampingFraction: 0.82), value: panelDock.minimized)
@@ -335,6 +344,14 @@ struct ImageWorkspaceView: View {
     /// Panels collapse toward their top-left corner (where the rail buttons sit).
     private var panelCollapse: AnyTransition {
         .scale(scale: 0.06, anchor: .topLeading).combined(with: .opacity)
+    }
+
+    /// Apply a swatch colour to the drawing default and the selected annotation.
+    private func applySwatchColor(_ color: NSColor) {
+        session.drawingStrokeColor = color
+        if let id = session.selectedAnnotationID {
+            session.updateAnnotation(id: id) { $0.strokeColor = color }
+        }
     }
 
     private var controls: some View {

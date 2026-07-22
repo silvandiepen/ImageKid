@@ -1370,6 +1370,12 @@ struct AppCommands: Commands {
             .keyboardShortcut("y", modifiers: [.command, .shift])
             .disabled(currentAppModel?.imageSession == nil)
 
+            Button((currentAppModel?.panelDock.presented.contains(.swatches) == true ? "Hide" : "Show") + " Swatches") {
+                currentAppModel?.panelDock.toggle(.swatches)
+            }
+            .keyboardShortcut("w", modifiers: [.command, .shift])
+            .disabled(currentAppModel?.imageSession == nil)
+
             Divider()
         }
 
@@ -1493,6 +1499,7 @@ struct AppWindowRoot: View {
 struct ImageKidApp: App {
     @NSApplicationDelegateAdaptor(ImageKidApplicationDelegate.self) private var applicationDelegate
     @StateObject private var settings = AppSettings()
+    @StateObject private var colorLibrary = ColorLibrary()
     private let quickActionLaunch: Result<QuickActionLaunch?, Error>
     private let quickActionModel: QuickActionModel?
 
@@ -1530,6 +1537,7 @@ struct ImageKidApp: App {
             case .success(nil):
                 AppWindowRoot()
                     .environmentObject(settings)
+                    .environmentObject(colorLibrary)
             case .failure(let error):
                 QuickActionErrorView(message: error.localizedDescription)
                     .preferredColorScheme(settings.appearanceMode.colorScheme)

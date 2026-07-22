@@ -6,6 +6,7 @@ enum DockablePanel: String, CaseIterable, Identifiable, Hashable {
     case files
     case layers
     case history
+    case swatches
 
     var id: String { rawValue }
 
@@ -28,6 +29,10 @@ enum DockablePanel: String, CaseIterable, Identifiable, Hashable {
             DockPanelSpec(id: self, title: "History", systemImage: "clock.arrow.circlepath",
                           defaultPosition: CGSize(width: 0, height: 632),
                           defaultSize: CGSize(width: Self.panelWidth, height: 240))
+        case .swatches:
+            DockPanelSpec(id: self, title: "Swatches", systemImage: "swatchpalette",
+                          defaultPosition: CGSize(width: 300, height: 0),
+                          defaultSize: CGSize(width: Self.panelWidth, height: 400))
         }
     }
 

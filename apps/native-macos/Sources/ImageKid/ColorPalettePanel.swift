@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 import ImageKidKit
 
 struct ColorPalettePanel: View {
+    @EnvironmentObject private var library: ColorLibrary
     @ObservedObject var session: ImageSession
     @Binding var offset: CGSize
     let onClose: () -> Void
@@ -150,6 +151,14 @@ struct ColorPalettePanel: View {
                             }
                         }
                 )
+        }
+        .contextMenu {
+            Menu("Add to Swatches") {
+                ForEach(library.sets) { set in
+                    Button(set.name) { library.addColor(sample.color, to: set.id) }
+                }
+            }
+            Button("Remove", role: .destructive) { session.removeSamples([sample.id]) }
         }
     }
 

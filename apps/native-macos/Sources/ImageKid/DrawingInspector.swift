@@ -3,6 +3,7 @@ import SwiftUI
 import ImageKidKit
 
 struct DrawingInspector: View {
+    @EnvironmentObject private var library: ColorLibrary
     @ObservedObject var session: ImageSession
     @Binding var offset: CGSize
     let onClose: () -> Void
@@ -34,6 +35,7 @@ struct DrawingInspector: View {
                             .foregroundStyle(.white.opacity(0.58))
                     }
                     Slider(value: lineWidthBinding, in: 1...32, step: 1)
+                    BaseSwatchStrip(colors: library.baseColors) { strokeColorBinding.wrappedValue = Color(nsColor: $0) }
                 }
 
                 if modeBinding.wrappedValue.supportsFill {
