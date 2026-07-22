@@ -43,12 +43,12 @@ enum ThumbnailRenderer {
             case .group(let g):
                 ctx.saveGState()
                 if let t = g.transform { ctx.concatenate(affine(t)) }
-                draw(g.children, in: ctx, opacity: opacity * (g.style.opacity ?? 1))
+                draw(g.children, in: ctx, opacity: opacity * (g.renderStyle.opacity ?? 1))
                 ctx.restoreGState()
             case .shape(let s):
                 ctx.saveGState()
                 if let t = s.transform { ctx.concatenate(affine(t)) }
-                let style = s.effectiveStyle
+                let style = s.renderStyle
                 let nodeOpacity = opacity * (style.opacity ?? 1)
                 let path = CGPathBuilder.path(for: s.kind)
                 if let fill = style.fill ?? defaultFill(for: s), let c = fill.renderColor {
@@ -65,6 +65,18 @@ enum ThumbnailRenderer {
                     }
                 }
                 if let stroke = style.stroke, let c = stroke.renderColor {
+                    // A zero-length round-capped line is a DOT in SVG;
+                    // CoreGraphics strokes nothing for it. Draw the cap.
+                    if case .line(let a, let b) = s.kind, a.x == b.x, a.y == b.y,
+                        case .keyword("round")? = style.value(of: "stroke-linecap")
+                    {
+                        let r = (style.strokeWidth ?? 1) / 2
+                        ctx.setFillColor(cgColor(c, alpha: nodeOpacity))
+                        ctx.fillEllipse(
+                            in: CGRect(x: a.x - r, y: a.y - r, width: 2 * r, height: 2 * r))
+                        ctx.restoreGState()
+                        continue
+                    }
                     ctx.addPath(path)
                     ctx.setStrokeColor(cgColor(c, alpha: nodeOpacity))
                     ctx.setLineWidth(CGFloat(style.strokeWidth ?? 1))
