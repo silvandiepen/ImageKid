@@ -223,6 +223,7 @@ struct ImageKidDocument: Codable {
     fileprivate var annotations: [IKAnnotation]
     fileprivate var imageLayers: [IKLayer]
     fileprivate var layerGroups: [IKGroup]
+    fileprivate var baseUnlocked: Bool?
 
     @MainActor
     init?(session: ImageSession) {
@@ -240,6 +241,7 @@ struct ImageKidDocument: Codable {
         annotations = session.annotations.map(IKAnnotation.init)
         imageLayers = session.imageLayers.compactMap(IKLayer.init)
         layerGroups = session.layerGroups.map(IKGroup.init)
+        baseUnlocked = session.baseUnlocked
     }
 
     func encoded() throws -> Data {
@@ -269,6 +271,7 @@ struct ImageKidDocument: Codable {
         session.annotations = annotations.map(\.annotation)
         session.imageLayers = imageLayers.compactMap(\.layer)
         session.layerGroups = layerGroups.map(\.group)
+        session.baseUnlocked = baseUnlocked ?? false
         session.seedHistory()
         return session
     }

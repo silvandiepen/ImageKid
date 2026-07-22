@@ -677,6 +677,9 @@ final class ImageSession: ObservableObject {
     @Published var annotations: [Annotation] = []
     @Published var imageLayers: [ImageLayer] = []
     @Published var layerGroups: [LayerGroup] = []
+    /// When true the base image has been promoted to a normal (movable/rotatable)
+    /// layer and the canvas base is transparent.
+    @Published var baseUnlocked = false
     @Published var selectedAnnotationID: UUID?
     @Published var selectedLayerID: UUID?
     @Published var selectedLayerIDs: Set<UUID> = []
@@ -800,6 +803,7 @@ final class ImageSession: ObservableObject {
         var sampledColors: [SampledColor]
         var selectedColorIDs: Set<UUID>
         var backgroundRemovedImage: NSImage?
+        var baseUnlocked: Bool
     }
 
     struct HistoryEntry: Identifiable {
@@ -832,7 +836,8 @@ final class ImageSession: ObservableObject {
             selectedLayerID: selectedLayerID,
             sampledColors: sampledColors,
             selectedColorIDs: selectedColorIDs,
-            backgroundRemovedImage: backgroundRemovedImage
+            backgroundRemovedImage: backgroundRemovedImage,
+            baseUnlocked: baseUnlocked
         )
     }
 
@@ -849,6 +854,7 @@ final class ImageSession: ObservableObject {
         sampledColors = snapshot.sampledColors
         selectedColorIDs = snapshot.selectedColorIDs
         backgroundRemovedImage = snapshot.backgroundRemovedImage
+        baseUnlocked = snapshot.baseUnlocked
     }
 
     /// Seed the timeline with the opened image as the first step.
@@ -1166,6 +1172,25 @@ final class ImageSession: ObservableObject {
         guard let index = imageLayers.firstIndex(where: { $0.id == id }) else { return }
         update(&imageLayers[index])
         isDirty = true
+    }
+
+    /// Promote the locked base image to a normal, transformable layer at the
+    /// bottom of the stack; the canvas base becomes transparent.
+    @discardableResult
+    func unlockBackground() -> UUID? {
+        guard !baseUnlocked else { return nil }
+        let layer = ImageLayer(
+            name: "Background",
+            image: workingSourceImage,
+            frame: CGRect(x: 0, y: 0, width: 1, height: 1)
+        )
+        imageLayers.insert(layer, at: 0)
+        baseUnlocked = true
+        selectedLayerID = layer.id
+        selectedLayerIDs = [layer.id]
+        selectedAnnotationID = nil
+        record("Unlock background", systemImage: "lock.open")
+        return layer.id
     }
 
     func removeImageLayer(id: UUID) {

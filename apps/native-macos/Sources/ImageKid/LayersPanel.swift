@@ -68,7 +68,9 @@ struct LayersPanel: View {
                                     onDrop: { src in session.reorderAnnotationVisual(moving: src, onto: layer.id) }
                                 ))
                         }
-                        backgroundRow
+                        if !session.baseUnlocked {
+                            backgroundRow
+                        }
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 16)
@@ -216,13 +218,22 @@ struct LayersPanel: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.6))
             }
-            Image(systemName: "lock.fill")
-                .font(.system(size: 10))
-                .foregroundStyle(.white.opacity(0.35))
+            Button {
+                session.unlockBackground()
+            } label: {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+            .buttonStyle(.plain)
+            .help("Unlock — make the background a movable layer")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contextMenu {
+            Button("Unlock Background") { session.unlockBackground() }
+        }
         .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
         .contextMenu {
             Button(session.backgroundRemovedImage != nil ? "Restore Background" : "Remove Background") {

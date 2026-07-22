@@ -187,11 +187,20 @@ final class AppModel: ObservableObject {
     }
 
     /// Create a fresh blank document of the given pixel size and background.
+    /// The canvas base is always transparent; a chosen colour becomes its own
+    /// full-canvas layer so it can be edited or removed like any other layer.
     func newDocument(width: Int, height: Int, background: NewFileBackground) {
         let size = CGSize(width: max(1, min(width, 16384)), height: max(1, min(height, 16384)))
-        let image = NSImage.blankCanvas(pixelSize: size, fill: background.fillColor)
-        let session = ImageSession(sourceURL: nil, sourceImage: image)
+        let base = NSImage.blankCanvas(pixelSize: size, fill: nil)
+        let session = ImageSession(sourceURL: nil, sourceImage: base)
+        if let fill = background.fillColor {
+            let colorImage = NSImage.blankCanvas(pixelSize: size, fill: fill)
+            session.imageLayers.append(
+                ImageLayer(name: background.label, image: colorImage, frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+            )
+        }
         session.isDirty = true
+        session.seedHistory()
         let item = WorkspaceItem(media: .image(session))
         items.append(item)
         selectedItemID = item.id

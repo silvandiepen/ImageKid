@@ -46,22 +46,24 @@ struct ImageWorkspaceView: View {
 
                 canvasBorder(in: imageRect)
 
-                Image(nsImage: workingImage)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: imageRect.width, height: imageRect.height)
-                    .clipShape(
-                        RoundedRectangle(
-                            cornerRadius: imageCornerRadius(for: imageRect),
-                            style: .continuous
+                if !session.baseUnlocked {
+                    Image(nsImage: workingImage)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: imageRect.width, height: imageRect.height)
+                        .clipShape(
+                            RoundedRectangle(
+                                cornerRadius: imageCornerRadius(for: imageRect),
+                                style: .continuous
+                            )
                         )
-                    )
-                    .scaleEffect(
-                        x: rotatePreviewActive && session.rotationFlipHorizontal ? -1 : 1,
-                        y: rotatePreviewActive && session.rotationFlipVertical ? -1 : 1
-                    )
-                    .rotationEffect(rotatePreviewActive ? .degrees(session.rotationDraft) : .zero)
-                    .position(x: imageRect.midX, y: imageRect.midY)
+                        .scaleEffect(
+                            x: rotatePreviewActive && session.rotationFlipHorizontal ? -1 : 1,
+                            y: rotatePreviewActive && session.rotationFlipVertical ? -1 : 1
+                        )
+                        .rotationEffect(rotatePreviewActive ? .degrees(session.rotationDraft) : .zero)
+                        .position(x: imageRect.midX, y: imageRect.midY)
+                }
 
                 imageLayers(in: imageRect)
                 maskEditOverlay(in: imageRect)

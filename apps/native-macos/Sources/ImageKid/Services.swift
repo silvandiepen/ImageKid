@@ -481,12 +481,14 @@ enum ImageRenderer {
         }
 
         NSGraphicsContext.current?.imageInterpolation = .high
-        NSImage(cgImage: cropped, size: targetSize).draw(
-            in: CGRect(origin: .zero, size: targetSize),
-            from: .zero,
-            operation: .sourceOver,
-            fraction: 1
-        )
+        if !session.baseUnlocked {
+            NSImage(cgImage: cropped, size: targetSize).draw(
+                in: CGRect(origin: .zero, size: targetSize),
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1
+            )
+        }
 
         drawImageLayers(session: session, targetSize: targetSize)
 
