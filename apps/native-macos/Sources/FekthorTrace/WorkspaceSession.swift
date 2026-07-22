@@ -368,6 +368,7 @@ final class WorkspaceSession: ObservableObject {
             gridSpacing: raw?.gridSpacing ?? std.gridSpacing,
             gridSubdivisions: raw?.gridSubdivisions ?? std.gridSubdivisions,
             snapToGrid: raw?.snapToGrid ?? std.snapToGrid,
+            gridOpacity: raw?.gridOpacity ?? std.gridOpacity,
             defaultStrokeColor: raw?.defaultStrokeColor ?? std.defaultStrokeColor,
             defaultStrokeWidth: raw?.defaultStrokeWidth ?? std.defaultStrokeWidth,
             defaultFill: raw?.defaultFill ?? std.defaultFill)

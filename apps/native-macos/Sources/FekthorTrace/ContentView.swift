@@ -358,7 +358,8 @@ struct ContentView: View {
             spacing: spacing,
             subdivisions: std.gridSubdivisions ?? 0,
             visible: menuState.showGrid,
-            snap: menuState.snapToGrid)
+            snap: menuState.snapToGrid,
+            opacity: std.gridOpacity ?? 1)
     }
 
     /// One Open for everything: svg/fekthor go to the editor, rasters to trace.
@@ -1347,7 +1348,7 @@ struct EditorWorkspaceView: View {
                             }
                         )
                     )
-                editorZoomControls
+                toolShelf
             }
             // The style/combine palettes float above the canvas, inside the
             // window (ImageKid's panel mechanic) — draggable, closable,
@@ -1412,13 +1413,14 @@ struct EditorWorkspaceView: View {
             if session.dirty {
                 Circle().fill(.orange).frame(width: 7, height: 7)
             }
-            toolPicker
             Spacer()
             if !session.selection.isEmpty {
                 Text("\(session.selection.count) selected")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
+            zoomCluster
+            Divider().frame(height: 16)
             Button {
                 session.undo()
             } label: {
@@ -1496,27 +1498,45 @@ struct EditorWorkspaceView: View {
         .background(ToolShortcutMonitor { session.tool = $0 })
     }
 
-    /// Select / Rect / Ellipse / Line / Pen. Illustrator's single letters
-    /// (V/A, M, L, \, P) switch tools while no text field is being edited
-    /// (see `ToolShortcutMonitor`); ⌘1–⌘5 always work; Esc and double-click
-    /// return to Select.
-    private var toolPicker: some View {
-        Picker("", selection: $session.tool) {
-            Image(systemName: "cursorarrow").tag(EditorSession.Tool.select)
-                .help("Select (V or ⌘1)")
-            Image(systemName: "square").tag(EditorSession.Tool.rect)
-                .help("Rectangle (M or ⌘2)")
-            Image(systemName: "circle").tag(EditorSession.Tool.ellipse)
-                .help("Ellipse (L or ⌘3)")
-            Image(systemName: "line.diagonal").tag(EditorSession.Tool.line)
-                .help("Line (\\ or ⌘4)")
-            Image(systemName: "pencil.tip").tag(EditorSession.Tool.pen)
-                .help("Pen (P or ⌘5)")
+    /// Select / Rect / Ellipse / Line / Pen as a floating shelf centred at
+    /// the bottom of the canvas — the same dark-glass chrome as the
+    /// floating palettes (`FloatingToolPanel`), non-draggable. Illustrator's
+    /// single letters (V/A, M, L, \, P) switch tools while no text field is
+    /// being edited (see `ToolShortcutMonitor`); ⌘1–⌘5 always work; Esc and
+    /// double-click return to Select.
+    private var toolShelf: some View {
+        HStack(spacing: 4) {
+            shelfButton(.select, "cursorarrow", "Select", "V or ⌘1")
+            shelfButton(.rect, "square", "Rectangle", "M or ⌘2")
+            shelfButton(.ellipse, "circle", "Ellipse", "L or ⌘3")
+            shelfButton(.line, "line.diagonal", "Line", "\\ or ⌘4")
+            shelfButton(.pen, "pencil.tip", "Pen", "P or ⌘5")
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 185)
+        .padding(6)
+        .background(.ultraThinMaterial, in: Capsule())
+        .background(Color.black.opacity(0.80), in: Capsule())
+        .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
+        .shadow(color: .black.opacity(0.36), radius: 18, y: 8)
+        .padding(.bottom, 16)
         .background(toolShortcuts)
+    }
+
+    private func shelfButton(
+        _ tool: EditorSession.Tool, _ symbol: String, _ name: String, _ keys: String
+    ) -> some View {
+        let active = session.tool == tool
+        return Button {
+            session.tool = tool
+        } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(.white)
+                .frame(width: 36, height: 36)
+                .background(active ? Color.fekthorAccent : .clear, in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help("\(name) (\(keys))")
     }
 
     private var toolShortcuts: some View {
@@ -1536,27 +1556,43 @@ struct EditorWorkspaceView: View {
         .opacity(0)
     }
 
-    private var editorZoomControls: some View {
+    /// The top bar's compact zoom cluster: − / percent menu (50/100/200/
+    /// Fit) / + / fit, replacing the old floating bottom pill. ⌘− and ⌘=
+    /// keep working from here.
+    private var zoomCluster: some View {
         HStack(spacing: 2) {
             Button { zoom = max(0.2, zoom / 1.25) } label: { Image(systemName: "minus") }
                 .keyboardShortcut("-", modifiers: .command)
-            Text("\(Int(zoom * 100))%").font(.callout.monospacedDigit()).frame(width: 56)
+                .help("Zoom out (⌘−)")
+            Menu {
+                Button("50%") { zoom = 0.5 }
+                Button("100%") { zoom = 1 }
+                Button("200%") { zoom = 2 }
+                Divider()
+                Button("Fit") {
+                    zoom = 1
+                    offset = .zero
+                }
+            } label: {
+                Text("\(Int(zoom * 100))%")
+                    .font(.callout.monospacedDigit())
+                    .frame(width: 48)
+            }
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Zoom level")
             Button { zoom = min(64, zoom * 1.25) } label: { Image(systemName: "plus") }
                 .keyboardShortcut("=", modifiers: .command)
-            Divider().frame(height: 16)
+                .help("Zoom in (⌘+)")
             Button {
                 zoom = 1
                 offset = .zero
             } label: {
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
             }
+            .help("Fit (100%, centred)")
         }
         .buttonStyle(.borderless)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(.quaternary))
-        .padding(.bottom, 12)
     }
 }
 

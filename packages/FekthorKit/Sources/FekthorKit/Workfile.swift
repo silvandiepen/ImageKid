@@ -100,6 +100,9 @@ public struct Workfile: Codable, Equatable, Sendable {
         public var gridSubdivisions: Int?
         /// Snap dragged anchors/shapes to the grid.
         public var snapToGrid: Bool?
+        /// Grid line strength multiplier (1 = the editor's standard look;
+        /// lower fades the grid, higher darkens it). nil = 1.
+        public var gridOpacity: Double?
         /// Defaults applied to newly drawn shapes and new icons.
         public var defaultStrokeColor: String?
         public var defaultStrokeWidth: Double?
@@ -112,7 +115,7 @@ public struct Workfile: Codable, Equatable, Sendable {
 
         public init(
             iconWidth: Double? = nil, iconHeight: Double? = nil, gridSpacing: Double? = nil,
-            gridSubdivisions: Int? = nil, snapToGrid: Bool? = nil,
+            gridSubdivisions: Int? = nil, snapToGrid: Bool? = nil, gridOpacity: Double? = nil,
             defaultStrokeColor: String? = nil, defaultStrokeWidth: Double? = nil,
             defaultFill: String? = nil, guideIcon: String? = nil, showGuide: Bool? = nil
         ) {
@@ -121,6 +124,7 @@ public struct Workfile: Codable, Equatable, Sendable {
             self.gridSpacing = gridSpacing
             self.gridSubdivisions = gridSubdivisions
             self.snapToGrid = snapToGrid
+            self.gridOpacity = gridOpacity
             self.defaultStrokeColor = defaultStrokeColor
             self.defaultStrokeWidth = defaultStrokeWidth
             self.defaultFill = defaultFill
@@ -132,8 +136,8 @@ public struct Workfile: Codable, Equatable, Sendable {
         /// user draws with (24pt artboard, stroke-first icons).
         public static let standard = WorkspaceSettings(
             iconWidth: 24, iconHeight: 24, gridSpacing: 1, gridSubdivisions: 0,
-            snapToGrid: false, defaultStrokeColor: "#010101", defaultStrokeWidth: 2,
-            defaultFill: "none")
+            snapToGrid: false, gridOpacity: 1.0, defaultStrokeColor: "#010101",
+            defaultStrokeWidth: 2, defaultFill: "none")
     }
 
     public struct FolderRef: Codable, Equatable, Sendable {

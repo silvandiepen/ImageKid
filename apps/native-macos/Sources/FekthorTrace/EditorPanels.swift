@@ -53,19 +53,63 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         }
     }
 
-    /// First-run resting offset from the canvas's top-leading corner. The
-    /// style column hugs the right of a minimum-size window; Opacity,
-    /// Corners and Combine sit one column in; Swatches, Align and History
-    /// stack down the leading edge so nothing overlaps. Styles and Layers
-    /// take the bottom row of the leading/middle columns.
-    var defaultPosition: CGSize {
+    /// The floating palettes' shared width (FloatingToolPanel `width`).
+    static let panelWidth: CGFloat = 240
+
+    /// The style column docks to the RIGHT edge, everything else to the
+    /// LEFT — each column stacked top-down with 16pt gaps using the
+    /// estimated heights below.
+    private static let rightColumn: [EditorPanel] = [
+        .fill, .stroke, .opacity, .corners, .combine,
+    ]
+    private static let leftColumn: [EditorPanel] = [
+        .layers, .swatches, .styles, .align, .history,
+    ]
+
+    /// Rough on-screen height (chrome + content), only used to stack the
+    /// default columns without overlaps — not pixel-perfect by design.
+    private var estimatedHeight: CGFloat {
         switch self {
-        // Default-visible trio: Fill above Stroke in a right-hand column,
-        // Layers anchored top-leading.
+        case .fill: return 260
+        case .stroke: return 320
+        case .opacity: return 140
+        case .corners: return 180
+        case .combine: return 150
+        case .layers: return 360
+        case .swatches: return 260
+        case .styles: return 240
+        case .align: return 200
+        case .history: return 200
+        }
+    }
+
+    /// First-run resting offset from the canvas's top-leading corner,
+    /// docked to the window edges: the style panels (Fill, Stroke, Opacity,
+    /// Corners, Combine) stack down the RIGHT edge; Layers, Swatches,
+    /// Styles, Align and History stack down the LEFT. Degenerate canvas
+    /// sizes fall back to fixed offsets so panels never dock off-screen.
+    func defaultPosition(in size: CGSize) -> CGSize {
+        guard size.width >= 600 else { return fallbackPosition }
+        if let index = Self.rightColumn.firstIndex(of: self) {
+            return CGSize(
+                width: size.width - Self.panelWidth - 16,
+                height: Self.stackedY(Self.rightColumn, upTo: index))
+        }
+        let index = Self.leftColumn.firstIndex(of: self) ?? 0
+        return CGSize(width: 16, height: Self.stackedY(Self.leftColumn, upTo: index))
+    }
+
+    /// 16pt top inset, then each preceding panel's estimated height + gap.
+    private static func stackedY(_ column: [EditorPanel], upTo index: Int) -> CGFloat {
+        column.prefix(index).reduce(16) { $0 + $1.estimatedHeight + 16 }
+    }
+
+    /// Pre-docking constants, kept as the degenerate-size fallback.
+    private var fallbackPosition: CGSize {
+        switch self {
         case .fill: return CGSize(width: 660, height: 16)
         case .stroke: return CGSize(width: 660, height: 250)
         case .layers: return CGSize(width: 16, height: 16)
-        // Opened on demand: staggered so any combination lands tidily.
         case .swatches: return CGSize(width: 16, height: 420)
         case .styles: return CGSize(width: 280, height: 16)
         case .opacity: return CGSize(width: 660, height: 560)
@@ -106,15 +150,15 @@ final class EditorPanelsState: ObservableObject {
     /// Per-panel sizes for the resizable panels (Layers).
     @Published private var sizes: [EditorPanel: CGSize]
 
-    // v2 keys: the v1 defaults shipped with every palette open in an
-    // overlapping pile; bumping the keys re-defaults everyone once into
-    // the curated layout without touching other preferences.
-    private static let visibleKey = "fekthor.panels.visible.v2"
+    // v3 keys: v1 shipped every palette open in an overlapping pile, v2
+    // scattered them over fixed offsets; v3 re-defaults everyone once into
+    // the edge-docked layout without touching other preferences.
+    private static let visibleKey = "fekthor.panels.visible.v3"
     private static func positionKey(_ panel: EditorPanel) -> String {
-        "fekthor.panel.\(panel.rawValue).position.v2"
+        "fekthor.panel.\(panel.rawValue).position.v3"
     }
     private static func sizeKey(_ panel: EditorPanel) -> String {
-        "fekthor.panel.\(panel.rawValue).size.v2"
+        "fekthor.panel.\(panel.rawValue).size.v3"
     }
 
     /// First-run set: the daily-driver palettes. Everything else is one
@@ -145,8 +189,11 @@ final class EditorPanelsState: ObservableObject {
         sizes = loadedSizes
     }
 
-    func position(_ panel: EditorPanel) -> CGSize {
-        positions[panel] ?? panel.defaultPosition
+    /// Stored offset, else the edge-docked default computed from the canvas
+    /// size — so unmoved panels re-dock when the window resizes while
+    /// dragged ones stay exactly where the user left them.
+    func position(_ panel: EditorPanel, in size: CGSize) -> CGSize {
+        positions[panel] ?? panel.defaultPosition(in: size)
     }
 
     func setPosition(_ panel: EditorPanel, to position: CGSize) {
@@ -155,9 +202,9 @@ final class EditorPanelsState: ObservableObject {
             [position.width, position.height], forKey: Self.positionKey(panel))
     }
 
-    func positionBinding(_ panel: EditorPanel) -> Binding<CGSize> {
+    func positionBinding(_ panel: EditorPanel, in size: CGSize) -> Binding<CGSize> {
         Binding(
-            get: { self.position(panel) },
+            get: { self.position(panel, in: size) },
             set: { self.setPosition(panel, to: $0) })
     }
 
@@ -208,59 +255,68 @@ struct EditorPanelsLayer: View {
     @ObservedObject private var panels = EditorPanelsState.shared
 
     private static let snapStep: CGFloat = 20
-    private static let panelWidth: CGFloat = 240
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            if panels.visible.contains(.fill) {
-                palette(.fill) { FillPanelContent(session: session) }
-            }
-            if panels.visible.contains(.stroke) {
-                palette(.stroke) { StrokePanelContent(session: session) }
-            }
-            if panels.visible.contains(.swatches) {
-                palette(.swatches) {
-                    SwatchesPanelContent(session: session, workspace: workspace)
+        // The GeometryReader only feeds the canvas size into the docked
+        // default positions — it observes layout, never the session, so the
+        // no-session-rebuild discipline above still holds.
+        GeometryReader { geo in
+            let dock = CGSize(
+                width: max(0, geo.size.width - 24),
+                height: max(0, geo.size.height - 24))
+            ZStack(alignment: .topLeading) {
+                if panels.visible.contains(.fill) {
+                    palette(.fill, in: dock) { FillPanelContent(session: session) }
                 }
-            }
-            if panels.visible.contains(.opacity) {
-                palette(.opacity) { OpacityPanelContent(session: session) }
-            }
-            if panels.visible.contains(.corners) {
-                palette(.corners) { CornersPanelContent(session: session) }
-            }
-            if panels.visible.contains(.combine) {
-                palette(.combine) { CombinePanelContent(session: session) }
-            }
-            if panels.visible.contains(.align) {
-                palette(.align) { AlignPanelContent(session: session) }
-            }
-            if panels.visible.contains(.history) {
-                palette(.history) { HistoryPanelContent(session: session) }
-            }
-            Group {
-                if panels.visible.contains(.styles) {
-                    palette(.styles) {
-                        StylesPanelContent(session: session, workspace: workspace)
+                if panels.visible.contains(.stroke) {
+                    palette(.stroke, in: dock) { StrokePanelContent(session: session) }
+                }
+                if panels.visible.contains(.swatches) {
+                    palette(.swatches, in: dock) {
+                        SwatchesPanelContent(session: session, workspace: workspace)
                     }
                 }
-                if panels.visible.contains(.layers) {
-                    resizablePalette(.layers) { LayersPanelContent(session: session) }
+                if panels.visible.contains(.opacity) {
+                    palette(.opacity, in: dock) { OpacityPanelContent(session: session) }
+                }
+                if panels.visible.contains(.corners) {
+                    palette(.corners, in: dock) { CornersPanelContent(session: session) }
+                }
+                if panels.visible.contains(.combine) {
+                    palette(.combine, in: dock) { CombinePanelContent(session: session) }
+                }
+                if panels.visible.contains(.align) {
+                    palette(.align, in: dock) { AlignPanelContent(session: session) }
+                }
+                if panels.visible.contains(.history) {
+                    palette(.history, in: dock) { HistoryPanelContent(session: session) }
+                }
+                Group {
+                    if panels.visible.contains(.styles) {
+                        palette(.styles, in: dock) {
+                            StylesPanelContent(session: session, workspace: workspace)
+                        }
+                    }
+                    if panels.visible.contains(.layers) {
+                        resizablePalette(.layers, in: dock) {
+                            LayersPanelContent(session: session)
+                        }
+                    }
                 }
             }
+            .padding(12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func palette(
-        _ panel: EditorPanel, @ViewBuilder content: () -> some View
+        _ panel: EditorPanel, in dock: CGSize, @ViewBuilder content: () -> some View
     ) -> some View {
         FloatingToolPanel(
             title: panel.title,
             systemImage: panel.systemImage,
-            width: Self.panelWidth,
-            offset: panels.positionBinding(panel),
+            width: EditorPanel.panelWidth,
+            offset: panels.positionBinding(panel, in: dock),
             onClose: { panels.visible.remove(panel) },
             snapStep: Self.snapStep,
             cornerRadius: 18
@@ -275,13 +331,13 @@ struct EditorPanelsLayer: View {
     /// A palette in FloatingToolPanel's resizable mode (Layers): the size
     /// persists next to the position, and the content fills the height.
     private func resizablePalette(
-        _ panel: EditorPanel, @ViewBuilder content: () -> some View
+        _ panel: EditorPanel, in dock: CGSize, @ViewBuilder content: () -> some View
     ) -> some View {
         FloatingToolPanel(
             title: panel.title,
             systemImage: panel.systemImage,
-            width: Self.panelWidth,
-            offset: panels.positionBinding(panel),
+            width: EditorPanel.panelWidth,
+            offset: panels.positionBinding(panel, in: dock),
             onClose: { panels.visible.remove(panel) },
             snapStep: Self.snapStep,
             resizable: true,

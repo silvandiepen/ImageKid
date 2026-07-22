@@ -16,6 +16,8 @@ struct WorkspaceSettingsSheet: View {
     @State private var spacingText = ""
     @State private var subdivisionsText = ""
     @State private var snap = false
+    /// Grid line strength multiplier; 1 = the editor's standard look.
+    @State private var gridStrength: Double = 1
     @State private var strokeHex = ""
     @State private var strokeWidthText = ""
     /// "" = unset (fallback), "none", or "color" (with `fillHex`).
@@ -46,6 +48,15 @@ struct WorkspaceSettingsSheet: View {
                     TextField(
                         "Subdivisions", text: $subdivisionsText,
                         prompt: Text("\(std.gridSubdivisions ?? 0)"))
+                    LabeledContent("Grid strength") {
+                        HStack(spacing: 8) {
+                            Slider(value: $gridStrength, in: 0.25...2.0)
+                            Text(String(format: "%.0f%%", gridStrength * 100))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                                .frame(width: 40, alignment: .trailing)
+                        }
+                    }
                     Toggle("Snap to grid  (⇧⌘')", isOn: $snap)
                 }
                 Section("Drawing defaults") {
@@ -146,6 +157,7 @@ struct WorkspaceSettingsSheet: View {
         heightText = raw?.iconHeight.map(formatted) ?? ""
         spacingText = raw?.gridSpacing.map(formatted) ?? ""
         subdivisionsText = raw?.gridSubdivisions.map(String.init) ?? ""
+        gridStrength = raw?.gridOpacity ?? std.gridOpacity ?? 1
         snap = raw?.snapToGrid ?? std.snapToGrid ?? false
         strokeHex = raw?.defaultStrokeColor ?? ""
         strokeWidthText = raw?.defaultStrokeWidth.map(formatted) ?? ""
@@ -173,6 +185,12 @@ struct WorkspaceSettingsSheet: View {
         // fallback and was never stored, so untouched files stay untouched.
         let storedSnap = session.workspaceStandards?.snapToGrid
         built.snapToGrid = (storedSnap == nil && snap == (std.snapToGrid ?? false)) ? nil : snap
+        // Same unset discipline for the slider: stay nil while it was never
+        // stored and still sits on the standard strength.
+        let storedStrength = session.workspaceStandards?.gridOpacity
+        built.gridOpacity =
+            (storedStrength == nil && abs(gridStrength - (std.gridOpacity ?? 1)) < 0.005)
+            ? nil : gridStrength
         built.defaultStrokeColor = normalizedHex(strokeHex)
         built.defaultStrokeWidth = positiveNumber(strokeWidthText)
         switch fillMode {

@@ -18,6 +18,9 @@ struct EditorGridConfig: Equatable {
     var subdivisions: Int
     var visible: Bool
     var snap: Bool
+    /// Workspace "Grid strength" multiplier on the line opacities
+    /// (1 = standard; the draw clamps so heavy values never overwhelm).
+    var opacity: Double = 1
 }
 
 struct EditorCanvasView: View {
@@ -180,27 +183,34 @@ struct EditorCanvasView: View {
 
     // MARK: - Grid
 
-    /// Light grid lines across the artboard (major every `spacing`, lighter
+    /// Grid lines across the artboard (major every `spacing`, lighter
     /// subdivision lines between), fading in with zoom and skipped entirely
-    /// while cells are under ~4pt on screen.
+    /// while cells are under ~4pt on screen. A slate blue-grey reads better
+    /// on the white artboard than pure gray; the workspace's "Grid strength"
+    /// multiplies both line opacities, clamped so cranked-up grids never
+    /// overwhelm the artwork.
     private func drawGrid(
         _ g: EditorGridConfig, in ctx: inout GraphicsContext, doc: GraphicDocument, t: T
     ) {
         let majorPx = g.spacing * Double(t.s)
         guard majorPx >= 4 else { return }
         let fade = min(1.0, (majorPx - 4) / 8)
+        let line = Color(red: 0.42, green: 0.47, blue: 0.58)
+        let strength = max(0, g.opacity)
+        let subAlpha = min(0.45, 0.12 * strength) * fade
+        let majorAlpha = min(0.45, 0.22 * strength) * fade
         let subs = max(0, g.subdivisions)
         if subs > 0 {
             let subStep = g.spacing / Double(subs + 1)
             if subStep * Double(t.s) >= 4 {
                 var p = Path()
                 addGridLines(&p, doc: doc, step: subStep, t: t, skipEvery: subs + 1)
-                ctx.stroke(p, with: .color(.gray.opacity(0.10 * fade)), lineWidth: 0.5)
+                ctx.stroke(p, with: .color(line.opacity(subAlpha)), lineWidth: 0.5)
             }
         }
         var p = Path()
         addGridLines(&p, doc: doc, step: g.spacing, t: t, skipEvery: 0)
-        ctx.stroke(p, with: .color(.gray.opacity(0.22 * fade)), lineWidth: 0.5)
+        ctx.stroke(p, with: .color(line.opacity(majorAlpha)), lineWidth: 0.5)
     }
 
     /// Vertical + horizontal lines every `step` across the viewBox. With
