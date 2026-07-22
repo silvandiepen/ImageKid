@@ -61,6 +61,7 @@ struct ImageWorkspaceView: View {
                     .position(x: imageRect.midX, y: imageRect.midY)
 
                 imageLayers(in: imageRect)
+                maskEditOverlay(in: imageRect)
                 annotations(in: imageRect)
                 imageSelection(in: imageRect)
                 draftDrawing(in: imageRect)
@@ -221,7 +222,14 @@ struct ImageWorkspaceView: View {
 
     @ViewBuilder
     private var rightToolPanels: some View {
-        if appModel.activeTool == .select, session.hasImageSelection, session.selectedAnnotationID == nil {
+        if session.isEditingMask {
+            MaskEditControls(
+                session: session,
+                offset: $panelOffset,
+                onDone: { session.endMaskEdit() }
+            )
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+        } else if appModel.activeTool == .select, session.hasImageSelection, session.selectedAnnotationID == nil {
             SelectionPanel(
                 session: session,
                 appModel: appModel,
@@ -492,7 +500,9 @@ struct ImageWorkspaceView: View {
         ForEach(session.imageLayers) { layer in
             if session.isLayerEffectivelyVisible(layer), let displayedFrame = displayedAnnotationFrame(layer.frame) {
                 let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
-                Image(nsImage: layer.renderedImage)
+                // Show the full (unmasked) image while editing its mask.
+                let displayImage = session.maskEditLayerID == layer.id ? layer.image : layer.renderedImage
+                Image(nsImage: displayImage)
                     .resizable()
                     .interpolation(.high)
                     .frame(width: rect.width, height: rect.height)
@@ -505,6 +515,28 @@ struct ImageWorkspaceView: View {
                         .allowsHitTesting(false)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func maskEditOverlay(in imageRect: CGRect) -> some View {
+        if let layer = session.maskEditLayer, let mask = layer.mask,
+           let displayedFrame = displayedAnnotationFrame(layer.frame) {
+            let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
+            Group {
+                if session.maskViewMode == .blackWhite {
+                    Image(nsImage: mask)
+                        .resizable()
+                        .frame(width: rect.width, height: rect.height)
+                } else if let overlay = MaskCompositor.hiddenOverlay(from: mask) {
+                    Image(nsImage: overlay)
+                        .resizable()
+                        .opacity(0.6)
+                        .frame(width: rect.width, height: rect.height)
+                }
+            }
+            .position(x: rect.midX, y: rect.midY)
+            .allowsHitTesting(false)
         }
     }
 
@@ -573,6 +605,19 @@ struct ImageWorkspaceView: View {
     private func endTextEditing() {
         editingTextID = nil
         inlineTextFocused = false
+    }
+
+    /// Map a view location to a normalised point (0…1, top-left) inside the
+    /// currently mask-editing layer's own image space.
+    private func maskSourcePoint(_ location: CGPoint, imageRect: CGRect) -> CGPoint? {
+        guard let layer = session.maskEditLayer,
+              let displayedFrame = displayedAnnotationFrame(layer.frame) else { return nil }
+        let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
+        guard rect.width > 0, rect.height > 0 else { return nil }
+        return CGPoint(
+            x: min(max((location.x - rect.minX) / rect.width, 0), 1),
+            y: min(max((location.y - rect.minY) / rect.height, 0), 1)
+        )
     }
 
     @ViewBuilder
@@ -739,6 +784,7 @@ struct ImageWorkspaceView: View {
     }
 
     private func resolveDragMode(at point: CGPoint, imageRect: CGRect) -> DragMode {
+        if session.isEditingMask { return .maskEdit }
         switch appModel.activeTool {
         case .view:
             return resolveViewDragMode(at: point, imageRect: imageRect)
@@ -865,6 +911,11 @@ struct ImageWorkspaceView: View {
         case .draw:
             updateDraftDrawing(value, imageRect: imageRect)
 
+        case .maskEdit:
+            if !session.maskWandMode, let point = maskSourcePoint(value.location, imageRect: imageRect) {
+                session.paintMaskDab(atNormalized: point)
+            }
+
         case .placeText:
             break
 
@@ -973,6 +1024,13 @@ struct ImageWorkspaceView: View {
                 session.selectionRect = nil
             }
             appModel.activeTool = .select
+
+        case .maskEdit:
+            if session.maskWandMode, let point = maskSourcePoint(value.location, imageRect: imageRect) {
+                session.floodHideMask(atNormalized: point)
+            } else {
+                session.recordMaskEdit()
+            }
 
         case .pan, .moveAnnotation, .resizeAnnotation, .moveLayer, .resizeLayer, .moveSelection, .resizeSelection, .crop, .resizeCanvas:
             break
@@ -1640,6 +1698,7 @@ struct ImageWorkspaceView: View {
         case resizeCanvas(handle: BoxHandle, start: CGSize, rect: CGRect)
         case selectRegion
         case refineBackground
+        case maskEdit
     }
 
     private enum AnnotationCorner {

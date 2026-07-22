@@ -65,6 +65,19 @@ public enum Tool: String, CaseIterable, Identifiable {
     }
 }
 
+enum MaskViewMode: String, CaseIterable, Identifiable {
+    case overlay
+    case blackWhite
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .overlay: "Overlay"
+        case .blackWhite: "Black & White"
+        }
+    }
+}
+
 enum BackgroundRefinementMode: String, CaseIterable, Identifiable {
     case keep
     case remove
@@ -492,6 +505,21 @@ final class ImageSession: ObservableObject {
     @Published var selectedAnnotationID: UUID?
     @Published var selectedLayerID: UUID?
     @Published var selectedLayerIDs: Set<UUID> = []
+
+    // Mask editing (for the selected image layer's mask).
+    @Published var maskEditLayerID: UUID?
+    @Published var maskViewMode: MaskViewMode = .overlay
+    @Published var maskBrushReveal = false
+    @Published var maskBrushSize: CGFloat = 48
+    @Published var maskBrushSoftness: CGFloat = 0.4
+    @Published var maskWandMode = false
+    @Published var maskWandTolerance: CGFloat = 0.15
+
+    var isEditingMask: Bool { maskEditLayerID != nil }
+    var maskEditLayer: ImageLayer? {
+        guard let id = maskEditLayerID else { return nil }
+        return imageLayers.first(where: { $0.id == id })
+    }
     @Published var selectionRect: CGRect?
     @Published var sampledColors: [SampledColor] = []
     @Published var selectedColorIDs: Set<UUID> = []
@@ -967,6 +995,52 @@ final class ImageSession: ObservableObject {
         guard let index = imageLayers.firstIndex(where: { $0.id == id }), imageLayers[index].hasMask else { return }
         imageLayers[index].mask = nil
         record("Remove mask", systemImage: "trash")
+    }
+
+    // MARK: - Mask editing
+
+    /// Enter mask-edit mode for a layer, creating an empty (fully-revealed) mask
+    /// if the layer doesn't have one yet.
+    func beginMaskEdit(layerID: UUID) {
+        guard let index = imageLayers.firstIndex(where: { $0.id == layerID }) else { return }
+        if imageLayers[index].mask == nil {
+            imageLayers[index].mask = MaskPainter.fullMask(size: imageLayers[index].image.size)
+        }
+        imageLayers[index].isMaskEnabled = true
+        selectedLayerID = layerID
+        maskEditLayerID = layerID
+    }
+
+    func endMaskEdit() { maskEditLayerID = nil }
+
+    /// Paint a soft dab into the editing layer's mask (live, unrecorded).
+    func paintMaskDab(atNormalized point: CGPoint) {
+        guard let id = maskEditLayerID,
+              let index = imageLayers.firstIndex(where: { $0.id == id }),
+              let mask = imageLayers[index].mask else { return }
+        imageLayers[index].mask = MaskPainter.paint(
+            on: mask, atNormalized: point,
+            diameter: maskBrushSize, softness: maskBrushSoftness, reveal: maskBrushReveal
+        )
+        isDirty = true
+    }
+
+    /// Flood-hide a connected region in the editing layer's mask (magic wand).
+    func floodHideMask(atNormalized point: CGPoint) {
+        guard let id = maskEditLayerID,
+              let index = imageLayers.firstIndex(where: { $0.id == id }),
+              let mask = imageLayers[index].mask else { return }
+        if let updated = MaskPainter.floodHide(
+            mask: mask, layerImage: imageLayers[index].image,
+            atNormalized: point, tolerance: maskWandTolerance
+        ) {
+            imageLayers[index].mask = updated
+            record("Erase region", systemImage: "wand.and.stars")
+        }
+    }
+
+    func recordMaskEdit() {
+        record("Edit mask", systemImage: "paintbrush.pointed")
     }
 
     func moveImageLayer(id: UUID, forward: Bool) {

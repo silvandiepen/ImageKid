@@ -99,13 +99,28 @@ struct LayersPanel: View {
 
     private func imageLayerRow(_ layer: ImageLayer) -> some View {
         let isSelected = session.selectedLayerID == layer.id || session.selectedLayerIDs.contains(layer.id)
-        return HStack(spacing: 10) {
+        let editingMask = session.maskEditLayerID == layer.id
+        return HStack(spacing: 8) {
             Image(nsImage: layer.image)
                 .resizable()
                 .scaledToFill()
                 .frame(width: 24, height: 24)
                 .clipShape(RoundedRectangle(cornerRadius: 5))
                 .opacity(layer.isVisible ? 1 : 0.35)
+            if let mask = layer.mask {
+                Image(nsImage: mask)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 24, height: 24)
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5)
+                            .strokeBorder(editingMask ? Color.accentColor : .white.opacity(0.25), lineWidth: editingMask ? 2 : 1)
+                    )
+                    .opacity(layer.isMaskEnabled ? 1 : 0.4)
+                    .onTapGesture { session.beginMaskEdit(layerID: layer.id) }
+                    .help("Click to edit mask")
+            }
             nameLabel(id: layer.id, text: layer.name, isSelected: isSelected) {
                 session.renameImageLayer(id: layer.id, to: $0)
             }
@@ -153,6 +168,10 @@ struct LayersPanel: View {
                 appModel.removeBackgroundFromSelectedLayer()
             }
             .disabled(appModel.isRemovingBackground)
+            Divider()
+            Button(layer.hasMask ? "Edit Mask" : "Add Mask") {
+                session.beginMaskEdit(layerID: layer.id)
+            }
             if layer.hasMask {
                 Button(layer.isMaskEnabled ? "Disable Mask" : "Enable Mask") {
                     session.toggleLayerMask(id: layer.id)
