@@ -24,9 +24,20 @@ public enum Comparer {
             rendered.data.withUnsafeBufferPointer { b in
                 for i in 0..<n {
                     let o = i * 4
+                    // Compare both sides composited over the render background
+                    // (white): a transparent source's RGB is undefined where
+                    // alpha is 0, so raw channel diffs there are noise that
+                    // swamped the metric (2dB PSNR for a perfect trace of a
+                    // transparent logo). Fully opaque pixels are untouched.
+                    let aa = Int(a[o + 3])
+                    let ba = Int(b[o + 3])
                     var maxd = 0
                     for c in 0..<3 {
-                        let d = abs(Int(a[o + c]) - Int(b[o + c]))
+                        var av = Int(a[o + c])
+                        var bv = Int(b[o + c])
+                        if aa < 255 { av = (av * aa + 255 * (255 - aa) + 127) / 255 }
+                        if ba < 255 { bv = (bv * ba + 255 * (255 - ba) + 127) / 255 }
+                        let d = abs(av - bv)
                         sumAbs += d
                         sumSq += d * d
                         if d > maxd { maxd = d }

@@ -297,10 +297,15 @@ public enum ShapesMode {
         for face in faces {
             if transparentOutputLabels.contains(face.label) { continue }
             let color = face.label < finalColors.count ? finalColors[face.label] : (0, 0, 0)
+            // Transparent sources get a slightly looser primitive tolerance
+            // (alpha edges staircase harder than AA-blended opaque edges), but
+            // nowhere near the old 8x, which let a 120px square "fit" a circle
+            // (~16px tolerance at default epsilon) — every shape in a
+            // transparent PNG snapped to circles.
             guard let geometry = ShapeGeometryBuilder.build(
                 face: face, tolerance: config.epsilon, straighten: config.straighten,
                 detectPrimitives: true,
-                primitiveTolerance: config.epsilon * (transparentLabel == nil ? 1.6 : 8.0))
+                primitiveTolerance: config.epsilon * (transparentLabel == nil ? 1.6 : 2.5))
             else { continue }
             doc.elements.append(
                 .fill(FillShape(id: "fill-\(nextID)", color: color, geometry: geometry)))

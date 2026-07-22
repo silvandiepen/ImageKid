@@ -107,6 +107,34 @@ public enum PathRefine {
     static func refineClosed(_ pts: [Pt], _ opt: RefineOptions) -> RefinedPath {
         let corners = detectCorners(pts, closed: true, opt)
         if corners.isEmpty {
+            // A corner-free loop that IS a circle becomes two exact half arcs.
+            // The periodic cubic seam fit below can pass its point tolerance yet
+            // sag a few pixels on a large circle (two ~180° cubics), which reads
+            // as a lumpy ring; the arc form is exact at any radius and lets
+            // whole-shape primitive detection see a true circle downstream. Both
+            // faces sharing this loop get the same snapped circle (cached), so
+            // the gap invariant holds.
+            if pts.count >= 8, let fit = kasaCircle(pts), fit.r >= 2 {
+                let c = Pt(fit.cx, fit.cy)
+                var maxDev = 0.0
+                for p in pts { maxDev = max(maxDev, abs(dist(p, c) - fit.r)) }
+                if maxDev <= max(1.2, min(opt.tolerance, 2.5)) {
+                    let a0 = atan2(pts[0].y - c.y, pts[0].x - c.x)
+                    // Preserve the loop's traversal direction (region-on-left).
+                    let q = pts[pts.count / 4]
+                    var inc = atan2(q.y - c.y, q.x - c.x) - a0
+                    while inc < 0 { inc += 2 * .pi }
+                    while inc >= 2 * .pi { inc -= 2 * .pi }
+                    let cw = inc < .pi
+                    let a1 = cw ? a0 + .pi : a0 - .pi
+                    return RefinedPath(
+                        start: Pt(c.x + fit.r * cos(a0), c.y + fit.r * sin(a0)),
+                        segments: [
+                            .arc(center: c, radius: fit.r, startAngle: a0, endAngle: a1, clockwise: cw),
+                            .arc(center: c, radius: fit.r, startAngle: a1, endAngle: a0, clockwise: cw),
+                        ], closed: true)
+                }
+            }
             // Seam the loop at index 0 (already canonicalised upstream) and fit
             // the whole loop as one span; a true circle is caught by primitive
             // detection first, so what reaches here is a smooth non-circular loop.
@@ -271,62 +299,133 @@ public enum PathRefine {
 
     // MARK: - Corner detection
 
-    /// Indices of corner anchors: points where the local turn (between the mean
-    /// directions of the previous and next `k` samples) exceeds `cornerAngle`
-    /// and is a local maximum. Corners are kept ≥ k apart to avoid clusters.
+    /// Indices of corner anchors: points where the local turn (between the chord
+    /// directions over ~6px of arc length before and after) exceeds `cornerAngle`
+    /// and is a local maximum. Corners are kept ≥ a window apart (in arc length)
+    /// to avoid clusters.
+    ///
+    /// The window is ARC LENGTH, not an index count: Douglas-Peucker leaves a
+    /// straight run as one long segment, so an index window mixes points hundreds
+    /// of pixels apart and a 90° corner between two long edges measures as a
+    /// gentle bend — squares and quarter-disc edges lost their corners and were
+    /// fitted as smooth bulging curves. A fixed ~6px window measures true corner
+    /// sharpness at any point density, and on dense pixel data the 6px chord
+    /// still averages away half-pixel staircase jitter.
     static func detectCorners(_ pts: [Pt], closed: Bool, _ opt: RefineOptions) -> [Int] {
         let n = pts.count
-        // Estimate direction over a fixed ~6px arc-length window, so the turn
-        // measures true corner sharpness independent of point spacing. On sparse
-        // (post-DP) points k→1 (a gentle curve's per-vertex turn stays small); on
-        // dense points k grows to see through pixel jitter. This is what keeps
-        // organic curves from fragmenting into false corners.
-        let avgSpacing = max(0.5, polylineLength(pts) / Double(max(1, n - 1)))
-        let k = min(8, max(1, Int((6.0 / avgSpacing).rounded())))
-        if n < 2 * k + 1 { return [] }
+        guard n >= 3 else { return [] }
+        var s = [Double](repeating: 0, count: n)
+        for i in 1..<n { s[i] = s[i - 1] + dist(pts[i], pts[i - 1]) }
+        let total = s[n - 1] + (closed ? dist(pts[n - 1], pts[0]) : 0)
+        let win = min(6.0, total / 6)
+        if win < 1.0 { return [] }
         let cornerRad = opt.cornerAngle * .pi / 180
-        // Measure turn on lightly-smoothed positions so sub-pixel staircase jitter
-        // does not read as a corner; real corners survive a small window.
-        let sm = smoothPositions(pts, closed: closed, window: min(2, max(1, k - 1)))
-        var turn = [Double](repeating: 0, count: n)
-        let lo = closed ? 0 : k
-        let hi = closed ? n : n - k
-        for i in lo..<hi {
-            let iPrev = closed ? ((i - k + n) % n) : i - k
-            let iNext = closed ? ((i + k) % n) : i + k
-            let v1 = Pt(sm[i].x - sm[iPrev].x, sm[i].y - sm[iPrev].y)
-            let v2 = Pt(sm[iNext].x - sm[i].x, sm[iNext].y - sm[i].y)
-            turn[i] = abs(angleBetween(v1, v2))
+
+        // Chord direction over ≥`w` of arc length before / after `i`. On an open
+        // chain that runs out of length the truncated chord to the endpoint is
+        // used (`full == false`) as long as ≥1px supports it: a corner sitting a
+        // pixel inside a chain end (a bar's end corner next to a junction) is
+        // real, but a truncated direction is jitter-prone on dense pixel data,
+        // so truncated measurements only admit STRONG corners (see below).
+        func backDir(_ i: Int, _ w: Double) -> (v: Pt, full: Bool) {
+            var j = i
+            var cum = 0.0
+            var steps = 0
+            while cum < w, steps < n - 1 {
+                if j == 0 {
+                    guard closed else {
+                        if cum < 1.0 { return (Pt(0, 0), false) }
+                        return (Pt(pts[i].x - pts[0].x, pts[i].y - pts[0].y), false)
+                    }
+                    j = n - 1
+                    cum += dist(pts[0], pts[n - 1])
+                } else {
+                    j -= 1
+                    cum += dist(pts[j + 1], pts[j])
+                }
+                steps += 1
+            }
+            return (Pt(pts[i].x - pts[j].x, pts[i].y - pts[j].y), true)
         }
+        func fwdDir(_ i: Int, _ w: Double) -> (v: Pt, full: Bool) {
+            var j = i
+            var cum = 0.0
+            var steps = 0
+            while cum < w, steps < n - 1 {
+                if j == n - 1 {
+                    guard closed else {
+                        if cum < 1.0 { return (Pt(0, 0), false) }
+                        return (Pt(pts[n - 1].x - pts[i].x, pts[n - 1].y - pts[i].y), false)
+                    }
+                    j = 0
+                    cum += dist(pts[0], pts[n - 1])
+                } else {
+                    j += 1
+                    cum += dist(pts[j - 1], pts[j])
+                }
+                steps += 1
+            }
+            return (Pt(pts[j].x - pts[i].x, pts[j].y - pts[i].y), true)
+        }
+        func turnAt(_ i: Int, _ w: Double) -> (turn: Double, full: Bool) {
+            let v1 = backDir(i, w)
+            let v2 = fwdDir(i, w)
+            if (v1.v.x == 0 && v1.v.y == 0) || (v2.v.x == 0 && v2.v.y == 0) {
+                return (0, false)
+            }
+            return (abs(angleBetween(v1.v, v2.v)), v1.full && v2.full)
+        }
+
+        var turn = [Double](repeating: 0, count: n)
+        var fullWin = [Bool](repeating: false, count: n)
+        let lo = closed ? 0 : 1
+        let hi = closed ? n : n - 1
+        for i in lo..<hi { (turn[i], fullWin[i]) = turnAt(i, win) }
+
         var corners: [Int] = []
-        // Sharpness confirmation: a real corner concentrates its turn in a few
-        // samples; a tight-but-smooth curl (a nose tip, an ear attachment)
-        // spreads the same total turn across the window. Require the turn over a
-        // short ±ks window to carry a substantial share of the wide-window turn,
+        var lastS = -Double.greatestFiniteMagnitude
+        // Sharpness confirmation window: a real corner concentrates its turn in a
+        // short span; a tight-but-smooth curl (a nose tip, an ear attachment)
+        // spreads the same total turn across the window. Require the turn over
+        // the short window to carry a substantial share of the wide-window turn,
         // otherwise it is a smooth curve — fit it, don't anchor it.
-        let ks = max(1, k / 3)
-        func shortTurn(_ i: Int) -> Double {
-            let iPrev = closed ? ((i - ks + n) % n) : max(0, i - ks)
-            let iNext = closed ? ((i + ks) % n) : min(n - 1, i + ks)
-            let v1 = Pt(sm[i].x - sm[iPrev].x, sm[i].y - sm[iPrev].y)
-            let v2 = Pt(sm[iNext].x - sm[i].x, sm[iNext].y - sm[i].y)
-            return abs(angleBetween(v1, v2))
+        let ws = max(1.5, win / 3)
+        // Arc distance from vertex a to the following vertex b (wrapping).
+        func gapAfter(_ a: Int, _ b: Int) -> Double {
+            b >= a ? s[b] - s[a] : total - s[a] + s[b]
         }
         for i in lo..<hi where turn[i] > cornerRad {
             let p = closed ? ((i - 1 + n) % n) : i - 1
             let q = closed ? ((i + 1) % n) : i + 1
-            // Local maximum with a deterministic tie-break (strictly greater than
-            // the successor, ≥ the predecessor).
-            if turn[i] >= turn[p] && turn[i] > turn[q] {
+            // Local maximum, accepting plateaus (≥ on both sides): a perfectly
+            // symmetric shape — a square's four exactly-equal 90° turns — has NO
+            // strict local maximum, and a strict test drops every corner, letting
+            // the whole loop be fitted as one smooth periodic curve (squares
+            // became bulging blobs). The min-separation filter below dedupes
+            // adjacent plateau points, keeping dense data from over-anchoring.
+            // A neighbour only competes when it is within the window ARC-wise: on
+            // a sparse polyline the two junctions of one long straight segment
+            // are index-adjacent, and the sharper end must not suppress a true
+            // corner tens of pixels away (a quarter-ring's inner junctions).
+            let prevCompetes = gapAfter(p, i) < win
+            let nextCompetes = gapAfter(i, q) < win
+            if (!prevCompetes || turn[i] >= turn[p]) && (!nextCompetes || turn[i] >= turn[q]) {
                 // A strong turn is a corner regardless of how it is distributed —
                 // otherwise a fitted curve shortcuts across the dogleg (e.g. a
                 // stripe welded through an occluding outline cutting straight
                 // through the object). Only moderate turns need the sharpness
                 // confirmation that keeps smooth curls (noses) un-anchored.
                 let strongTurn = turn[i] > cornerRad * 1.7
-                if !strongTurn, ks < k, shortTurn(i) < turn[i] * 0.45 { continue }
-                if let last = corners.last, i - last < k { continue }
+                // Truncated-window turns (near an open chain end) are only
+                // trusted when unambiguous: ±half-pixel jitter across a ~1px
+                // truncated chord plus the far window's own noise can fake up
+                // to ~55°, never a right angle (a bar's end corner one pixel
+                // inside a junction — the case this rescues).
+                if !fullWin[i], turn[i] <= 65.0 * .pi / 180 { continue }
+                if !strongTurn, turnAt(i, ws).turn < turn[i] * 0.45 { continue }
+                if s[i] - lastS < win { continue }
                 corners.append(i)
+                lastS = s[i]
             }
         }
         return corners
@@ -373,6 +472,28 @@ public enum PathRefine {
         return [p0, c1, c2, p3]
     }
 
+    /// Max distance from samples along the bezier to the input polyline. The
+    /// Schneider error (`computeMaxError`) only measures AT the data points; on a
+    /// sparse span (Douglas-Peucker leaves no interior points on straight runs) a
+    /// cubic can pass through every point yet bulge tens of pixels BETWEEN them
+    /// (the "C714.5 240" blob on a 480px canvas). Sampling the curve against the
+    /// polyline closes that hole; on dense spans the gaps are ~a pixel, so a fit
+    /// that passes the point test passes this one too (no behaviour change).
+    static func bezierPolylineDeviation(_ bez: [Pt], _ pts: [Pt]) -> Double {
+        let samples = 16
+        var maxDev = 0.0
+        for s in 1..<samples {
+            let p = bezierAt(bez, Double(s) / Double(samples))
+            var best = Double.greatestFiniteMagnitude
+            for j in 0..<(pts.count - 1) {
+                best = min(best, segDist(p, pts[j], pts[j + 1]))
+                if best < 1e-9 { break }
+            }
+            maxDev = max(maxDev, best)
+        }
+        return maxDev
+    }
+
     static func fitCubic(
         _ pts: [Pt], _ leftT: Pt, _ rightT: Pt, _ tol: Double, depth: Int, into out: inout [[Pt]]
     ) {
@@ -385,10 +506,14 @@ public enum PathRefine {
             ])
             return
         }
+        // The between-points allowance is tol + the upstream DP denoise budget:
+        // the polyline itself sits within ~0.6px of the true boundary, so a
+        // faithful curve may legitimately bow that much past a sparse chord.
+        let trackTol = tol + 1.0
         var u = chordLengthParameterize(pts)
         var bezier = generateBezier(pts, u, leftT, rightT)
         var (maxError, splitPoint) = computeMaxError(pts, bezier, u)
-        if maxError < tol {
+        if maxError < tol, bezierPolylineDeviation(bezier, pts) <= trackTol {
             out.append(bezier)
             return
         }
@@ -399,14 +524,27 @@ public enum PathRefine {
                 u = reparameterize(pts, bezier, u)
                 bezier = generateBezier(pts, u, leftT, rightT)
                 (maxError, splitPoint) = computeMaxError(pts, bezier, u)
-                if maxError < tol {
+                if maxError < tol, bezierPolylineDeviation(bezier, pts) <= trackTol {
                     out.append(bezier)
                     return
                 }
             }
         }
         if depth >= 24 || splitPoint <= 0 || splitPoint >= n - 1 {
-            out.append(bezier)  // stop recursing; accept the best fit
+            // Stop recursing. Accept the best fit only if it actually tracks the
+            // polyline; a bulging degenerate fit is replaced by the faithful
+            // polyline itself (more nodes, never wrong geometry).
+            if bezierPolylineDeviation(bezier, pts) <= trackTol {
+                out.append(bezier)
+            } else {
+                for i in 1..<n {
+                    let a = pts[i - 1]
+                    let b = pts[i]
+                    let c1 = Pt(a.x + (b.x - a.x) / 3, a.y + (b.y - a.y) / 3)
+                    let c2 = Pt(a.x + 2 * (b.x - a.x) / 3, a.y + 2 * (b.y - a.y) / 3)
+                    out.append([a, c1, c2, b])
+                }
+            }
             return
         }
         let centerT = normalize(
@@ -582,30 +720,6 @@ public enum PathRefine {
     }
 
     // MARK: - Math helpers
-
-    /// Moving-average positions for corner measurement only (never for fitting).
-    static func smoothPositions(_ pts: [Pt], closed: Bool, window: Int) -> [Pt] {
-        let n = pts.count
-        if window < 1 || n < 3 { return pts }
-        var out = pts
-        for i in 0..<n {
-            var sx = 0.0, sy = 0.0, c = 0
-            for d in -window...window {
-                let j: Int
-                if closed {
-                    j = ((i + d) % n + n) % n
-                } else {
-                    j = i + d
-                    if j < 0 || j >= n { continue }
-                }
-                sx += pts[j].x
-                sy += pts[j].y
-                c += 1
-            }
-            out[i] = Pt(sx / Double(c), sy / Double(c))
-        }
-        return out
-    }
 
     static func dedupe(_ pts: [Pt]) -> [Pt] {
         guard let first = pts.first else { return [] }

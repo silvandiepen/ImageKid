@@ -114,6 +114,72 @@ final class ShapesPlan04Tests: XCTestCase {
         XCTAssertLessThanOrEqual(result.document.nodeCount, 8, "diamond should keep four sharp corners")
     }
 
+    /// Regression for the transparent-PNG tracing bug: a square on a transparent
+    /// background must stay a square (4 sharp corners), and an annulus must stay
+    /// two concentric rings — not snap to circles or bulging blobs. The old
+    /// pipeline lost every corner of symmetric shapes (no strict local-max turn
+    /// exists when all four turns tie) and then circle-fit the rounded result.
+    func testTransparentSquareAndAnnulusKeepTheirGeometry() throws {
+        let w = 260
+        let h = 260
+        var data = [UInt8](repeating: 0, count: w * h * 4)
+        let mauve: RGB = (178, 128, 178)
+        let purple: RGB = (124, 102, 204)
+        func put(_ x: Int, _ y: Int, _ c: RGB) {
+            let o = (y * w + x) * 4
+            data[o] = c.r
+            data[o + 1] = c.g
+            data[o + 2] = c.b
+            data[o + 3] = 255
+        }
+        for y in 20..<120 {
+            for x in 20..<120 { put(x, y, mauve) }
+        }
+        for y in 0..<h {
+            for x in 0..<w {
+                let dx = Double(x) + 0.5 - 180
+                let dy = Double(y) + 0.5 - 180
+                let d2 = dx * dx + dy * dy
+                if d2 <= 60 * 60 && d2 >= 25 * 25 { put(x, y, purple) }
+            }
+        }
+        let img = RasterImage(width: w, height: h, data: data)
+        let result = try Fekthor.convert(
+            img, mode: .shapes,
+            options: Fekthor.Options(
+                colors: 8, epsilon: 1.0, simplicity: 0.3, smoothing: 1.0,
+                straighten: 0.5, autoColorMinFraction: 0.004))
+        XCTAssertEqual(result.detail["backgroundTransparent"], 1)
+        XCTAssertEqual(result.document.fillCount, 2)
+        for element in result.document.elements {
+            guard case .fill(let fill) = element else { continue }
+            let outer = fill.rings.max { abs(Geometry.area($0)) < abs(Geometry.area($1)) } ?? []
+            let bb = PrimitiveDetect.bbox(outer)
+            for ring in fill.rings {
+                for p in ring {
+                    XCTAssertTrue(
+                        p.x >= -1 && p.x <= Double(w) + 1 && p.y >= -1 && p.y <= Double(h) + 1,
+                        "boundary point escapes the canvas: \(p)")
+                }
+            }
+            if bb.maxx <= 130 {
+                // The square: area must match side², not a circumscribed circle
+                // (a circle fit to a square carries ~1.5× its area).
+                let area = abs(Geometry.area(outer))
+                XCTAssertEqual(area, 100.0 * 100.0, accuracy: 100.0 * 100.0 * 0.05)
+                XCTAssertLessThanOrEqual(fill.nodeCount, 6, "square should be 4 corners")
+            } else {
+                // The annulus: two rings whose areas match the true radii.
+                XCTAssertEqual(fill.rings.count, 2)
+                let inner = fill.rings.min { abs(Geometry.area($0)) < abs(Geometry.area($1)) } ?? []
+                XCTAssertEqual(
+                    abs(Geometry.area(outer)), .pi * 60 * 60, accuracy: .pi * 60 * 60 * 0.05)
+                XCTAssertEqual(
+                    abs(Geometry.area(inner)), .pi * 25 * 25, accuracy: .pi * 25 * 25 * 0.08)
+            }
+        }
+    }
+
     private static func harden(_ img: RasterImage, colors: [RGB]) -> RasterImage {
         var data = img.data
         for i in 0..<(img.width * img.height) {
