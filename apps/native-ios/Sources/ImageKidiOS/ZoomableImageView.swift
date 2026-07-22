@@ -34,7 +34,15 @@ struct ZoomableImageView: View {
             controlButton("minus") { controller.zoomOut() }
                 .disabled(!controller.canZoomOut)
 
-            Button { controller.fit() } label: {
+            Menu {
+                Button("Fit") { controller.fit() }
+                Button("25%") { controller.zoom(toRelative: 0.25) }
+                Button("50%") { controller.zoom(toRelative: 0.5) }
+                Button("100%") { controller.zoom(toRelative: 1) }
+                Button("200%") { controller.zoom(toRelative: 2) }
+                Button("400%") { controller.zoom(toRelative: 4) }
+                Button("800%") { controller.zoom(toRelative: 8) }
+            } label: {
                 Text(controller.label)
                     .font(.footnote.weight(.semibold))
                     .monospacedDigit()
@@ -69,9 +77,13 @@ struct ZoomableImageView: View {
 final class ZoomController: ObservableObject {
     /// Zoom relative to contain/fit (1 = fit).
     @Published var relativeZoom: CGFloat = 1
+    /// The scale at which the image fits the viewport (the "Fit" reference).
+    var fitScale: CGFloat = 1
     weak var scrollView: UIScrollView?
 
-    var label: String { relativeZoom <= 1.01 ? "Fit" : "\(Int((relativeZoom * 100).rounded()))%" }
+    var label: String {
+        (relativeZoom > 0.99 && relativeZoom < 1.01) ? "Fit" : "\(Int((relativeZoom * 100).rounded()))%"
+    }
 
     var canZoomIn: Bool {
         guard let scrollView else { return false }
@@ -86,9 +98,13 @@ final class ZoomController: ObservableObject {
     func zoomIn() { multiplyZoom(by: 1.5) }
     func zoomOut() { multiplyZoom(by: 1 / 1.5) }
 
-    func fit() {
-        guard let scrollView else { return }
-        scrollView.setZoomScale(scrollView.minimumZoomScale, animated: true)
+    func fit() { zoom(toRelative: 1) }
+
+    /// Zoom to a fraction of the fit size (1 = fit, 2 = 200%, 0.5 = 50%).
+    func zoom(toRelative relative: CGFloat) {
+        guard let scrollView, fitScale > 0 else { return }
+        let target = min(max(fitScale * relative, scrollView.minimumZoomScale), scrollView.maximumZoomScale)
+        scrollView.setZoomScale(target, animated: true)
     }
 
     private func multiplyZoom(by factor: CGFloat) {
@@ -168,8 +184,11 @@ private struct ZoomableScrollView: UIViewRepresentable {
             let fit = min(scrollView.bounds.width / size.width, scrollView.bounds.height / size.height)
             let boundsChanged = lastBounds != scrollView.bounds.size
 
-            scrollView.minimumZoomScale = fit
+            // Allow zooming OUT below fit (down to 25% of fit) so the image can
+            // be made smaller with margin, and in up to 8× fit.
+            scrollView.minimumZoomScale = fit * 0.25
             scrollView.maximumZoomScale = fit * 8
+            controller?.fitScale = fit
 
             if needsFit || boundsChanged {
                 scrollView.zoomScale = fit
@@ -205,8 +224,9 @@ private struct ZoomableScrollView: UIViewRepresentable {
         }
 
         private func publishZoom(_ scrollView: UIScrollView) {
-            guard scrollView.minimumZoomScale > 0 else { return }
-            let relative = scrollView.zoomScale / scrollView.minimumZoomScale
+            let fit = controller?.fitScale ?? scrollView.minimumZoomScale
+            guard fit > 0 else { return }
+            let relative = scrollView.zoomScale / fit
             if abs((controller?.relativeZoom ?? -1) - relative) > 0.001 {
                 controller?.relativeZoom = relative
             }

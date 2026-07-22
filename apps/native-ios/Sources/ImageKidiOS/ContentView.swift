@@ -201,6 +201,9 @@ struct ContentView: View {
             }
         }
         .padding(isRegularWidth ? 16 : 8)
+        // Let the canvas extend up behind the floating top bar so the image is
+        // visible (and pannable) in the header area, not clipped below it.
+        .ignoresSafeArea(edges: .top)
     }
 
     /// Full-bleed canvas backdrop: checkerboard or a solid colour, from Settings.
@@ -331,14 +334,22 @@ struct ContentView: View {
             toolButton(.background)
             magicMenu
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(.white.opacity(0.12))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        // More rounded, darker, more transparent (per feedback): a thin blur
+        // with a dark tint over it.
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 30, style: .continuous).fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: 30, style: .continuous).fill(Color.black.opacity(0.34))
+            }
         )
-        .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .strokeBorder(.white.opacity(0.10))
+        )
+        .shadow(color: .black.opacity(0.30), radius: 20, y: 8)
+        .environment(\.colorScheme, .dark) // keep icons light on the dark bar
         .disabled(model.isBusy)
     }
 
@@ -1200,8 +1211,10 @@ private struct InlineEditingCanvas: View {
                 }
             }
         }
-        .frame(width: imageRect.width, height: imageRect.height)
-        .position(x: imageRect.midX, y: imageRect.midY)
+        // The Canvas fills the whole container and draws at container-space
+        // coordinates (the same space as hit-testing and the gesture), so text
+        // and shapes render exactly where they can be selected. (A framed-and-
+        // positioned Canvas double-offsets by the image margin.)
         .allowsHitTesting(false)
     }
 
