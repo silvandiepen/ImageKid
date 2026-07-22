@@ -162,3 +162,41 @@ final class NamedStyleTests: XCTestCase {
         XCTAssertNil(bare.attributes.extras.first(where: { $0.name == "class" }))
     }
 }
+
+// MARK: - Export flattening
+
+extension NamedStyleTests {
+    func testExportStripsStyleClassesButKeepsOptInsAndUserClasses() throws {
+        let solid = NamedStyle(
+            name: "line-solid-4", declarations: ["stroke": "#010101", "stroke-width": "4"])
+        let branded = NamedStyle(
+            name: "brand", declarations: ["fill": "#ed2024"], exportClass: true)
+        var doc = GraphicDocument.blank(width: 24, height: 24)
+        var node = ShapeNode(
+            id: doc.nextNodeID, kind: .line(Pt(2, 2), Pt(22, 22)), style: Style())
+        node = NamedStyles.apply(solid, to: node)
+        node = NamedStyles.apply(branded, to: node, replacing: [])
+        node.attributes = NamedStyles.settingClassList(
+            node.attributes,
+            to: NamedStyles.classList(of: node.attributes) + ["user-chosen"])
+        doc.nodes = [.shape(node)]
+
+        let flattened = NamedStyles.strippingStyleClasses(doc, styles: [solid, branded])
+        guard case .shape(let s) = flattened.nodes[0] else { return XCTFail("shape missing") }
+        let classes = NamedStyles.classList(of: s.attributes)
+        XCTAssertFalse(classes.contains("line-solid-4"), "binding class must flatten")
+        XCTAssertTrue(classes.contains("brand"), "exportClass: true must survive")
+        XCTAssertTrue(classes.contains("user-chosen"), "user classes must survive")
+        // Inline values remain — flattening loses nothing visual.
+        XCTAssertEqual(s.style.strokeWidth, 4)
+
+        // Runner integration: default profile flattens, sources untouched.
+        let (_, exported) = try ExportRunner.apply(
+            profile: .init(name: "plain"), to: doc, name: "icon_x",
+            namedStyles: [solid, branded])
+        guard case .shape(let e) = exported.nodes[0] else { return XCTFail("shape missing") }
+        XCTAssertFalse(NamedStyles.classList(of: e.attributes).contains("line-solid-4"))
+        guard case .shape(let src) = doc.nodes[0] else { return XCTFail() }
+        XCTAssertTrue(NamedStyles.classList(of: src.attributes).contains("line-solid-4"))
+    }
+}

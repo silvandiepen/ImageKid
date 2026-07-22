@@ -35,10 +35,16 @@ public enum ExportRunner {
 
     /// Apply a profile to one document. Returns the templated file name and
     /// the transformed document. Throws `ExportActionError` on bad actions.
+    ///
+    /// `namedStyles` are the workspace's graphic styles: their binding
+    /// classes are FLATTENED away before the actions run (values are inline
+    /// already) unless a style opts in with `exportClass: true`. User
+    /// classes always pass through. Pass `[]` (the default) to skip.
     public static func apply(
-        profile: Workfile.ExportProfile, to doc: GraphicDocument, name: String
+        profile: Workfile.ExportProfile, to doc: GraphicDocument, name: String,
+        namedStyles: [NamedStyle] = []
     ) throws -> (fileName: String, document: GraphicDocument) {
-        var out = doc
+        var out = NamedStyles.strippingStyleClasses(doc, styles: namedStyles)
         for action in try actions(of: profile) {
             out = action.applied(to: out)
         }
@@ -49,12 +55,16 @@ public enum ExportRunner {
     /// file name, so batch output order is deterministic regardless of the
     /// dictionary's iteration order.
     public static func run(
-        profile: Workfile.ExportProfile, over documents: [String: GraphicDocument]
+        profile: Workfile.ExportProfile, over documents: [String: GraphicDocument],
+        namedStyles: [NamedStyle] = []
     ) throws -> [(fileName: String, document: GraphicDocument)] {
         var out: [(fileName: String, document: GraphicDocument)] = []
         out.reserveCapacity(documents.count)
         for name in documents.keys.sorted() {
-            out.append(try apply(profile: profile, to: documents[name]!, name: name))
+            out.append(
+                try apply(
+                    profile: profile, to: documents[name]!, name: name,
+                    namedStyles: namedStyles))
         }
         out.sort { $0.fileName < $1.fileName }
         return out

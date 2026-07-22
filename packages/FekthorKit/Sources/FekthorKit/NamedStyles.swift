@@ -14,9 +14,17 @@ public struct NamedStyle: Codable, Equatable, Sendable {
     /// "stroke-width": "4"). Encodes deterministically under the workfile's
     /// sorted-keys encoder.
     public var declarations: [String: String]
-    public init(name: String, declarations: [String: String]) {
+    /// Whether the binding class survives EXPORT. Styles are an authoring
+    /// tool: sources keep their class markers, but exports flatten them
+    /// away by default (values are inline already). Set true for styles
+    /// whose class is part of the deliverable (Sil: "these classes will
+    /// make it through export"). User-set classes that are not style names
+    /// always survive — only style-binding classes are stripped.
+    public var exportClass: Bool?
+    public init(name: String, declarations: [String: String], exportClass: Bool? = nil) {
         self.name = name
         self.declarations = declarations
+        self.exportClass = exportClass
     }
 }
 
@@ -123,6 +131,44 @@ public enum NamedStyles {
             if changed { out[key] = rewritten }
         }
         return out
+    }
+
+    // MARK: - Export flattening
+
+    /// Exports flatten style bindings: every class token naming a style
+    /// whose `exportClass != true` is removed (values are inline already,
+    /// so nothing visual changes). Classes that don't name a style — user
+    /// classes set deliberately — and classes of styles flagged
+    /// `exportClass: true` survive. Sources are never touched by this;
+    /// it runs on export copies only.
+    public static func strippingStyleClasses(
+        _ doc: GraphicDocument, styles: [NamedStyle]
+    ) -> GraphicDocument {
+        let doomed = Set(styles.filter { $0.exportClass != true }.map(\.name))
+        guard !doomed.isEmpty else { return doc }
+        var out = doc
+        out.nodes = stripClasses(out.nodes, doomed: doomed)
+        return out
+    }
+
+    private static func stripClasses(
+        _ nodes: [GraphicNode], doomed: Set<String>
+    ) -> [GraphicNode] {
+        nodes.map { node in
+            switch node {
+            case .raw:
+                return node
+            case .shape(var s):
+                let kept = classList(of: s.attributes).filter { !doomed.contains($0) }
+                s.attributes = settingClassList(s.attributes, to: kept)
+                return .shape(s)
+            case .group(var g):
+                let kept = classList(of: g.attributes).filter { !doomed.contains($0) }
+                g.attributes = settingClassList(g.attributes, to: kept)
+                g.children = stripClasses(g.children, doomed: doomed)
+                return .group(g)
+            }
+        }
     }
 
     // MARK: - Internals
