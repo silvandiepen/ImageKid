@@ -21,6 +21,8 @@ struct ContentView: View {
     @State private var cropRect = CGRect(x: 0, y: 0, width: 1, height: 1)
     @State private var draftAnnotation: Annotation?
     @State private var isEditingTextInline = false
+    @State private var selectedAnnotationID: UUID?
+    @State private var editingTextID: UUID?
     @State private var annotationKind: Annotation.Kind = .freehand
     @State private var annotationColor: Color = .red
     @State private var annotationWidthFraction: CGFloat = 0.008
@@ -189,6 +191,8 @@ struct ContentView: View {
                     currentSample: $currentSample,
                     sampleLocation: $sampleLocation,
                     isEditingText: $isEditingTextInline,
+                    selectedAnnotationID: $selectedAnnotationID,
+                    editingTextID: $editingTextID,
                     onTextLocation: { _ in }
                 )
             } else {
@@ -385,9 +389,16 @@ struct ContentView: View {
                     activeTool = nil
                 })
             case .select, .draw, .text:
-                // While typing a text inline, hide the inspector so it doesn't
-                // cover the text on the canvas.
-                if !isEditingTextInline {
+                if isEditingTextInline {
+                    // Typing: controls live in the keyboard accessory bar so they
+                    // don't cover the text on the canvas.
+                    EmptyView()
+                } else if let id = activeTextID {
+                    // A text is selected → show its live properties (colour/font/size).
+                    TextPropertiesPanel(annotation: textBinding(id: id)) {
+                        selectedAnnotationID = nil
+                    }
+                } else {
                     AnnotationInspector(
                         selectedTool: $annotationKind,
                         color: $annotationColor,
@@ -449,6 +460,29 @@ struct ContentView: View {
             annotationKind = .text
         }
         activeTool = tool
+    }
+
+    /// The id of the text annotation currently being edited or selected (if any).
+    private var activeTextID: UUID? {
+        let id = editingTextID ?? selectedAnnotationID
+        guard let id, model.annotations.first(where: { $0.id == id })?.isText == true else { return nil }
+        return id
+    }
+
+    /// A binding to the annotation with `id`, looked up live so it survives
+    /// reordering / mutation of the array.
+    private func textBinding(id: UUID) -> Binding<Annotation> {
+        Binding(
+            get: {
+                model.annotations.first(where: { $0.id == id })
+                    ?? Annotation(kind: .text, color: .red, widthFraction: 0.008)
+            },
+            set: { newValue in
+                if let i = model.annotations.firstIndex(where: { $0.id == id }) {
+                    model.annotations[i] = newValue
+                }
+            }
+        )
     }
 
     /// Clears only the in-progress draft — annotations themselves persist and
@@ -924,6 +958,55 @@ private struct AnnotationInspector: View {
     }
 }
 
+/// Font choices offered for text annotations (label, PostScript name; nil = system).
+let textFontChoices: [(name: String, psName: String?)] = [
+    ("System", nil),
+    ("Helvetica Neue", "HelveticaNeue"),
+    ("Avenir Next", "AvenirNext-Regular"),
+    ("Georgia", "Georgia"),
+    ("Times", "TimesNewRomanPSMT"),
+    ("Courier", "CourierNewPSMT"),
+    ("Menlo", "Menlo-Regular"),
+    ("Marker Felt", "MarkerFelt-Thin"),
+    ("Snell Roundhand", "SnellRoundhand"),
+    ("Chalkboard", "ChalkboardSE-Regular")
+]
+
+func textFontLabel(_ psName: String?) -> String {
+    textFontChoices.first(where: { $0.psName == psName })?.name ?? "Font"
+}
+
+/// Live properties (colour, font, size) for the selected / editing text.
+private struct TextPropertiesPanel: View {
+    @Binding var annotation: Annotation
+    let onClose: () -> Void
+
+    var body: some View {
+        InspectorPanel(title: "Text", systemImage: "textformat", onClose: onClose) {
+            VStack(spacing: 12) {
+                HStack(spacing: 12) {
+                    ColorPicker("Colour", selection: $annotation.color, supportsOpacity: false)
+                        .labelsHidden()
+                    Menu {
+                        ForEach(textFontChoices, id: \.name) { choice in
+                            Button(choice.name) { annotation.fontName = choice.psName }
+                        }
+                    } label: {
+                        Label(textFontLabel(annotation.fontName), systemImage: "character.cursor.ibeam")
+                            .frame(maxWidth: .infinity)
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(.bordered)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Size").font(.caption).foregroundStyle(.secondary)
+                    Slider(value: $annotation.fontFraction, in: 0.02...0.25)
+                }
+            }
+        }
+    }
+}
+
 private struct ColourInspector: View {
     @ObservedObject var model: InferenceModel
     let current: SampledColor?
@@ -1031,6 +1114,8 @@ private struct InlineEditingCanvas: View {
     @Binding var currentSample: SampledColor?
     @Binding var sampleLocation: CGPoint?
     @Binding var isEditingText: Bool
+    @Binding var selectedAnnotationID: UUID?
+    @Binding var editingTextID: UUID?
     let onTextLocation: (CGPoint) -> Void
 
     @State private var dragStartCrop: CGRect?
@@ -1044,9 +1129,6 @@ private struct InlineEditingCanvas: View {
     @State private var moveOriginalAnnotation: Annotation?
     @State private var didHitTestThisDrag = false
     @State private var dragMoved = false
-    // Selection (Select tool) and inline text editing (Text tool, on-canvas).
-    @State private var selectedAnnotationID: UUID?
-    @State private var editingTextID: UUID?
     @FocusState private var textEditorFocused: Bool
 
     var body: some View {
@@ -1194,7 +1276,7 @@ private struct InlineEditingCanvas: View {
                     if annotation.id == editingTextID { continue } // shown live in the text field
                     let resolved = context.resolve(
                         Text(annotation.text.isEmpty ? " " : annotation.text)
-                            .font(.system(size: annotation.fontSize(in: imageRect)))
+                            .font(annotation.swiftUIFont(in: imageRect))
                             .foregroundColor(annotation.color)
                     )
                     context.draw(resolved, at: annotation.textOrigin(in: imageRect), anchor: .topLeading)
@@ -1240,12 +1322,11 @@ private struct InlineEditingCanvas: View {
     private func inlineTextEditor(in imageRect: CGRect) -> some View {
         if let id = editingTextID, let idx = annotations.firstIndex(where: { $0.id == id }) {
             let origin = annotations[idx].textOrigin(in: imageRect)
-            let fontSize = annotations[idx].fontSize(in: imageRect)
             TextField("Text", text: Binding(
                 get: { annotations.indices.contains(idx) ? annotations[idx].text : "" },
                 set: { if annotations.indices.contains(idx) { annotations[idx].text = $0 } }
             ), axis: .vertical)
-            .font(.system(size: fontSize))
+            .font(annotations[idx].swiftUIFont(in: imageRect))
             .foregroundColor(annotations[idx].color)
             .textInputAutocapitalization(.sentences)
             .autocorrectionDisabled(false)
@@ -1255,7 +1336,38 @@ private struct InlineEditingCanvas: View {
             .frame(maxWidth: max(80, imageRect.maxX - origin.x))
             .fixedSize(horizontal: false, vertical: true)
             .offset(x: origin.x, y: origin.y)
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Menu {
+                        ForEach(textFontChoices, id: \.name) { choice in
+                            Button(choice.name) { setEditing { $0.fontName = choice.psName } }
+                        }
+                    } label: {
+                        Label(textFontLabel(annotations.first(where: { $0.id == id })?.fontName ?? nil),
+                              systemImage: "character.cursor.ibeam")
+                    }
+                    Button { setEditing { $0.fontFraction = max(0.02, $0.fontFraction - 0.01) } } label: {
+                        Image(systemName: "textformat.size.smaller")
+                    }
+                    Button { setEditing { $0.fontFraction = min(0.25, $0.fontFraction + 0.01) } } label: {
+                        Image(systemName: "textformat.size.larger")
+                    }
+                    ColorPicker("", selection: Binding(
+                        get: { annotations.first(where: { $0.id == id })?.color ?? .red },
+                        set: { newColor in setEditing { $0.color = newColor } }
+                    ), supportsOpacity: false)
+                    .labelsHidden()
+                    Spacer()
+                    Button("Done") { commitTextEditing() }
+                }
+            }
         }
+    }
+
+    /// Mutate the text annotation currently being edited.
+    private func setEditing(_ change: (inout Annotation) -> Void) {
+        guard let id = editingTextID, let i = annotations.firstIndex(where: { $0.id == id }) else { return }
+        change(&annotations[i])
     }
 
     /// Begin inline editing of a text annotation.
@@ -1321,7 +1433,14 @@ private struct InlineEditingCanvas: View {
                         annotations[idx] = original.translated(dx: dx, dy: dy)
                         return
                     }
-                    if activeTool == .select { return } // Select never draws.
+                    // Select tool: dragging empty space pans the canvas freely.
+                    if activeTool == .select {
+                        panOffset = CGSize(
+                            width: committedPanOffset.width + value.translation.width,
+                            height: committedPanOffset.height + value.translation.height
+                        )
+                        return
+                    }
                 }
                 switch activeTool {
                 case .select:
@@ -1381,7 +1500,10 @@ private struct InlineEditingCanvas: View {
 
                 switch activeTool {
                 case .select:
-                    guard tapped else { break }
+                    guard tapped else {
+                        committedPanOffset = panOffset // finish a free pan
+                        break
+                    }
                     if let idx = hitTestAnnotation(at: value.location, in: imageRect) {
                         let hitID = annotations[idx].id
                         // Tapping an already-selected text a second time edits it inline.

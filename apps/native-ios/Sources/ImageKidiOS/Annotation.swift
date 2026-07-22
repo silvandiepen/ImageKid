@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import SwiftUI
+import UIKit
 
 /// A single annotation stored in normalised (0…1, top-left origin) coordinates
 /// so it renders identically in the editor and when flattened at full
@@ -51,8 +52,24 @@ struct Annotation: Identifiable {
     /// Text content and size (fraction of image height) for `.text` annotations.
     var text: String = ""
     var fontFraction: CGFloat = 0.05
+    /// PostScript/family name of the font; nil = system font.
+    var fontName: String?
 
     var isText: Bool { kind == .text }
+
+    /// SwiftUI font for the editor preview at the given target rect.
+    func swiftUIFont(in rect: CGRect) -> Font {
+        let size = fontSize(in: rect)
+        if let fontName { return .custom(fontName, size: size) }
+        return .system(size: size)
+    }
+
+    /// UIFont for full-resolution rasterisation at the given target rect.
+    func uiFont(in rect: CGRect) -> UIFont {
+        let size = fontSize(in: rect)
+        if let fontName, let font = UIFont(name: fontName, size: size) { return font }
+        return .systemFont(ofSize: size)
+    }
 
     /// A copy shifted by a normalised (0…1) delta — moves every point so the
     /// whole annotation (text origin, shape endpoints, freehand path) translates.
@@ -171,7 +188,7 @@ enum AnnotationRasterizer {
             for annotation in annotations {
                 if annotation.isText {
                     let attributes: [NSAttributedString.Key: Any] = [
-                        .font: UIFont.systemFont(ofSize: annotation.fontSize(in: fullRect)),
+                        .font: annotation.uiFont(in: fullRect),
                         .foregroundColor: UIColor(annotation.color)
                     ]
                     (annotation.text as NSString).draw(
