@@ -3,6 +3,7 @@ import SwiftUI
 struct EmptyStateView: View {
     let isDropTarget: Bool
     let openAction: () -> Void
+    var newAction: () -> Void = {}
 
     fileprivate enum Brand {
         static let blue = Color(red: 0.24, green: 0.52, blue: 0.80)
@@ -113,6 +114,20 @@ struct EmptyStateView: View {
             }
 
             dropCard(compact: compact)
+
+            Button(action: newAction) {
+                HStack(spacing: 7) {
+                    Image(systemName: "doc.badge.plus")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("Create a new blank canvas")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .foregroundStyle(.white.opacity(0.8))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(Capsule(style: .continuous).fill(Brand.ink.opacity(0.65)))
+            }
+            .buttonStyle(PressableButtonStyle())
 
             capabilityChips(compact: compact)
         }

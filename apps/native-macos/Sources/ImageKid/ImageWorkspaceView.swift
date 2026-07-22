@@ -339,9 +339,23 @@ struct ImageWorkspaceView: View {
     @ViewBuilder
     private var dockablePanelsLayer: some View {
         VStack(alignment: .leading, spacing: 12) {
-            PanelDockRail(model: panelDock, axis: .horizontal)
-                // Clear the window's traffic-light controls at the top-left.
-                .padding(.leading, 62)
+            HStack(spacing: 8) {
+                Button {
+                    appModel.isShowingNewFile = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 16, weight: .bold))
+                        .frame(width: 38, height: 38)
+                        .background(Color.accentColor.opacity(0.9), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                        .foregroundStyle(.white)
+                }
+                .buttonStyle(.plain)
+                .help("New File")
+
+                PanelDockRail(model: panelDock, axis: .horizontal)
+            }
+            // Clear the window's traffic-light controls at the top-left.
+            .padding(.leading, 62)
 
             ZStack(alignment: .topLeading) {
                 if panelDock.isExpanded(.files) {

@@ -22,7 +22,20 @@ struct ContentView: View {
                     .transition(.move(edge: .leading).combined(with: .opacity))
                     .zIndex(10)
             }
+
+            if appModel.isShowingNewFile {
+                ZStack {
+                    Color.black.opacity(0.35)
+                        .ignoresSafeArea()
+                        .onTapGesture { appModel.isShowingNewFile = false }
+                    NewFilePanel(appModel: appModel)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .zIndex(50)
+            }
         }
+        .animation(.easeOut(duration: 0.16), value: appModel.isShowingNewFile)
         .animation(.snappy(duration: 0.22), value: appModel.items.count)
         .animation(.snappy(duration: 0.22), value: appModel.isWorkspaceSidebarCollapsed)
         .background(WindowHeaderConfigurator())
@@ -75,9 +88,11 @@ struct ContentView: View {
                 case .video(let session):
                     VideoWorkspaceView(session: session)
                 case nil:
-                    EmptyStateView(isDropTarget: isDropTarget) {
+                    EmptyStateView(isDropTarget: isDropTarget, openAction: {
                         appModel.openPanel()
-                    }
+                    }, newAction: {
+                        appModel.isShowingNewFile = true
+                    })
                 }
         }
     }

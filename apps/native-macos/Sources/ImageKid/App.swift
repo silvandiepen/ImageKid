@@ -58,6 +58,7 @@ final class AppModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var isShowingResize = false
     @Published var isShowingExport = false
+    @Published var isShowingNewFile = false
     @Published var isShowingPromptEdit = false
     @Published var isShowingEnhance = false
     @Published var isRemovingBackground = false
@@ -172,6 +173,29 @@ final class AppModel: ObservableObject {
 
         guard panel.runModal() == .OK else { return }
         load(panel.urls)
+    }
+
+    /// Pixel size of an image currently on the clipboard, if any.
+    func clipboardImageSize() -> CGSize? {
+        guard let image = NSImage(pasteboard: .general) else { return nil }
+        if let rep = image.representations.first, rep.pixelsWide > 0, rep.pixelsHigh > 0 {
+            return CGSize(width: rep.pixelsWide, height: rep.pixelsHigh)
+        }
+        return image.size == .zero ? nil : image.size
+    }
+
+    /// Create a fresh blank document of the given pixel size and background.
+    func newDocument(width: Int, height: Int, background: NewFileBackground) {
+        let size = CGSize(width: max(1, min(width, 16384)), height: max(1, min(height, 16384)))
+        let image = NSImage.blankCanvas(pixelSize: size, fill: background.fillColor)
+        let session = ImageSession(sourceURL: nil, sourceImage: image)
+        session.isDirty = true
+        let item = WorkspaceItem(media: .image(session))
+        items.append(item)
+        selectedItemID = item.id
+        selectedItemIDs = [item.id]
+        activeTool = .view
+        isShowingNewFile = false
     }
 
     func load(_ url: URL) {
@@ -1246,6 +1270,10 @@ struct AppCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
+            Button("New…") { currentAppModel?.isShowingNewFile = true }
+                .keyboardShortcut("n")
+                .disabled(currentAppModel == nil)
+
             Button("Open…") { currentAppModel?.openPanel() }
                 .keyboardShortcut("o")
                 .disabled(currentAppModel == nil)
