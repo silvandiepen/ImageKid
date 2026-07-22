@@ -601,6 +601,7 @@ enum ImageRenderer {
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
         NSGraphicsContext.current?.cgContext.setAlpha(annotation.opacity)
+        NSGraphicsContext.current?.cgContext.setBlendMode(annotation.blendMode.cg)
 
         switch annotation.kind {
         case .rectangle:

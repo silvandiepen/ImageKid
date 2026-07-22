@@ -343,6 +343,78 @@ enum ShapeStrokeStyle: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
+/// Blend mode for how a shape composites over the layers beneath it.
+enum ShapeBlendMode: String, CaseIterable, Identifiable, Hashable {
+    case normal, multiply, screen, overlay, darken, lighten
+    case colorDodge, colorBurn, softLight, hardLight
+    case difference, exclusion, hue, saturation, color, luminosity
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .normal: return "Normal"
+        case .multiply: return "Multiply"
+        case .screen: return "Screen"
+        case .overlay: return "Overlay"
+        case .darken: return "Darken"
+        case .lighten: return "Lighten"
+        case .colorDodge: return "Color Dodge"
+        case .colorBurn: return "Color Burn"
+        case .softLight: return "Soft Light"
+        case .hardLight: return "Hard Light"
+        case .difference: return "Difference"
+        case .exclusion: return "Exclusion"
+        case .hue: return "Hue"
+        case .saturation: return "Saturation"
+        case .color: return "Color"
+        case .luminosity: return "Luminosity"
+        }
+    }
+
+    var swiftUI: BlendMode {
+        switch self {
+        case .normal: return .normal
+        case .multiply: return .multiply
+        case .screen: return .screen
+        case .overlay: return .overlay
+        case .darken: return .darken
+        case .lighten: return .lighten
+        case .colorDodge: return .colorDodge
+        case .colorBurn: return .colorBurn
+        case .softLight: return .softLight
+        case .hardLight: return .hardLight
+        case .difference: return .difference
+        case .exclusion: return .exclusion
+        case .hue: return .hue
+        case .saturation: return .saturation
+        case .color: return .color
+        case .luminosity: return .luminosity
+        }
+    }
+
+    var cg: CGBlendMode {
+        switch self {
+        case .normal: return .normal
+        case .multiply: return .multiply
+        case .screen: return .screen
+        case .overlay: return .overlay
+        case .darken: return .darken
+        case .lighten: return .lighten
+        case .colorDodge: return .colorDodge
+        case .colorBurn: return .colorBurn
+        case .softLight: return .softLight
+        case .hardLight: return .hardLight
+        case .difference: return .difference
+        case .exclusion: return .exclusion
+        case .hue: return .hue
+        case .saturation: return .saturation
+        case .color: return .color
+        case .luminosity: return .luminosity
+        }
+    }
+}
+
 /// Where a shape's stroke sits relative to its edge.
 enum StrokeAlignment: String, CaseIterable, Identifiable, Hashable {
     case inset, center, outset
@@ -389,6 +461,7 @@ struct Annotation: Identifiable {
     var dashLength: CGFloat
     var dashGap: CGFloat
     var dashOffset: CGFloat
+    var blendMode: ShapeBlendMode
     var opacity: Double
     var fontFamily: String
     var fontSize: CGFloat
@@ -411,6 +484,7 @@ struct Annotation: Identifiable {
         dashLength: CGFloat = 0,
         dashGap: CGFloat = 0,
         dashOffset: CGFloat = 0,
+        blendMode: ShapeBlendMode = .normal,
         opacity: Double = 1,
         fontFamily: String = "",
         fontSize: CGFloat = 48,
@@ -432,6 +506,7 @@ struct Annotation: Identifiable {
         self.dashLength = dashLength
         self.dashGap = dashGap
         self.dashOffset = dashOffset
+        self.blendMode = blendMode
         self.opacity = opacity
         self.fontFamily = fontFamily
         self.fontSize = fontSize
@@ -631,6 +706,7 @@ final class ImageSession: ObservableObject {
     @Published var drawingDashLength: CGFloat = 0
     @Published var drawingDashGap: CGFloat = 0
     @Published var drawingDashOffset: CGFloat = 0
+    @Published var drawingBlendMode: ShapeBlendMode = .normal
     @Published var drawingOpacity: Double = 1
     /// Freehand brush smoothing (0 = raw, 1 = heavily smoothed sampling).
     @Published var drawingSmoothing: Double = 0.3

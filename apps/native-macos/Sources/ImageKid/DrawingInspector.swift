@@ -128,6 +128,15 @@ struct DrawingInspector: View {
 
         field("Border") { borderRow(selected) }
 
+        field("Blend mode") {
+            Picker("Blend mode", selection: blendModeBinding) {
+                ForEach(ShapeBlendMode.allCases) { Text($0.label).tag($0) }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+
         opacityField
 
         Toggle("Snap to grid", isOn: $session.snapToGrid)
@@ -178,15 +187,44 @@ struct DrawingInspector: View {
 
     private var fillPopover: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Toggle(fillEnabledBinding.wrappedValue ? "Filled" : "Transparent", isOn: fillEnabledBinding)
+            HStack {
+                Toggle(fillEnabledBinding.wrappedValue ? "Filled" : "Transparent", isOn: fillEnabledBinding)
+                Spacer()
+                if fillEnabledBinding.wrappedValue {
+                    ColorPicker("Fill colour", selection: fillColorBinding, supportsOpacity: true)
+                        .labelsHidden()
+                }
+            }
             if fillEnabledBinding.wrappedValue {
-                ColorPicker("Fill colour", selection: fillColorBinding, supportsOpacity: false)
-                    .labelsHidden()
-                BaseSwatchStrip(colors: library.baseColors) { fillColorBinding.wrappedValue = Color(nsColor: $0) }
+                paletteSwatches { fillColorBinding.wrappedValue = Color(nsColor: $0) }
+                field("Opacity") {
+                    labeledSlider(value: fillOpacityBinding, range: 0...1, step: 0.01, suffix: "%", percent: true)
+                }
             }
         }
         .padding(14)
-        .frame(width: 236)
+        .frame(width: 248)
+    }
+
+    /// Swatches from every set in the library (base first), for quick picking.
+    private func paletteSwatches(_ pick: @escaping (NSColor) -> Void) -> some View {
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 24, maximum: 30), spacing: 5)], spacing: 5) {
+                ForEach(library.sets) { set in
+                    ForEach(set.colors) { swatch in
+                        Button { pick(swatch.nsColor) } label: {
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(swatch.color)
+                                .frame(height: 24)
+                                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.white.opacity(0.2)))
+                        }
+                        .buttonStyle(.plain)
+                        .help(swatch.hex)
+                    }
+                }
+            }
+        }
+        .frame(maxHeight: 108)
     }
 
     // MARK: Border row + popover
@@ -214,11 +252,14 @@ struct DrawingInspector: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 field("Stroke colour") {
-                    ColorPicker("Stroke colour", selection: strokeColorBinding, supportsOpacity: false).labelsHidden()
-                    BaseSwatchStrip(colors: library.baseColors) { strokeColorBinding.wrappedValue = Color(nsColor: $0) }
+                    ColorPicker("Stroke colour", selection: strokeColorBinding, supportsOpacity: true).labelsHidden()
+                    paletteSwatches { strokeColorBinding.wrappedValue = Color(nsColor: $0) }
                 }
                 field("Width") {
                     labeledSlider(value: lineWidthBinding, range: 0...64, step: 1, suffix: "px")
+                }
+                field("Stroke opacity") {
+                    labeledSlider(value: strokeOpacityBinding, range: 0...1, step: 0.01, suffix: "%", percent: true)
                 }
                 field("Style") {
                     Picker("Style", selection: strokeStyleBinding) {
@@ -250,10 +291,10 @@ struct DrawingInspector: View {
         .frame(width: 268, height: 380)
     }
 
-    private func labeledSlider(value: Binding<Double>, range: ClosedRange<Double>, step: Double, suffix: String) -> some View {
+    private func labeledSlider(value: Binding<Double>, range: ClosedRange<Double>, step: Double, suffix: String, percent: Bool = false) -> some View {
         HStack(spacing: 10) {
             Slider(value: value, in: range, step: step)
-            Text("\(Int(value.wrappedValue)) \(suffix)")
+            Text(percent ? "\(Int(value.wrappedValue * 100))\(suffix)" : "\(Int(value.wrappedValue)) \(suffix)")
                 .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(.white.opacity(0.6))
                 .frame(width: 62, alignment: .trailing)
@@ -405,6 +446,50 @@ struct DrawingInspector: View {
                 session.drawingLineWidth = width
                 guard let selected = selectedDrawable else { return }
                 session.updateAnnotation(id: selected.id) { $0.lineWidth = width }
+            }
+        )
+    }
+
+    private var blendModeBinding: Binding<ShapeBlendMode> {
+        Binding(
+            get: { selectedDrawable?.blendMode ?? session.drawingBlendMode },
+            set: { value in
+                session.drawingBlendMode = value
+                guard let selected = selectedDrawable else { return }
+                session.updateAnnotation(id: selected.id) { $0.blendMode = value }
+            }
+        )
+    }
+
+    /// Opacity (0…1) of the stroke colour's alpha channel.
+    private var strokeOpacityBinding: Binding<Double> {
+        Binding(
+            get: { Double((selectedDrawable?.strokeColor ?? library.foreground).alphaComponent) },
+            set: { value in
+                let a = CGFloat(value)
+                let base = (selectedDrawable?.strokeColor ?? library.foreground)
+                let color = base.withAlphaComponent(a)
+                session.drawingStrokeColor = color
+                if let selected = selectedDrawable {
+                    session.updateAnnotation(id: selected.id) { $0.strokeColor = color }
+                } else {
+                    library.foreground = color
+                }
+            }
+        )
+    }
+
+    /// Opacity (0…1) of the fill colour's alpha channel.
+    private var fillOpacityBinding: Binding<Double> {
+        Binding(
+            get: { Double((selectedDrawable?.fillColor ?? session.drawingFillColor)?.alphaComponent ?? 1) },
+            set: { value in
+                let a = CGFloat(value)
+                let base = (selectedDrawable?.fillColor ?? session.drawingFillColor ?? .white)
+                let color = base.withAlphaComponent(a)
+                session.drawingFillColor = color
+                guard let selected = selectedDrawable else { return }
+                session.updateAnnotation(id: selected.id) { $0.fillColor = color }
             }
         )
     }

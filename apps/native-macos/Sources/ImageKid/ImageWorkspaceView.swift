@@ -725,6 +725,7 @@ struct ImageWorkspaceView: View {
                     annotationContent(annotation)
                         .frame(width: rect.width + 2 * m, height: rect.height + 2 * m)
                         .position(x: rect.midX, y: rect.midY)
+                        .blendMode(annotation.blendMode.swiftUI)
                         .opacity(annotation.opacity)
                 }
 
@@ -1357,6 +1358,7 @@ struct ImageWorkspaceView: View {
             dashLength: session.drawingDashLength,
             dashGap: session.drawingDashGap,
             dashOffset: session.drawingDashOffset,
+            blendMode: session.drawingBlendMode,
             opacity: session.drawingOpacity
         )
     }
