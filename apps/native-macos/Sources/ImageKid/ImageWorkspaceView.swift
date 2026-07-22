@@ -224,6 +224,24 @@ struct ImageWorkspaceView: View {
                             return true
                         }
                         return false
+                    },
+                    onKey: { chars in
+                        guard session.isEditingMask else { return false }
+                        switch chars.lowercased() {
+                        case "x":
+                            session.maskBrushReveal.toggle()
+                            return true
+                        case "[":
+                            let delta = max(2, (session.maskBrushSize * 0.15).rounded())
+                            session.maskBrushSize = max(4, session.maskBrushSize - delta)
+                            return true
+                        case "]":
+                            let delta = max(2, (session.maskBrushSize * 0.15).rounded())
+                            session.maskBrushSize = min(400, session.maskBrushSize + delta)
+                            return true
+                        default:
+                            return false
+                        }
                     }
                 )
                 .frame(width: 0, height: 0)
@@ -721,13 +739,14 @@ struct ImageWorkspaceView: View {
             let h = max(w * session.maskBrushRoundness, 4)
             let ringColor: Color = session.maskBrushReveal ? .green : .white
 
-            // Preview of the stroke being drawn (rasterised into the mask on release).
+            // Preview of the stroke being drawn, in blue. It's rasterised into the
+            // mask (as black/white) on release, so it doesn't stay blue.
             if maskStrokeViewPoints.count > 1 {
                 Path { p in
                     p.move(to: maskStrokeViewPoints[0])
                     for pt in maskStrokeViewPoints.dropFirst() { p.addLine(to: pt) }
                 }
-                .stroke(ringColor.opacity(0.45 * session.maskBrushOpacity),
+                .stroke(Color.accentColor.opacity(0.55 * session.maskBrushOpacity),
                         style: StrokeStyle(lineWidth: w, lineCap: .round, lineJoin: .round))
                 .allowsHitTesting(false)
             }
