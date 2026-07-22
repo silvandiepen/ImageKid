@@ -21,11 +21,15 @@ public struct Workfile: Codable, Equatable, Sendable {
     public var exportProfiles: [ExportProfile]?
     public var styleTokens: [StyleToken]?
     public var containers: [ContainerSlot]?
+    /// Container memberships (P2): icon name → names of containers the icon
+    /// is exported into (see `Containers.matrixExports`).
+    public var containerMemberships: [String: [String]]?
 
     public init(
         version: Int = 1, folder: FolderRef? = nil, artboards: [EmbeddedArtboard]? = nil,
         categories: [String]? = nil, exportProfiles: [ExportProfile]? = nil,
-        styleTokens: [StyleToken]? = nil, containers: [ContainerSlot]? = nil
+        styleTokens: [StyleToken]? = nil, containers: [ContainerSlot]? = nil,
+        containerMemberships: [String: [String]]? = nil
     ) {
         self.version = version
         self.folder = folder
@@ -34,6 +38,7 @@ public struct Workfile: Codable, Equatable, Sendable {
         self.exportProfiles = exportProfiles
         self.styleTokens = styleTokens
         self.containers = containers
+        self.containerMemberships = containerMemberships
     }
 
     public struct FolderRef: Codable, Equatable, Sendable {
