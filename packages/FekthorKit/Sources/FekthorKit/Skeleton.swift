@@ -53,6 +53,55 @@ public enum Skeleton {
             }
         }
 
+        // Staircase cleanup. Zhang-Suen leaves L-corner staircases on ~45°
+        // diagonals (a step keeps both its orthogonal and diagonal link), so
+        // every step pixel reads as a junction and the skeleton graph shatters
+        // into thousands of 2px edges — which downstream welding/culling turns
+        // into gaps and chord-straight kinks. Remove every redundant pixel
+        // whose punctured 8-neighbourhood stays ONE connected piece (exact
+        // simple-point test, so topology — including small loops — is
+        // preserved) and that is not an endpoint. Sequential row-major
+        // deletion, iterated to a fixpoint: deterministic and minimal.
+        let offs = [(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1)]
+        func ringIsOnePiece(_ x: Int, _ y: Int) -> (count: Int, onePiece: Bool) {
+            var cells: [(Int, Int)] = []
+            for (dx, dy) in offs where get(x + dx, y + dy) == 1 {
+                cells.append((dx, dy))
+            }
+            if cells.count < 2 { return (cells.count, true) }
+            var parent = Array(0..<cells.count)
+            func find(_ i: Int) -> Int {
+                var r = i
+                while parent[r] != r { r = parent[r] }
+                return r
+            }
+            for i in 0..<cells.count {
+                for j in (i + 1)..<cells.count {
+                    if abs(cells[i].0 - cells[j].0) <= 1, abs(cells[i].1 - cells[j].1) <= 1 {
+                        let a = find(i)
+                        let b = find(j)
+                        if a != b { parent[max(a, b)] = min(a, b) }
+                    }
+                }
+            }
+            var roots = Set<Int>()
+            for i in 0..<cells.count { roots.insert(find(i)) }
+            return (cells.count, roots.count == 1)
+        }
+        var cleaning = true
+        while cleaning {
+            cleaning = false
+            for y in 0..<h {
+                for x in 0..<w where g[idx(x, y)] == 1 {
+                    let (count, onePiece) = ringIsOnePiece(x, y)
+                    if count >= 2, onePiece {
+                        g[idx(x, y)] = 0
+                        cleaning = true
+                    }
+                }
+            }
+        }
+
         return Mask(width: w, height: h, fg: g.map { $0 == 1 })
     }
 }

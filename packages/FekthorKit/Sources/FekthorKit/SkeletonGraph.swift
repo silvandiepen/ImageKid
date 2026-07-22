@@ -236,7 +236,11 @@ public enum SkeletonGraph {
                 let rivalDot = -(ra.0 * bestAway.0 + ra.1 * bestAway.1)
                 let rivalScore =
                     rivalDot - curvWeight * abs(curvAway(edges[ri], atStart: rAtStart) + bestCurv)
-                if rivalScore > bestScore + 1e-9 { return nil }
+                // Veto only on a CLEAR rivalry win. At a tangent contact the two
+                // scores tie within noise, and splitting a genuinely smooth
+                // curve there leaves a kink (each half refines straight); the
+                // continuity of the current chain wins ties.
+                if rivalScore > bestScore + 0.05 { return nil }
             }
             return (best, bestAtStart)
         }

@@ -315,6 +315,17 @@ public enum StrokesMode {
         // Trace the remaining thin skeleton into strokes; merge through junctions.
         let rawEdges = SkeletonGraph.edges(skel)
         let edges = SkeletonGraph.mergeByTangent(rawEdges)
+        if let dump = ProcessInfo.processInfo.environment["FEKTHOR_DEBUG_CHAINS"] {
+            var out = "RAW \(rawEdges.count)\n"
+            for (i, e) in rawEdges.enumerated() {
+                out += "raw \(i) n=\(e.count) (\(Int(e.first!.x)),\(Int(e.first!.y)))->(\(Int(e.last!.x)),\(Int(e.last!.y)))\n"
+            }
+            out += "MERGED \(edges.count)\n"
+            for (i, e) in edges.enumerated() {
+                out += "chain \(i) n=\(e.count) (\(Int(e.first!.x)),\(Int(e.first!.y)))->(\(Int(e.last!.x)),\(Int(e.last!.y)))\n"
+            }
+            try? out.write(toFile: dump, atomically: true, encoding: .utf8)
+        }
 
         // First pass: build each stroke's geometry and per-stroke width.
         struct Pending {
@@ -432,6 +443,29 @@ public enum StrokesMode {
                 }
                 return false
             }
+            // Endpoints of every candidate: a short piece whose BOTH ends sit on
+            // other strokes' endpoints is a CONNECTOR (it bridges two chains
+            // that fragmented at a pseudo-junction where nearby lines touch).
+            // Culling it as a duplicate stitch leaves two dangling ends and a
+            // visible gap — connectors are always kept.
+            var endpoints: [Pt] = []
+            for p in pendings where p.chain.count >= 2 {
+                endpoints.append(p.chain.first!)
+                endpoints.append(p.chain.last!)
+            }
+            func isConnector(_ p: Pending, _ selfIdx: Int) -> Bool {
+                guard let a = p.chain.first, let b = p.chain.last else { return false }
+                func touchesOtherEnd(_ q: Pt) -> Bool {
+                    for (i, e) in endpoints.enumerated() {
+                        if i / 2 == selfIdx { continue }
+                        let dx = e.x - q.x
+                        let dy = e.y - q.y
+                        if dx * dx + dy * dy <= 12.25 { return true }
+                    }
+                    return false
+                }
+                return touchesOtherEnd(a) && touchesOtherEnd(b)
+            }
             var keep = [Bool](repeating: true, count: pendings.count)
             for idx in order {
                 let p = pendings[idx]
@@ -440,7 +474,7 @@ public enum StrokesMode {
                 for pt in p.chain where nearKept(pt, r) { near += 1 }
                 let frac = Double(near) / Double(max(1, p.chain.count))
                 let isShort = polyLen(p.chain) < p.width * 3.0
-                if (isShort && frac >= 0.7) || frac >= 0.85 {
+                if ((isShort && frac >= 0.7) || frac >= 0.85) && !(isShort && isConnector(p, idx)) {
                     keep[idx] = false
                 } else {
                     addChain(p.chain)
