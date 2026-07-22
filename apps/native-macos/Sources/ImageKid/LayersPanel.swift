@@ -302,12 +302,14 @@ struct LayersPanel: View {
     private var controlBar: some View {
         HStack(spacing: 6) {
             control("arrow.up", help: "Bring forward") {
-                if let id = session.selectedLayerID { session.moveImageLayer(id: id, forward: true) }
-                else if let id = session.selectedAnnotationID { session.moveAnnotation(id: id, forward: true) }
+                if let id = session.selectedLayerID ?? session.selectedAnnotationID {
+                    session.moveStackItem(id, up: true)
+                }
             }
             control("arrow.down", help: "Send backward") {
-                if let id = session.selectedLayerID { session.moveImageLayer(id: id, forward: false) }
-                else if let id = session.selectedAnnotationID { session.moveAnnotation(id: id, forward: false) }
+                if let id = session.selectedLayerID ?? session.selectedAnnotationID {
+                    session.moveStackItem(id, up: false)
+                }
             }
             Spacer()
             control("folder.badge.plus", help: "Group selected layers") {

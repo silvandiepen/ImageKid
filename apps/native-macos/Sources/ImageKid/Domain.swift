@@ -958,6 +958,31 @@ final class ImageSession: ObservableObject {
         record("Reorder layer", systemImage: "arrow.up.arrow.down")
     }
 
+    /// Move an item one step up (forward) or down (backward) in the unified stack.
+    func moveStackItem(_ id: UUID, up: Bool) {
+        normalizeStackZ()
+        let ordered = stackBottomToTop
+        guard let idx = ordered.firstIndex(where: { $0.id == id }) else { return }
+        let neighbor = up ? idx + 1 : idx - 1
+        guard neighbor >= 0, neighbor < ordered.count else { return }
+        let a = id, b = ordered[neighbor].id
+        let za = stackZ(of: a), zb = stackZ(of: b)
+        setStackZ(a, zb)
+        setStackZ(b, za)
+        record(up ? "Bring forward" : "Send backward", systemImage: "square.3.layers.3d")
+    }
+
+    private func stackZ(of id: UUID) -> Double {
+        if let l = imageLayers.first(where: { $0.id == id }) { return l.z }
+        if let a = annotations.first(where: { $0.id == id }) { return a.z }
+        return 0
+    }
+
+    private func setStackZ(_ id: UUID, _ z: Double) {
+        if let i = imageLayers.firstIndex(where: { $0.id == id }) { imageLayers[i].z = z }
+        else if let i = annotations.firstIndex(where: { $0.id == id }) { annotations[i].z = z }
+    }
+
     /// Seed the timeline with the opened image as the first step.
     func seedHistory() {
         normalizeStackZ()
