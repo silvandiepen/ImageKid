@@ -355,7 +355,7 @@ struct ImageWorkspaceView: View {
 
                 PanelDockRail(model: panelDock, axis: .horizontal)
 
-                ForegroundBackgroundChips(library: library)
+                ForegroundBackgroundChips(library: library, session: session)
                     .padding(.leading, 4)
             }
 

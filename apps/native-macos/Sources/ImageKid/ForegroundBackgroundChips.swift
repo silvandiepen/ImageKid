@@ -5,18 +5,34 @@ import SwiftUI
 /// Foreground is the default stroke/text colour; background the default fill.
 struct ForegroundBackgroundChips: View {
     @ObservedObject var library: ColorLibrary
+    @ObservedObject var session: ImageSession
 
     enum Slot { case foreground, background }
     @State private var editing: Slot?
 
+    /// The drawable shape currently selected, if any — the chips act on it.
+    private var selectedShape: Annotation? {
+        guard let a = session.selectedAnnotation, a.isDrawable else { return nil }
+        return a
+    }
+
+    private var currentForeground: NSColor {
+        selectedShape?.strokeColor ?? library.foreground
+    }
+
+    private var currentBackground: NSColor {
+        if let shape = selectedShape { return shape.fillColor ?? .clear }
+        return library.background
+    }
+
     var body: some View {
         ZStack(alignment: .topLeading) {
-            chip(color: library.background, slot: .background)
+            chip(color: currentBackground, slot: .background)
                 .offset(x: 13, y: 13)
-            chip(color: library.foreground, slot: .foreground)
+            chip(color: currentForeground, slot: .foreground)
 
             Button {
-                library.swapForegroundBackground()
+                swap()
             } label: {
                 Image(systemName: "arrow.2.squarepath")
                     .font(.system(size: 10, weight: .bold))
@@ -64,13 +80,13 @@ struct ForegroundBackgroundChips: View {
             }
 
             HStack {
-                Button("Swap") { library.swapForegroundBackground() }
+                Button("Swap") { swap() }
                     .buttonStyle(.bordered)
                 Spacer()
-                Button("Reset") {
-                    if editing == .background { library.background = .white } else { library.foreground = .black }
+                if editing == .background, selectedShape?.isFillable == true {
+                    Button("No fill") { setBackground(nil) }
+                        .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
             }
         }
         .padding(14)
@@ -79,12 +95,39 @@ struct ForegroundBackgroundChips: View {
 
     private var slotBinding: Binding<Color> {
         Binding(
-            get: { Color(nsColor: editing == .background ? library.background : library.foreground) },
+            get: { Color(nsColor: editing == .background ? currentBackground : currentForeground) },
             set: { setSlot(NSColor($0)) }
         )
     }
 
     private func setSlot(_ color: NSColor) {
-        if editing == .background { library.background = color } else { library.foreground = color }
+        if editing == .background { setBackground(color) } else { setForeground(color) }
+    }
+
+    private func setForeground(_ color: NSColor) {
+        library.foreground = color
+        if let shape = selectedShape {
+            session.updateAnnotation(id: shape.id) { $0.strokeColor = color }
+        }
+    }
+
+    private func setBackground(_ color: NSColor?) {
+        if let color { library.background = color }
+        if let shape = selectedShape, shape.isFillable {
+            session.updateAnnotation(id: shape.id) { $0.fillColor = color }
+        }
+    }
+
+    private func swap() {
+        if let shape = selectedShape, shape.isFillable {
+            let stroke = shape.strokeColor
+            let fill = shape.fillColor
+            session.updateAnnotation(id: shape.id) {
+                $0.strokeColor = fill ?? .clear
+                $0.fillColor = stroke
+            }
+        } else {
+            library.swapForegroundBackground()
+        }
     }
 }
