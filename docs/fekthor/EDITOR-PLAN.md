@@ -137,6 +137,25 @@ already-working editing toolkit meanwhile.
 Discipline: per-phase in-depth plan docs with acceptance criteria before
 implementation; every step a verified conventional commit.
 
+## Illustrator-parity backlog (Sil, 2026-07-23)
+
+Confirmed must-haves, in build order. Shared UI shells graduate into
+ImageKidKit (FloatingToolPanel already shared) so Fekthor and ImageKid
+stay visually identical.
+
+1. Swatches palette (workspace `swatches` in workfile; click=fill,
+   ⌥=stroke, promote-to-token) · Align palette (engine shipped) ·
+   History palette (label undo snapshots, jump-back; mirror ImageKid's
+   HistoryPanel) · snap-to-points (anchor/bounds magnets + tick feedback).
+2. Layers palette (document tree: reorder/hide(display:none)/lock) ·
+   Named styles (style = SVG class, values inline; workfile
+   `namedStyles`; propagation rewrites only bound files — engine landing).
+3. Transform palette (numeric skew/shear/scale/rotate baked into
+   geometry via TransformOps — never a transform attribute) · workspace
+   guide icon (role-style underlay behind every icon, toggleable).
+4. Gradient editing (Fill palette mode + on-canvas axis/stop handles —
+   "better and easier than Illustrator") · live corners on paths.
+
 ## Open items
 
 - Undo architecture decision (snapshots vs commands) due at P3 exit.

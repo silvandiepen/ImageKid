@@ -1,3 +1,4 @@
+import AppKit
 import FekthorKit
 import SwiftUI
 
@@ -47,6 +48,9 @@ struct EditorCanvasView: View {
     @State private var penClosing = false
     @State private var penDragging = false
     @State private var penHover: CGPoint? = nil
+    /// The pointer is over the canvas (hover phase) — the tool cursor is
+    /// only ours to set while this is true.
+    @State private var pointerOverCanvas = false
 
     private let hitRadius: CGFloat = 8
     /// The selection frame sits this far outside the geometry so its scale
@@ -125,15 +129,30 @@ struct EditorCanvasView: View {
             }
         }
         .gesture(dragGesture(in: size))
+        // Hover drives both the pen preview and the tool cursor. `set()`
+        // (never push/pop) cannot leak: every hover event re-asserts the
+        // right cursor, leaving restores the arrow, and there is no stack
+        // to unbalance. The floating panels sit above this view, so their
+        // hit-testing blocks canvas hover — controls keep their own cursors.
         .onContinuousHover(coordinateSpace: .local) { phase in
-            guard session.tool == .pen else {
-                if penHover != nil { penHover = nil }
-                return
-            }
             switch phase {
-            case .active(let p): penHover = p
-            case .ended: penHover = nil
+            case .active(let p):
+                pointerOverCanvas = true
+                penHover = session.tool == .pen ? p : nil
+                ToolCursors.cursor(for: session.tool).set()
+            case .ended:
+                pointerOverCanvas = false
+                penHover = nil
+                NSCursor.arrow.set()
             }
+        }
+        // Tool switches (keyboard letters, ⌘1–5, Esc) retarget the cursor
+        // in place — no mouse move needed.
+        .onChange(of: session.tool) { _, tool in
+            if pointerOverCanvas { ToolCursors.cursor(for: tool).set() }
+        }
+        .onDisappear {
+            if pointerOverCanvas { NSCursor.arrow.set() }
         }
     }
 
@@ -1084,6 +1103,65 @@ struct EditorCanvasView: View {
     }
 
     // MARK: - Context menu
+
+    // MARK: - Tool cursors
+
+    /// One cursor per canvas tool: arrow for Select (the transform handles'
+    /// feedback stays drawn chrome), crosshair for the drag-out shape tools,
+    /// and a pen nib for the pen. All cursors are built once and cached.
+    private enum ToolCursors {
+        static func cursor(for tool: EditorSession.Tool) -> NSCursor {
+            switch tool {
+            case .select: return .arrow
+            case .rect, .ellipse, .line: return .crosshair
+            case .pen: return pen
+            }
+        }
+
+        /// A pen cursor from the `pencil.tip` SF Symbol (the tool button's
+        /// own glyph): black nib over a white halo so it reads on any canvas
+        /// colour, hotspot on the nib's tip (bottom centre).
+        static let pen: NSCursor = {
+            let config = NSImage.SymbolConfiguration(pointSize: 22, weight: .medium)
+            guard
+                let symbol = NSImage(
+                    systemSymbolName: "pencil.tip", accessibilityDescription: "Pen"
+                )?.withSymbolConfiguration(config)
+            else { return .crosshair }
+            let glyph = symbol.size
+            let canvas = NSSize(width: glyph.width + 4, height: glyph.height + 4)
+            let origin = NSPoint(
+                x: (canvas.width - glyph.width) / 2, y: (canvas.height - glyph.height) / 2)
+            let dark = tinted(symbol, .black)
+            let light = tinted(symbol, .white)
+            let image = NSImage(size: canvas, flipped: false) { _ in
+                for dx: CGFloat in [-1, 0, 1] {
+                    for dy: CGFloat in [-1, 0, 1] where dx != 0 || dy != 0 {
+                        light.draw(
+                            in: NSRect(
+                                origin: NSPoint(x: origin.x + dx, y: origin.y + dy),
+                                size: glyph))
+                    }
+                }
+                dark.draw(in: NSRect(origin: origin, size: glyph))
+                return true
+            }
+            // Hotspot in top-left image coordinates: the glyph's bottom
+            // centre, one halo pixel in.
+            let hotSpot = NSPoint(
+                x: canvas.width / 2, y: min(canvas.height - 1, origin.y + glyph.height + 1))
+            return NSCursor(image: image, hotSpot: hotSpot)
+        }()
+
+        private static func tinted(_ symbol: NSImage, _ color: NSColor) -> NSImage {
+            NSImage(size: symbol.size, flipped: false) { rect in
+                symbol.draw(in: rect)
+                color.set()
+                rect.fill(using: .sourceAtop)
+                return true
+            }
+        }
+    }
 
     private func menuItems(at point: CGPoint, in size: CGSize) -> [(String, () -> Void)] {
         var items: [(String, () -> Void)] = []

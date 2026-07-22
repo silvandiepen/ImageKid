@@ -286,6 +286,101 @@ final class EditorSession: ObservableObject {
         styleEditKey = nil
     }
 
+    // MARK: - Corner radius (Corners palette)
+
+    /// A rect's authored geometry, captured by the Corners palette when the
+    /// chain toggle decouples the corners — the node itself may become a
+    /// `.path` right after, so per-corner edits rebuild from THIS.
+    struct CornerRect: Equatable {
+        var id: Int
+        var x: Double
+        var y: Double
+        var width: Double
+        var height: Double
+    }
+
+    /// Uniform corner radius on every selected rect. Keeps kind `.rect` —
+    /// the radius lands in `rx` (SVG's rx==ry default), so the primitive
+    /// still round-trips. Repeated calls from the same control (the radius
+    /// slider) coalesce into one undo step, like style edits.
+    func setRectRadius(_ radius: Double) {
+        let ids = selection.sorted().filter { id in
+            if case .rect = document.firstShape(id: id)?.kind { return true }
+            return false
+        }
+        guard !ids.isEmpty else { return }
+        let key = "corner-radius|" + ids.map(String.init).joined(separator: ",")
+        if styleEditKey != key {
+            beginGesture()
+            styleEditKey = key
+        }
+        mutate { doc in
+            for id in ids {
+                guard var shape = doc.firstShape(id: id),
+                    case .rect(let x, let y, let w, let h, _, _) = shape.kind
+                else { continue }
+                let r = max(0, min(radius, min(w, h) / 2))
+                shape.kind = .rect(
+                    x: x, y: y, width: w, height: h, rx: r > 0.001 ? r : nil, ry: nil)
+                doc.replaceShape(id: id, with: shape)
+            }
+        }
+    }
+
+    /// Per-corner radii: no rect form exists for decoupled corners, so each
+    /// node becomes a `.path` built by `CornerRadius.roundedRectPath` from
+    /// its captured geometry (radii clamped pairwise in the engine). One
+    /// undo snapshot per control edit (repeated calls coalesce until
+    /// `endStyleEdit`); the status notes the conversion the first time.
+    func setRectPerCornerRadii(
+        rects: [CornerRect],
+        topLeft: Double, topRight: Double, bottomRight: Double, bottomLeft: Double
+    ) {
+        guard !rects.isEmpty else { return }
+        let key = "corner-per|" + rects.map { String($0.id) }.joined(separator: ",")
+        if styleEditKey != key {
+            beginGesture()
+            styleEditKey = key
+        }
+        var converted = false
+        mutate { doc in
+            for rect in rects {
+                guard var shape = doc.firstShape(id: rect.id) else { continue }
+                if case .rect = shape.kind { converted = true }
+                shape.kind = .path([
+                    CornerRadius.roundedRectPath(
+                        x: rect.x, y: rect.y, width: rect.width, height: rect.height,
+                        topLeft: topLeft, topRight: topRight,
+                        bottomRight: bottomRight, bottomLeft: bottomLeft)
+                ])
+                doc.replaceShape(id: rect.id, with: shape)
+            }
+        }
+        if converted {
+            status = "Rect converted to path for per-corner radii."
+        }
+    }
+
+    /// Re-link after per-corner edits: the captured rects come back as
+    /// native `.rect` primitives with one uniform radius (round-trip
+    /// restored). One undo step.
+    func relinkRectRadius(rects: [CornerRect], radius: Double) {
+        guard !rects.isEmpty else { return }
+        styleEditKey = nil
+        beginGesture()
+        mutate { doc in
+            for rect in rects {
+                guard var shape = doc.firstShape(id: rect.id) else { continue }
+                let r = max(0, min(radius, min(rect.width, rect.height) / 2))
+                shape.kind = .rect(
+                    x: rect.x, y: rect.y, width: rect.width, height: rect.height,
+                    rx: r > 0.001 ? r : nil, ry: nil)
+                doc.replaceShape(id: rect.id, with: shape)
+            }
+        }
+        status = "Corners linked — rect restored."
+    }
+
     // MARK: - Shape tools
 
     /// Insert a freshly drawn primitive with the current drawing style,
