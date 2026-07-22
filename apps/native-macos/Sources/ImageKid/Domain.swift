@@ -600,17 +600,21 @@ final class ImageSession: ObservableObject {
 
     var gridColor: NSColor { ColorHex.color(from: gridColorHex) ?? .white }
 
-    /// Snap a normalised frame's origin to the grid (in source pixels).
-    func gridSnapped(_ frame: CGRect) -> CGRect {
+    /// Snap a normalised source-space frame to the grid.
+    /// - Parameter keepSize: snap only the origin (moves); otherwise snap all edges (resizes).
+    func gridSnapped(_ frame: CGRect, keepSize: Bool = true) -> CGRect {
         guard snapToGrid, gridSizePx > 0 else { return frame }
         let px = pixelSize
         let gx = gridSizePx / max(px.width, 1)
         let gy = gridSizePx / max(px.height, 1)
-        return CGRect(
-            x: (frame.minX / gx).rounded() * gx,
-            y: (frame.minY / gy).rounded() * gy,
-            width: frame.width, height: frame.height
-        )
+        let minX = (frame.minX / gx).rounded() * gx
+        let minY = (frame.minY / gy).rounded() * gy
+        if keepSize {
+            return CGRect(x: minX, y: minY, width: frame.width, height: frame.height)
+        }
+        let maxX = (frame.maxX / gx).rounded() * gx
+        let maxY = (frame.maxY / gy).rounded() * gy
+        return CGRect(x: minX, y: minY, width: max(maxX - minX, gx), height: max(maxY - minY, gy))
     }
 
     /// Snap a rect expressed in normalised display space (0…1 over the displayed

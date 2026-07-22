@@ -1080,13 +1080,13 @@ struct ImageWorkspaceView: View {
         case .moveAnnotation(let id, let start):
             let delta = sourceTranslation(value.translation, imageRect: imageRect)
             session.updateAnnotation(id: id) { annotation in
-                annotation.frame = movedRect(start, by: delta)
+                annotation.frame = session.gridSnapped(movedRect(start, by: delta))
             }
 
         case .resizeAnnotation(let id, let corner, let start):
             let delta = sourceTranslation(value.translation, imageRect: imageRect)
             session.updateAnnotation(id: id) { annotation in
-                annotation.frame = resizedRect(start, handle: corner.boxHandle, delta: delta)
+                annotation.frame = session.gridSnapped(resizedRect(start, handle: corner.boxHandle, delta: delta), keepSize: false)
             }
 
         case .moveLayer(let id, let start):
@@ -1246,8 +1246,15 @@ struct ImageWorkspaceView: View {
 
         guard let annotation else { return }
         session.annotations.append(annotation)
-        session.selectedAnnotationID = nil
         session.record("Add \(session.drawingMode.label.lowercased())", systemImage: session.drawingMode.symbolName)
+        // Select the shape just drawn so it can be adjusted immediately.
+        // Freehand keeps the brush active for continued drawing.
+        if session.drawingMode != .freehand {
+            session.selectedAnnotationID = annotation.id
+            appModel.activeTool = .select
+        } else {
+            session.selectedAnnotationID = nil
+        }
     }
 
     /// Snap a view-space point to the nearest (sub)grid intersection, using the
@@ -1321,30 +1328,14 @@ struct ImageWorkspaceView: View {
         let displayPoints = points.compactMap { GeometryMapper.normalizedPoint($0, in: imageRect) }
         guard displayPoints.count > 1 else { return nil }
 
-        let minX = displayPoints.map(\.x).min() ?? 0
-        let maxX = displayPoints.map(\.x).max() ?? 0
-        let minY = displayPoints.map(\.y).min() ?? 0
-        let maxY = displayPoints.map(\.y).max() ?? 0
-        let displayFrame = GeometryMapper.clampedNormalizedRect(
-            CGRect(
-                x: minX,
-                y: minY,
-                width: max(maxX - minX, 0.002),
-                height: max(maxY - minY, 0.002)
-            ),
-            minimumSize: 0.002
-        )
-        let localPoints = displayPoints.map { point in
-            CGPoint(
-                x: (point.x - displayFrame.minX) / max(displayFrame.width, 0.001),
-                y: (point.y - displayFrame.minY) / max(displayFrame.height, 0.001)
-            )
-        }
-
+        // Store points in full display-normalised coordinates over a full-canvas
+        // frame. Normalising into a tight bounding box (as shapes do) distorts a
+        // freehand stroke because the points then get re-stretched to the box's
+        // aspect ratio on render; a full-canvas frame renders exactly where drawn.
         return Annotation(
-            kind: .freehand(points: localPoints),
+            kind: .freehand(points: displayPoints),
             frame: WorkingImageGeometry.sourceRect(
-                fromDisplayNormalized: displayFrame,
+                fromDisplayNormalized: CGRect(x: 0, y: 0, width: 1, height: 1),
                 cropRect: session.cropRect
             ),
             strokeColor: session.drawingStrokeColor,
