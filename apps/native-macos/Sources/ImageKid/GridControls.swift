@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageKidCore
 import ImageKidKit
 
 /// Floating panel for customising the canvas grid: visibility, snapping,

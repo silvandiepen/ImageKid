@@ -18,6 +18,33 @@ public typealias PlatformImage = UIImage
 public typealias PlatformColor = UIColor
 #endif
 
+public extension PlatformColor {
+    /// Construct a color in the sRGB space on both platforms.
+    static func sRGB(red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) -> PlatformColor {
+        #if canImport(AppKit)
+        return PlatformColor(srgbRed: red, green: green, blue: blue, alpha: alpha)
+        #elseif canImport(UIKit)
+        return PlatformColor(red: red, green: green, blue: blue, alpha: alpha)
+        #else
+        return PlatformColor()
+        #endif
+    }
+
+    /// sRGB (red, green, blue, alpha) components in 0…1, resolved on both platforms.
+    var sRGBComponents: (red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) {
+        #if canImport(AppKit)
+        let c = usingColorSpace(.sRGB) ?? self
+        return (c.redComponent, c.greenComponent, c.blueComponent, c.alphaComponent)
+        #elseif canImport(UIKit)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        getRed(&r, green: &g, blue: &b, alpha: &a)
+        return (r, g, b, a)
+        #else
+        return (0, 0, 0, 1)
+        #endif
+    }
+}
+
 public enum PlatformImageCoding {
     /// Encode an image as base64-encoded PNG (used by the .imagekid format).
     public static func pngBase64(_ image: PlatformImage) -> String? {

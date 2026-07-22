@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import ImageKidCore
 
 struct SwatchColor: Identifiable, Codable, Hashable {
     var id: UUID
@@ -174,35 +175,4 @@ struct BaseSwatchStrip: View {
     }
 }
 
-enum ColorHex {
-    static func string(from color: NSColor) -> String {
-        let c = color.usingColorSpace(.sRGB) ?? color
-        let includeAlpha = c.alphaComponent < 0.999
-        return String(
-            format: includeAlpha ? "#%02X%02X%02X%02X" : "#%02X%02X%02X",
-            Int((c.redComponent * 255).rounded()),
-            Int((c.greenComponent * 255).rounded()),
-            Int((c.blueComponent * 255).rounded()),
-            Int((c.alphaComponent * 255).rounded())
-        )
-    }
-
-    static func color(from hex: String) -> NSColor? {
-        var s = hex.trimmingCharacters(in: .whitespacesAndNewlines)
-        if s.hasPrefix("#") { s.removeFirst() }
-        guard let value = UInt64(s, radix: 16) else { return nil }
-        switch s.count {
-        case 6:
-            return NSColor(srgbRed: CGFloat((value >> 16) & 0xFF) / 255,
-                           green: CGFloat((value >> 8) & 0xFF) / 255,
-                           blue: CGFloat(value & 0xFF) / 255, alpha: 1)
-        case 8:
-            return NSColor(srgbRed: CGFloat((value >> 24) & 0xFF) / 255,
-                           green: CGFloat((value >> 16) & 0xFF) / 255,
-                           blue: CGFloat((value >> 8) & 0xFF) / 255,
-                           alpha: CGFloat(value & 0xFF) / 255)
-        default:
-            return nil
-        }
-    }
-}
+// ColorHex now lives in ImageKidCore (shared by both apps).
