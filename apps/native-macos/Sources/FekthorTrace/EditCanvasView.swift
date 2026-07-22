@@ -1,32 +1,42 @@
 import FekthorKit
 import SwiftUI
 
-/// Node editing V1: the vector document drawn live as CGPaths with draggable
-/// anchor points. Click a shape to select it; drag its anchors to reshape.
-/// Geometry rules (control points following, arc degrade, closed seams) live
-/// engine-side in `Editing`; this view only maps screen ↔ document space.
-struct EditCanvasView: View {
+/// The live vector layer: the document drawn as CGPaths, always editable.
+/// Click a shape to select it, drag its anchors or Bézier control levers to
+/// reshape — in any view mode, at any zoom. Geometry rules live engine-side
+/// in `Editing`; this layer only maps screen ↔ document space.
+struct VectorEditLayer: View {
     @ObservedObject var model: ConversionModel
     @Binding var zoom: CGFloat
     @Binding var offset: CGSize
+    var busy: Bool = false
+    /// Dims only the DRAWN GEOMETRY (overlay mode); anchors and levers always
+    /// render at full opacity so editing stays crisp on a faded layer.
+    var contentOpacity: Double = 1
 
-    @State private var selected: Int? = nil
     @State private var activeAnchor: (path: Int, index: Int)? = nil
+    @State private var multiSel: Set<Editing.AnchorRef> = []
     @State private var draggingAnchor: (path: Int, index: Int)? = nil
     @State private var draggingHandle: (segment: Int, kind: Editing.HandleKind)? = nil
     @State private var gestureBegan = false
+    @State private var marquee: CGRect? = nil
+
+    /// Anchor-level editing engages when exactly ONE path is selected.
+    private var selected: Int? {
+        model.selectedElements.count == 1 ? model.selectedElements.first : nil
+    }
 
     private let hitRadius: CGFloat = 8
 
     var body: some View {
         GeometryReader { geo in
-            ZStack {
-                Rectangle().fill(Color(nsColor: .textBackgroundColor))
-                canvas(in: geo.size)
-            }
-            .clipped()
+            canvas(in: geo.size)
+                .overlay(
+                    RightClickCatcher { point, size in
+                        menuItems(at: point, in: size)
+                    }
+                )
         }
-        .frame(minWidth: 300, minHeight: 340)
     }
 
     private func canvas(in size: CGSize) -> some View {
@@ -39,21 +49,63 @@ struct EditCanvasView: View {
             cg = cg.translatedBy(x: t.tx, y: t.ty)
             cg = cg.scaledBy(x: t.s, y: t.s)
 
+            // White artboard behind the document, matching the raster preview.
+            let board = CGRect(
+                x: t.tx, y: t.ty, width: CGFloat(doc.width) * t.s,
+                height: CGFloat(doc.height) * t.s)
+            ctx.fill(Path(board), with: .color(.white.opacity(contentOpacity)))
+
             for element in doc.elements {
                 switch element {
                 case .fill(let f):
                     let path = CGPathBuilder.fillPath(f.geometry, smoothing: model.smoothing)
                     var p = Path(path)
                     p = p.applying(cg)
-                    ctx.fill(p, with: .color(color(f.paint)), style: FillStyle(eoFill: true))
+                    ctx.fill(
+                        p, with: .color(color(f.paint).opacity(contentOpacity)),
+                        style: FillStyle(eoFill: true))
                 case .stroke(let s):
                     let path = CGPathBuilder.strokePath(s, smoothing: model.smoothing)
                     var p = Path(path)
                     p = p.applying(cg)
                     ctx.stroke(
-                        p, with: .color(rgbColor(s.color)),
+                        p, with: .color(rgbColor(s.color).opacity(contentOpacity)),
                         style: StrokeStyle(
                             lineWidth: s.width * t.s, lineCap: .round, lineJoin: .round))
+                }
+            }
+
+            // Selection highlight: every selected path gets a blue outline.
+            for i in model.selectedElements.sorted() where i < doc.elements.count {
+                let hp: CGPath
+                switch doc.elements[i] {
+                case .fill(let f):
+                    hp = CGPathBuilder.fillPath(f.geometry, smoothing: model.smoothing)
+                case .stroke(let st):
+                    hp = CGPathBuilder.strokePath(st, smoothing: model.smoothing)
+                }
+                var p = Path(hp)
+                p = p.applying(cg)
+                ctx.stroke(p, with: .color(.blue.opacity(0.55)), lineWidth: 2)
+            }
+
+            // Marquee rectangle while rubber-band selecting.
+            if let m = marquee {
+                ctx.stroke(
+                    Path(m), with: .color(.blue),
+                    style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                ctx.fill(Path(m), with: .color(.blue.opacity(0.08)))
+            }
+
+            // Multi-selected anchors (any element), for break/merge tools.
+            for ref in multiSel where ref.element < doc.elements.count {
+                let list = Editing.anchors(of: doc.elements[ref.element])
+                if let a = list.first(where: { $0.path == ref.path && $0.index == ref.anchor }) {
+                    let v = CGPoint(x: a.position.x * t.s + t.tx, y: a.position.y * t.s + t.ty)
+                    let r: CGFloat = 5
+                    let rect = CGRect(x: v.x - r, y: v.y - r, width: 2 * r, height: 2 * r)
+                    ctx.fill(Path(ellipseIn: rect), with: .color(.orange))
+                    ctx.stroke(Path(ellipseIn: rect), with: .color(.white), lineWidth: 1.5)
                 }
             }
 
@@ -91,6 +143,12 @@ struct EditCanvasView: View {
                 }
             }
         }
+        .opacity(busy ? 0.5 : 1)
+        .gesture(
+            SpatialTapGesture().modifiers(.shift).onEnded { v in
+                toggleMultiSelect(at: v.location, in: size)
+            }
+        )
         .gesture(dragGesture(in: size))
     }
 
@@ -160,11 +218,22 @@ struct EditCanvasView: View {
                 }
                 let target = docPoint(from: v.location, doc: doc, in: size)
                 if let h = draggingHandle, let sel = selected, let active = activeAnchor {
+                    // Smooth point by default: the opposite handle stays
+                    // collinear. Hold Option to break the tangent.
+                    let mirror = !NSEvent.modifierFlags.contains(.option)
                     model.moveHandle(
                         element: sel, path: active.path, segment: h.segment, kind: h.kind,
-                        to: target)
+                        to: target, mirror: mirror)
                 } else if let d = draggingAnchor, let sel = selected {
                     model.moveAnchor(element: sel, path: d.path, anchor: d.index, to: target)
+                } else {
+                    // Not editing: rubber-band selection.
+                    let a = v.startLocation
+                    let b = v.location
+                    marquee = CGRect(
+                        x: min(a.x, b.x), y: min(a.y, b.y),
+                        width: abs(a.x - b.x), height: abs(a.y - b.y))
+                    model.editGeneration += 1
                 }
             }
             .onEnded { v in
@@ -172,28 +241,103 @@ struct EditCanvasView: View {
                 draggingAnchor = nil
                 draggingHandle = nil
                 gestureBegan = false
+                let band = marquee
+                marquee = nil
                 guard !wasEditing else { return }
-                // A click (nothing grabbed): select the element / anchor whose
-                // anchor set comes closest to the click.
                 guard let doc = model.document else { return }
                 let t = transform(doc: doc, in: size)
-                var best: (element: Int, anchor: Editing.Anchor, dist: CGFloat)? = nil
-                for (i, el) in doc.elements.enumerated() {
-                    if let hit = nearestAnchor(of: el, to: v.location, t: t) {
-                        if best == nil || hit.dist < best!.dist {
-                            best = (i, hit.anchor, hit.dist)
+
+                // Rubber-band: select every path with an anchor inside the band.
+                if let band, band.width > 4 || band.height > 4 {
+                    var picked: Set<Int> = []
+                    for (i, el) in doc.elements.enumerated() {
+                        for a in Editing.anchors(of: el) {
+                            let vpt = CGPoint(
+                                x: a.position.x * t.s + t.tx, y: a.position.y * t.s + t.ty)
+                            if band.contains(vpt) {
+                                picked.insert(i)
+                                break
+                            }
                         }
                     }
+                    model.selectedElements = picked
+                    activeAnchor = nil
+                    model.selectionChanged()
+                    model.editGeneration += 1
+                    return
                 }
-                if let best, best.dist <= 60 {
-                    selected = best.element
-                    activeAnchor = best.dist <= 20 ? (best.anchor.path, best.anchor.index) : nil
-                } else {
-                    selected = nil
+
+                // A click: hit the topmost path under the cursor. Cmd toggles
+                // it in the selection; a plain click replaces the selection.
+                let cmd = NSEvent.modifierFlags.contains(.command)
+                let hit = elementHit(at: v.location, doc: doc, size: size)
+                if let hit {
+                    if cmd {
+                        if model.selectedElements.contains(hit) {
+                            model.selectedElements.remove(hit)
+                        } else {
+                            model.selectedElements.insert(hit)
+                        }
+                        activeAnchor = nil
+                    } else {
+                        model.selectedElements = [hit]
+                        // Clicking near an anchor of the single selection also
+                        // activates that anchor for handle editing.
+                        if let na = nearestAnchor(of: doc.elements[hit], to: v.location, t: t),
+                            na.dist <= 20
+                        {
+                            activeAnchor = (na.anchor.path, na.anchor.index)
+                        } else {
+                            activeAnchor = nil
+                        }
+                    }
+                } else if !cmd {
+                    model.selectedElements = []
                     activeAnchor = nil
                 }
+                model.selectionChanged()
                 model.editGeneration += 1
             }
+    }
+
+    /// Topmost element under a click: fills answer by containment (even-odd),
+    /// strokes by distance to their centreline within half their width.
+    private func elementHit(at point: CGPoint, doc: VectorDocument, size: CGSize) -> Int? {
+        let t = transform(doc: doc, in: size)
+        let dp = docPoint(from: point, doc: doc, in: size)
+        let cgPoint = CGPoint(x: dp.x, y: dp.y)
+        for i in stride(from: doc.elements.count - 1, through: 0, by: -1) {
+            switch doc.elements[i] {
+            case .fill(let f):
+                let path = CGPathBuilder.fillPath(f.geometry, smoothing: model.smoothing)
+                if path.contains(cgPoint, using: .evenOdd) { return i }
+            case .stroke(let st):
+                let tolDoc = max(4.0 / Double(t.s), st.width / 2 + 2 / Double(t.s))
+                var bestD = Double.greatestFiniteMagnitude
+                let pts = st.points
+                if pts.count >= 2 {
+                    for j in 0..<(pts.count - 1) {
+                        bestD = min(bestD, segmentDistance(dp, pts[j], pts[j + 1]))
+                        if bestD <= tolDoc { break }
+                    }
+                }
+                if bestD <= tolDoc { return i }
+            }
+        }
+        return nil
+    }
+
+    private func segmentDistance(_ p: Pt, _ a: Pt, _ b: Pt) -> Double {
+        let dx = b.x - a.x
+        let dy = b.y - a.y
+        let len2 = dx * dx + dy * dy
+        if len2 < 1e-12 {
+            return ((p.x - a.x) * (p.x - a.x) + (p.y - a.y) * (p.y - a.y)).squareRoot()
+        }
+        let t = max(0, min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2))
+        let px = a.x + t * dx
+        let py = a.y + t * dy
+        return ((p.x - px) * (p.x - px) + (p.y - py) * (p.y - py)).squareRoot()
     }
 
     private func nearestAnchor(
@@ -206,6 +350,103 @@ struct EditCanvasView: View {
             if best == nil || d < best!.1 { best = (a, d) }
         }
         return best.map { (anchor: $0.0, dist: $0.1) }
+    }
+
+    // MARK: - Break & merge tools
+
+    private func anchorHit(at point: CGPoint, in size: CGSize, radius: CGFloat)
+        -> Editing.AnchorRef?
+    {
+        guard let doc = model.document else { return nil }
+        let t = transform(doc: doc, in: size)
+        var best: (Editing.AnchorRef, CGFloat)? = nil
+        for (i, el) in doc.elements.enumerated() {
+            for a in Editing.anchors(of: el) {
+                let v = CGPoint(x: a.position.x * t.s + t.tx, y: a.position.y * t.s + t.ty)
+                let d = hypot(v.x - point.x, v.y - point.y)
+                if d <= radius, best == nil || d < best!.1 {
+                    best = (Editing.AnchorRef(element: i, path: a.path, anchor: a.index), d)
+                }
+            }
+        }
+        return best?.0
+    }
+
+    private func toggleMultiSelect(at point: CGPoint, in size: CGSize) {
+        // Shift-click on an anchor: point-level multi-select (merge tool).
+        if let ref = anchorHit(at: point, in: size, radius: hitRadius + 3) {
+            if multiSel.contains(ref) {
+                multiSel.remove(ref)
+            } else {
+                multiSel.insert(ref)
+            }
+            model.editGeneration += 1
+            return
+        }
+        // Shift-click on a path: add/remove the SHAPE from the selection.
+        guard let doc = model.document,
+            let hit = elementHit(at: point, doc: doc, size: size)
+        else { return }
+        if model.selectedElements.contains(hit) {
+            model.selectedElements.remove(hit)
+        } else {
+            model.selectedElements.insert(hit)
+        }
+        activeAnchor = nil
+        model.selectionChanged()
+        model.editGeneration += 1
+    }
+
+    private func menuItems(at point: CGPoint, in size: CGSize) -> [(String, () -> Void)] {
+        var items: [(String, () -> Void)] = []
+        if let ref = anchorHit(at: point, in: size, radius: hitRadius + 3) {
+            items.append((
+                "Remove Point",
+                {
+                    model.removeAnchor(element: ref.element, path: ref.path, anchor: ref.anchor)
+                    activeAnchor = nil
+                    multiSel = []
+                }
+            ))
+            items.append((
+                "Break Point",
+                {
+                    model.breakAnchor(element: ref.element, path: ref.path, anchor: ref.anchor)
+                    model.selectedElements = []
+                    activeAnchor = nil
+                    multiSel = []
+                }
+            ))
+        }
+        if multiSel.count >= 2 {
+            items.append((
+                "Merge \(multiSel.count) Points",
+                {
+                    model.mergeAnchors(Array(multiSel).sorted {
+                        ($0.element, $0.path, $0.anchor) < ($1.element, $1.path, $1.anchor)
+                    })
+                    model.selectedElements = []
+                    activeAnchor = nil
+                    multiSel = []
+                }
+            ))
+        }
+        if !multiSel.isEmpty {
+            items.append((
+                "Clear Point Selection",
+                {
+                    multiSel = []
+                    model.editGeneration += 1
+                }
+            ))
+        }
+        if !model.selectedElements.isEmpty {
+            let n = model.selectedElements.count
+            items.append(("Copy \(n) Path(s) as SVG", { model.copySelectionSVG() }))
+            items.append(("Copy \(n) Path(s) as Image", { model.copySelectionPNG() }))
+            items.append(("Export Selection…", { model.exportSelectionSVG() }))
+        }
+        return items
     }
 
     // MARK: - Colours
@@ -223,5 +464,69 @@ struct EditCanvasView: View {
             red: Double(c.count > 0 ? c[0] : 0) / 255,
             green: Double(c.count > 1 ? c[1] : 0) / 255,
             blue: Double(c.count > 2 ? c[2] : 0) / 255)
+    }
+}
+
+// MARK: - Right-click context menu (AppKit)
+
+/// Presents an AppKit context menu for right-clicks over the vector canvas.
+/// Never claims hit-testing (left clicks belong to editing below); right
+/// clicks are taken from the event stream via a local monitor.
+private struct RightClickCatcher: NSViewRepresentable {
+    /// Given the click point (top-left origin) and the view size, return the
+    /// menu items to show. Empty list → no menu.
+    let items: (CGPoint, CGSize) -> [(String, () -> Void)]
+
+    func makeNSView(context: Context) -> NSView {
+        let v = CatcherView()
+        v.items = items
+        return v
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? CatcherView)?.items = items
+    }
+
+    final class CatcherView: NSView {
+        var items: ((CGPoint, CGSize) -> [(String, () -> Void)])?
+        private var monitor: Any?
+        private var actions: [() -> Void] = []
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) {
+                [weak self] e in
+                guard let self, e.window === self.window else { return e }
+                let local = self.convert(e.locationInWindow, from: nil)
+                guard self.bounds.contains(local) else { return e }
+                let flipped = CGPoint(x: local.x, y: self.bounds.height - local.y)
+                let entries = self.items?(flipped, self.bounds.size) ?? []
+                guard !entries.isEmpty else { return e }
+                let menu = NSMenu()
+                self.actions = entries.map { $0.1 }
+                for (i, entry) in entries.enumerated() {
+                    let item = NSMenuItem(
+                        title: entry.0, action: #selector(self.fire(_:)), keyEquivalent: "")
+                    item.target = self
+                    item.tag = i
+                    menu.addItem(item)
+                }
+                NSMenu.popUpContextMenu(menu, with: e, for: self)
+                return nil  // consumed
+            }
+        }
+
+        deinit {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+        }
+
+        @objc private func fire(_ sender: NSMenuItem) {
+            guard sender.tag >= 0, sender.tag < actions.count else { return }
+            actions[sender.tag]()
+        }
     }
 }

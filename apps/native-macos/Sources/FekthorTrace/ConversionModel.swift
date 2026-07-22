@@ -55,12 +55,21 @@ final class ConversionModel: ObservableObject {
     private var simplePalette: Bool = false
     @Published var status: String = "Drop, open or paste an image."
     @Published var isBusy = false
-    /// Node editing (V1): when on, the vector pane becomes an editable canvas.
-    @Published var editMode = false
-    /// The current vector document (kept for editing and re-export). Bumped
-    /// via editGeneration so the edit canvas invalidates on each change.
+    /// The current vector document (always live-editable in the vector pane).
+    /// Bumped via editGeneration so the canvas invalidates on each change.
     var document: VectorDocument?
     @Published var editGeneration = 0
+    /// Selected paths (multi-select: marquee, Cmd-click toggle). Anchor-level
+    /// editing engages when exactly one path is selected.
+    @Published var selectedElements: Set<Int> = []
+    /// Coalesces colour-picker streams into one undo snapshot per selection.
+    private var colorGestureActive = false
+    /// Reconverting replaces the document; when manual edits exist the UI asks
+    /// first (the pending action runs on confirmation).
+    @Published var confirmReconvert = false
+    private var pendingAction: (() -> Void)?
+    /// Set by any anchor/handle edit: the SVG regenerates lazily on export.
+    private var documentEdited = false
     /// Undo history for edit mode: one snapshot per drag gesture.
     private var undoStack: [VectorDocument] = []
     @Published var canUndo = false
@@ -133,6 +142,7 @@ final class ConversionModel: ObservableObject {
     /// Original → optional ML enhancement (small sources) → capped full image.
     private func applySourcePipeline(name: String?) {
         guard let img = originalImage else { return }
+        documentEdited = false
         var source = img
         if enhance, sourceIsSmall, let up = Enhance.upscale4x(img) { source = up }
         // Simple-palette probe (cheap, on a thumbnail): drives Auto resolution
@@ -203,6 +213,15 @@ final class ConversionModel: ObservableObject {
     /// `AutoTune.search`, scored by Quality) and move the sliders to the
     /// winner, then reconvert at full size.
     func autoTune() {
+        if documentEdited {
+            pendingAction = { [weak self] in self?.performAutoTune() }
+            confirmReconvert = true
+            return
+        }
+        performAutoTune()
+    }
+
+    private func performAutoTune() {
         guard let working = workingImage else { return }
         generation += 1
         let gen = generation
@@ -236,9 +255,58 @@ final class ConversionModel: ObservableObject {
         }
     }
 
+    // MARK: New file
+
+    /// A blank single-artboard vector file (saved as plain SVG). No raster
+    /// source: the app goes straight to the Edit canvas.
+    func newBlankDocument(size: Int = 1024) {
+        sourceImage = nil
+        vectorImage = nil
+        originalImage = nil
+        fullImage = nil
+        workingImage = nil
+        document = VectorDocument(width: size, height: size, elements: [])
+        svg = SVGExport.toSVG(document!, smoothing: smoothing)
+        hasResult = true
+        documentEdited = false
+        undoStack = []
+        canUndo = false
+        selectedElements = []
+        fills = 0
+        strokes = 0
+        nodes = 0
+        svgKB = 0
+        imageGeneration += 1
+        editGeneration += 1
+        status = "New file · \(size)×\(size) — paste or trace to fill it; Export saves SVG."
+    }
+
     // MARK: Convert
 
+    /// Guarded entry: warns before discarding manual edits.
     func convert() {
+        if documentEdited {
+            pendingAction = { [weak self] in self?.performConvert() }
+            confirmReconvert = true
+            return
+        }
+        performConvert()
+    }
+
+    func confirmPendingAction() {
+        documentEdited = false
+        confirmReconvert = false
+        pendingAction?()
+        pendingAction = nil
+    }
+
+    func cancelPendingAction() {
+        confirmReconvert = false
+        pendingAction = nil
+        status = "Kept your edits — settings changed but the vector was not re-converted."
+    }
+
+    private func performConvert() {
         guard let working = workingImage else { return }
         generation += 1
         let gen = generation
@@ -301,6 +369,8 @@ final class ConversionModel: ObservableObject {
                     self.document = document
                     self.undoStack = []
                     self.canUndo = false
+                    self.selectedElements = []
+                    self.colorGestureActive = false
                     self.editGeneration += 1
                     self.hasResult = true
                     self.overallQuality = overall
@@ -355,16 +425,185 @@ final class ConversionModel: ObservableObject {
     func undoEdit() {
         guard let doc = undoStack.popLast() else { return }
         document = doc
+        documentEdited = true
         canUndo = !undoStack.isEmpty
         editGeneration += 1
     }
 
-    /// Move one cubic control handle of one element.
-    func moveHandle(element: Int, path: Int, segment: Int, kind: Editing.HandleKind, to: Pt) {
+    /// Break a stroke at an anchor: interior anchors split it into two
+    /// strokes; any anchor of a closed stroke cuts the loop open.
+    func breakAnchor(element: Int, path: Int, anchor: Int) {
+        guard var doc = document, element < doc.elements.count,
+            let parts = Editing.breakAt(doc.elements[element], path: path, anchor: anchor)
+        else {
+            status = "This point cannot be broken (line ends and fills cannot)."
+            return
+        }
+        beginEditGesture()
+        doc.elements.replaceSubrange(element...element, with: parts)
+        document = doc
+        documentEdited = true
+        strokes = doc.strokeCount
+        nodes = doc.nodeCount
+        status = parts.count == 2 ? "Broke the line into two." : "Cut the loop open."
+        editGeneration += 1
+    }
+
+    /// Merge the selected anchors into one point (and join two open stroke
+    /// ends into a single stroke, or close a loop).
+    func mergeAnchors(_ refs: [Editing.AnchorRef]) {
+        guard refs.count >= 2, let doc = document else { return }
+        beginEditGesture()
+        let merged = Editing.merge(doc, refs: refs)
+        document = merged
+        documentEdited = true
+        strokes = merged.strokeCount
+        nodes = merged.nodeCount
+        status = "Merged \(refs.count) points."
+        editGeneration += 1
+    }
+
+    /// The selection as a standalone tight-artboard document.
+    private func selectionSubDocument() -> VectorDocument? {
+        guard let doc = document, !selectedElements.isEmpty else { return nil }
+        return Editing.subDocument(doc, elements: Array(selectedElements))
+    }
+
+    /// Copy the selected paths to the pasteboard as an SVG snippet.
+    func copySelectionSVG() {
+        guard let sub = selectionSubDocument() else { return }
+        let svg = SVGExport.toSVG(sub, smoothing: smoothing)
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(svg, forType: .string)
+        status = "Copied \(selectedElements.count) path(s) as SVG."
+    }
+
+    /// Copy the selected paths as a rendered PNG image.
+    func copySelectionPNG() {
+        guard let sub = selectionSubDocument() else { return }
+        let scale = max(1.0, 1024.0 / Double(max(sub.width, sub.height)))
+        let img = Rasterizer.render(sub, smoothing: smoothing, scale: scale)
+        guard let cg = img.cgImage() else { return }
+        let ns = NSImage(cgImage: cg, size: NSSize(width: img.width, height: img.height))
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects([ns])
+        status = "Copied \(selectedElements.count) path(s) as an image."
+    }
+
+    /// Save the selected paths to their own SVG file.
+    func exportSelectionSVG() {
+        guard let sub = selectionSubDocument() else { return }
+        let svg = SVGExport.toSVG(sub, smoothing: smoothing)
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "svg") ?? .xml]
+        panel.nameFieldStringValue = "selection.svg"
+        if panel.runModal() == .OK, let url = panel.url {
+            try? svg.write(to: url, atomically: true, encoding: .utf8)
+            status = "Exported selection."
+        }
+    }
+
+    /// Delete every selected path from the document (Backspace).
+    func deleteSelection() {
+        guard var doc = document, !selectedElements.isEmpty else { return }
+        beginEditGesture()
+        let count = selectedElements.count
+        for i in selectedElements.sorted(by: >) where i < doc.elements.count {
+            doc.elements.remove(at: i)
+        }
+        document = doc
+        documentEdited = true
+        selectedElements = []
+        fills = doc.fillCount
+        strokes = doc.strokeCount
+        nodes = doc.nodeCount
+        status = count == 1 ? "Deleted 1 path." : "Deleted \(count) paths."
+        editGeneration += 1
+    }
+
+    /// Recolour every selected path. Continuous colour-picker updates share
+    /// ONE undo snapshot (taken on the first change for this selection).
+    func setSelectionColor(_ color: Color) {
+        guard var doc = document, !selectedElements.isEmpty else { return }
+        if !colorGestureActive {
+            beginEditGesture()
+            colorGestureActive = true
+        }
+        let rgb = Self.rgb(from: color)
+        for i in selectedElements where i < doc.elements.count {
+            doc.elements[i] = Editing.setColor(doc.elements[i], to: rgb)
+        }
+        document = doc
+        documentEdited = true
+        editGeneration += 1
+    }
+
+    /// The colour shown in the picker: the first selected element's colour.
+    var selectionColor: Color {
+        guard let doc = document, let i = selectedElements.sorted().first,
+            i < doc.elements.count
+        else { return .black }
+        let c = Editing.color(of: doc.elements[i])
+        return Color(
+            red: Double(c.r) / 255, green: Double(c.g) / 255, blue: Double(c.b) / 255)
+    }
+
+    func selectionChanged() {
+        colorGestureActive = false
+    }
+
+    /// Unique colours present in the current vector (first 12, element order)
+    /// — shown as swatches beside the default palette.
+    var documentColors: [Color] {
+        guard let doc = document else { return [] }
+        var seen = Set<UInt32>()
+        var out: [Color] = []
+        for el in doc.elements {
+            let c = Editing.color(of: el)
+            let key = UInt32(c.r) << 16 | UInt32(c.g) << 8 | UInt32(c.b)
+            if seen.insert(key).inserted {
+                out.append(
+                    Color(
+                        red: Double(c.r) / 255, green: Double(c.g) / 255,
+                        blue: Double(c.b) / 255))
+            }
+            if out.count >= 12 { break }
+        }
+        return out
+    }
+
+    /// Remove one anchor: end anchors shorten an open stroke, interior anchors
+    /// merge their neighbouring segments (simpler path, tangents preserved).
+    func removeAnchor(element: Int, path: Int, anchor: Int) {
+        guard var doc = document, element < doc.elements.count,
+            let removed = Editing.removeAnchor(doc.elements[element], path: path, anchor: anchor)
+        else {
+            status = "This point cannot be removed (path is already minimal)."
+            return
+        }
+        beginEditGesture()
+        doc.elements[element] = removed
+        document = doc
+        documentEdited = true
+        nodes = doc.nodeCount
+        status = "Removed point."
+        editGeneration += 1
+    }
+
+    /// Move one cubic control handle of one element. `mirror` keeps the
+    /// opposite handle collinear (smooth point).
+    func moveHandle(
+        element: Int, path: Int, segment: Int, kind: Editing.HandleKind, to: Pt,
+        mirror: Bool = false
+    ) {
         guard var doc = document, element < doc.elements.count else { return }
         doc.elements[element] = Editing.moveHandle(
-            doc.elements[element], path: path, segment: segment, kind: kind, to: to)
+            doc.elements[element], path: path, segment: segment, kind: kind, to: to,
+            mirror: mirror)
         document = doc
+        documentEdited = true
         editGeneration += 1
     }
 
@@ -375,37 +614,19 @@ final class ConversionModel: ObservableObject {
         doc.elements[element] = Editing.move(
             doc.elements[element], path: path, anchor: anchor, to: to)
         document = doc
+        documentEdited = true
         editGeneration += 1
     }
 
-    /// Leaving edit mode: regenerate the SVG and the raster preview from the
-    /// (possibly edited) document so every surface agrees again.
-    func finishEditing() {
-        editMode = false
-        guard let doc = document, let working = workingImage else { return }
-        let smoothing = self.smoothing
-        status = "Edited · updating preview…"
-        Task.detached(priority: .userInitiated) {
-            let svg = SVGExport.toSVG(doc, smoothing: smoothing)
-            let displayScale = max(1.0, 2048.0 / Double(max(working.width, working.height)))
-            let preview = Rasterizer.render(doc, smoothing: smoothing, scale: displayScale)
-            let cg = preview.cgImage()
-            let w = preview.width
-            let h = preview.height
-            let nodes = doc.nodeCount
-            await MainActor.run {
-                if let cg {
-                    self.vectorImage = NSImage(cgImage: cg, size: NSSize(width: w, height: h))
-                }
-                self.svg = svg
-                self.svgKB = svg.utf8.count / 1024
-                self.nodes = nodes
-                self.status = "Edited"
-            }
-        }
-    }
-
     func exportSVG() {
+        // Edits happen live on the document; the SVG string is regenerated
+        // here so exports always match the canvas.
+        if documentEdited, let doc = document {
+            svg = SVGExport.toSVG(doc, smoothing: smoothing)
+            svgKB = svg.utf8.count / 1024
+            nodes = doc.nodeCount
+            documentEdited = false
+        }
         guard !svg.isEmpty else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "svg") ?? .xml]

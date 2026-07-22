@@ -7,27 +7,23 @@ struct ContentView: View {
     @State private var showInspector = true
     @State private var zoom: CGFloat = 1
     @State private var offset: CGSize = .zero
+    @State private var compareMode: CompareMode = .split
 
     var body: some View {
         NavigationStack {
             Group {
-                if model.sourceImage == nil {
+                if model.sourceImage == nil && model.document == nil {
                     EmptyStateView(model: model)
                 } else {
                     VStack(spacing: 0) {
-                        if model.editMode {
-                            EditCanvasView(model: model, zoom: $zoom, offset: $offset)
-                        } else {
-                            ComparisonView(
-                                source: model.sourceImage, vector: model.vectorImage,
-                                busy: model.isBusy, zoom: $zoom, offset: $offset)
-                        }
+                        ComparisonView(
+                            model: model, mode: $compareMode, zoom: $zoom, offset: $offset)
                         Divider()
                         statusBar
                     }
                 }
             }
-            .navigationTitle("Fekthor Trace")
+            .navigationTitle("Fekthor")
             .toolbar { toolbarContent }
             .inspector(isPresented: $showInspector) {
                 InspectorView(model: model)
@@ -35,6 +31,16 @@ struct ContentView: View {
             }
             .onDrop(of: [.fileURL], isTargeted: nil) { model.handleDrop($0) }
             .onPasteCommand(of: [.image, .fileURL]) { _ in model.paste() }
+            .alert("Discard your edits?", isPresented: $model.confirmReconvert) {
+                Button("Discard & Re-convert", role: .destructive) {
+                    model.confirmPendingAction()
+                }
+                Button("Keep Edits", role: .cancel) { model.cancelPendingAction() }
+            } message: {
+                Text(
+                    "Re-converting rebuilds the vector from the image and your manual point, curve and colour edits will be lost."
+                )
+            }
             .onChange(of: model.imageGeneration) { _, _ in
                 zoom = 1
                 offset = .zero
@@ -49,33 +55,25 @@ struct ContentView: View {
             Button { model.openPanel() } label: { Label("Open", systemImage: "photo.badge.plus") }
         }
         ToolbarItemGroup(placement: .primaryAction) {
+            if model.hasResult && model.sourceImage != nil {
+                Picker("View", selection: $compareMode) {
+                    ForEach(CompareMode.allCases, id: \.self) { m in
+                        Image(systemName: m.icon).help(m.rawValue).tag(m)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
             if zoom != 1 || offset != .zero {
                 Button {
                     zoom = 1
                     offset = .zero
                 } label: { Label("Fit", systemImage: "arrow.up.left.and.arrow.down.right") }
             }
-            if model.editMode {
-                Button { model.undoEdit() } label: {
-                    Label("Undo", systemImage: "arrow.uturn.backward")
-                }
-                .keyboardShortcut("z", modifiers: .command)
-                .disabled(!model.canUndo)
+            Button { model.undoEdit() } label: {
+                Label("Undo", systemImage: "arrow.uturn.backward")
             }
-            Button {
-                if model.editMode {
-                    model.finishEditing()
-                } else {
-                    model.editMode = true
-                    model.status = "Editing — click a shape, drag its points."
-                }
-            } label: {
-                Label(
-                    model.editMode ? "Done" : "Edit nodes",
-                    systemImage: model.editMode
-                        ? "checkmark.circle" : "point.topleft.down.to.point.bottomright.curvepath")
-            }
-            .disabled(!model.hasResult)
+            .keyboardShortcut("z", modifiers: .command)
+            .disabled(!model.canUndo)
             Button { model.exportSVG() } label: {
                 Label("Export SVG", systemImage: "square.and.arrow.up")
             }
@@ -115,49 +113,109 @@ private struct EmptyStateView: View {
     var body: some View {
         ZStack {
             Rectangle().fill(Color(nsColor: .windowBackgroundColor))
-            VStack(spacing: 16) {
-                Image(systemName: "square.and.arrow.down.on.square")
-                    .font(.system(size: 52)).foregroundStyle(.tertiary)
-                Text("Drop an image here").font(.title2).fontWeight(.medium)
-                Text("Turn line art and flat images into editable strokes and shapes.")
-                    .foregroundStyle(.secondary)
-                Button { model.openPanel() } label: { Label("Open Image", systemImage: "folder") }
-                    .controlSize(.large)
-                    .padding(.top, 4)
-                Text("or press ⌘V to paste · PNG · JPEG · TIFF · HEIC · WebP")
-                    .font(.caption).foregroundStyle(.tertiary)
+            VStack(spacing: 28) {
+                VStack(spacing: 6) {
+                    Text("Fekthor").font(.largeTitle).fontWeight(.semibold)
+                    Text("Vector editing, with tracing built in.")
+                        .foregroundStyle(.secondary)
+                }
+                HStack(spacing: 16) {
+                    homeCard(
+                        icon: "doc.badge.plus",
+                        title: "New File",
+                        subtitle: "A blank artboard.\nSaves as plain SVG.",
+                        enabled: true
+                    ) {
+                        model.newBlankDocument()
+                    }
+                    homeCard(
+                        icon: "square.grid.3x3.square",
+                        title: "New Workspace",
+                        subtitle: "An icon library —\na .fekthor workfile over\na folder of SVGs.",
+                        enabled: false,
+                        badge: "coming with the Library update"
+                    ) {}
+                    homeCard(
+                        icon: "wand.and.rays",
+                        title: "Vectorize Image",
+                        subtitle: "Trace a PNG or photo\ninto editable vectors.",
+                        enabled: true
+                    ) {
+                        model.openPanel()
+                    }
+                }
+                Text("or drop an image anywhere · press ⌘V to paste · PNG · JPEG · TIFF · HEIC · WebP")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
             }
             .padding(40)
-            .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .strokeBorder(
-                        style: StrokeStyle(lineWidth: 2, dash: [8, 6])
-                    )
-                    .foregroundStyle(.quaternary)
-                    .padding(28)
-            )
         }
         .onDrop(of: [.fileURL], isTargeted: nil) { model.handleDrop($0) }
+    }
+
+    private func homeCard(
+        icon: String, title: String, subtitle: String, enabled: Bool, badge: String? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 34))
+                    .foregroundStyle(enabled ? Color.accentColor : Color.secondary)
+                Text(title).font(.headline)
+                Text(subtitle)
+                    .font(.caption)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+                if let badge {
+                    Text(badge)
+                        .font(.caption2)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(.quaternary, in: Capsule())
+                }
+            }
+            .frame(width: 190, height: 170)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(Color(nsColor: .controlBackgroundColor)))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14).strokeBorder(.quaternary))
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.6)
     }
 }
 
 // MARK: - Synchronized zoom/pan comparison
 
+enum CompareMode: String, CaseIterable {
+    case split = "Split"
+    case overlay = "Overlay"
+    case wipe = "Wipe"
+    case edit = "Edit"
+
+    var icon: String {
+        switch self {
+        case .split: return "rectangle.split.2x1"
+        case .overlay: return "square.2.layers.3d"
+        case .wipe: return "rectangle.leadinghalf.filled"
+        case .edit: return "point.topleft.down.to.point.bottomright.curvepath"
+        }
+    }
+}
+
 private struct ComparisonView: View {
-    let source: NSImage?
-    let vector: NSImage?
-    let busy: Bool
+    @ObservedObject var model: ConversionModel
+    @Binding var mode: CompareMode
     @Binding var zoom: CGFloat
     @Binding var offset: CGSize
-    @State private var mode: CompareMode = .split
+
+    private var source: NSImage? { model.sourceImage }
+    private var busy: Bool { model.isBusy }
     @State private var overlayOpacity: Double = 0.5
     @State private var wipe: CGFloat = 0.5
-
-    enum CompareMode: String, CaseIterable {
-        case split = "Split"
-        case overlay = "Overlay"
-        case wipe = "Wipe"
-    }
 
     private func setZoom(_ z: CGFloat) { zoom = min(24, max(1, z)) }
     private func reset() {
@@ -169,32 +227,37 @@ private struct ComparisonView: View {
         GeometryReader { geo in
             ZStack(alignment: .bottom) {
                 Group {
-                    switch mode {
+                    switch (model.sourceImage == nil ? CompareMode.edit : mode) {
                     case .split:
                         HSplitView {
                             pane(title: "Source", image: source, busy: false)
-                            pane(title: "Vector", image: vector, busy: busy)
+                            vectorPane
                         }
                     case .overlay:
                         singleCanvas { size in
                             ZStack {
                                 imageLayer(source, in: size)
-                                imageLayer(vector, in: size)
-                                    .opacity(overlayOpacity)
-                                    .opacity(busy ? 0.5 : 1)
+                                VectorEditLayer(
+                                    model: model, zoom: $zoom, offset: $offset, busy: busy,
+                                    contentOpacity: overlayOpacity)
                             }
                         }
                     case .wipe:
                         singleCanvas { size in
                             ZStack {
                                 imageLayer(source, in: size)
-                                imageLayer(vector, in: size)
-                                    .opacity(busy ? 0.5 : 1)
-                                    .mask(alignment: .leading) {
-                                        Rectangle()
-                                            .frame(width: max(0, size.width * wipe))
-                                    }
+                                VectorEditLayer(
+                                    model: model, zoom: $zoom, offset: $offset, busy: busy
+                                )
+                                .mask(alignment: .leading) {
+                                    Rectangle()
+                                        .frame(width: max(0, size.width * wipe))
+                                }
                             }
+                        }
+                    case .edit:
+                        singleCanvas { _ in
+                            VectorEditLayer(model: model, zoom: $zoom, offset: $offset, busy: busy)
                         }
                     }
                 }
@@ -204,11 +267,23 @@ private struct ComparisonView: View {
                             offset = CGSize(width: offset.width + dx, height: offset.height + dy)
                         },
                         onZoom: { m in setZoom(zoom * (1 + m)) },
-                        onDoubleClick: { p in zoomIn(at: p, in: geo.size) }
+                        onDoubleClick: { p in
+                            if mode == .split, p.x >= geo.size.width / 2 {
+                                mode = .edit
+                            } else {
+                                zoomIn(at: p, in: geo.size)
+                            }
+                        }
                     )
                 )
                 if mode == .wipe {
                     wipeDivider(in: geo.size)
+                }
+                if !model.selectedElements.isEmpty {
+                    VStack {
+                        colorBar
+                        Spacer()
+                    }
                 }
                 zoomControls
             }
@@ -264,7 +339,11 @@ private struct ComparisonView: View {
     {
         VStack(spacing: 0) {
             HStack {
-                Text(mode == .overlay ? "Overlay" : "Wipe").font(.headline)
+                Text(mode.rawValue).font(.headline)
+                if mode == .edit {
+                    Text("full-canvas editing — double-click the Vector pane to get here")
+                        .font(.caption).foregroundStyle(.tertiary)
+                }
                 Spacer()
                 if mode == .overlay {
                     Slider(value: $overlayOpacity, in: 0...1)
@@ -297,19 +376,76 @@ private struct ComparisonView: View {
         }
     }
 
+    /// Floating recolour bar for the current path selection: a colour well,
+    /// a default palette, and the colours already used in this vector.
+    private var colorBar: some View {
+        let defaults: [Color] = [
+            .black, .white, Color(red: 0.5, green: 0.5, blue: 0.5),
+            Color(red: 0.86, green: 0.18, blue: 0.16), Color(red: 0.96, green: 0.55, blue: 0.14),
+            Color(red: 0.97, green: 0.82, blue: 0.25), Color(red: 0.27, green: 0.66, blue: 0.32),
+            Color(red: 0.19, green: 0.62, blue: 0.62), Color(red: 0.19, green: 0.42, blue: 0.78),
+            Color(red: 0.51, green: 0.31, blue: 0.72), Color(red: 0.89, green: 0.39, blue: 0.62),
+            Color(red: 0.55, green: 0.36, blue: 0.24),
+        ]
+        return HStack(spacing: 8) {
+            Text("\(model.selectedElements.count) selected")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+            ColorPicker(
+                "",
+                selection: Binding(
+                    get: { model.selectionColor },
+                    set: { model.setSelectionColor($0) })
+            )
+            .labelsHidden()
+            Divider().frame(height: 16)
+            swatchRow(defaults)
+            if !model.documentColors.isEmpty {
+                Divider().frame(height: 16)
+                swatchRow(model.documentColors)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(.quaternary))
+        .padding(.top, 44)
+    }
+
+    private func swatchRow(_ colors: [Color]) -> some View {
+        HStack(spacing: 4) {
+            ForEach(Array(colors.enumerated()), id: \.offset) { _, c in
+                Circle()
+                    .fill(c)
+                    .frame(width: 14, height: 14)
+                    .overlay(Circle().strokeBorder(.quaternary, lineWidth: 0.5))
+                    .onTapGesture {
+                        // Each swatch tap is its own undo step.
+                        model.selectionChanged()
+                        model.setSelectionColor(c)
+                    }
+            }
+        }
+    }
+
     private var zoomControls: some View {
         HStack(spacing: 2) {
-            Picker("", selection: $mode) {
-                ForEach(CompareMode.allCases, id: \.self) { m in
-                    Text(m.rawValue).tag(m)
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 200)
-            Divider().frame(height: 16)
             Button { setZoom(zoom / 1.25) } label: { Image(systemName: "minus") }
+                .keyboardShortcut("-", modifiers: .command)
             Text("\(Int(zoom * 100))%").font(.callout.monospacedDigit()).frame(width: 52)
             Button { setZoom(zoom * 1.25) } label: { Image(systemName: "plus") }
+                .keyboardShortcut("=", modifiers: .command)
+            // The shifted variant of the same key, so a literal Cmd-+ works too.
+            Button { setZoom(zoom * 1.25) } label: { EmptyView() }
+                .keyboardShortcut("+", modifiers: .command)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+            // Backspace deletes the selected paths.
+            Button { model.deleteSelection() } label: { EmptyView() }
+                .keyboardShortcut(.delete, modifiers: [])
+                .disabled(model.selectedElements.isEmpty)
+                .frame(width: 0, height: 0)
+                .opacity(0)
             Divider().frame(height: 16)
             Button { reset() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
         }
@@ -319,6 +455,23 @@ private struct ComparisonView: View {
         .background(.regularMaterial, in: Capsule())
         .overlay(Capsule().strokeBorder(.quaternary))
         .padding(.bottom, 12)
+    }
+
+    private var vectorPane: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Vector").font(.headline)
+                Spacer()
+                Text("click a shape to edit").font(.caption).foregroundStyle(.tertiary)
+            }
+            .padding(8)
+            ZStack {
+                Rectangle().fill(Color(nsColor: .textBackgroundColor))
+                VectorEditLayer(model: model, zoom: $zoom, offset: $offset, busy: busy)
+            }
+            .clipped()
+        }
+        .frame(minWidth: 300, minHeight: 340)
     }
 
     private func pane(title: String, image: NSImage?, busy: Bool) -> some View {
@@ -372,32 +525,56 @@ private struct TrackpadCatcher: NSViewRepresentable {
         var onPan: ((CGFloat, CGFloat) -> Void)?
         var onZoom: ((CGFloat) -> Void)?
         var onDoubleClick: ((CGPoint) -> Void)?
-        override func scrollWheel(with event: NSEvent) {
-            onPan?(event.scrollingDeltaX, event.scrollingDeltaY)
+        private var monitors: [Any] = []
+
+        // Clicks belong to the live edit canvas below (select shapes, drag
+        // anchors), so this view never claims hit-testing. Two-finger scroll,
+        // pinch and double-click are taken from the event stream instead —
+        // monitors see them regardless of hit-testing, and returning the
+        // event keeps normal dispatch intact.
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            for m in monitors { NSEvent.removeMonitor(m) }
+            monitors = []
+            guard window != nil else { return }
+            monitors.append(
+                NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] e in
+                    guard let self, self.covers(e) else { return e }
+                    if e.modifierFlags.contains(.control) {
+                        // Control + two-finger scroll zooms (macOS convention).
+                        self.onZoom?(e.scrollingDeltaY * 0.01)
+                    } else {
+                        self.onPan?(e.scrollingDeltaX, e.scrollingDeltaY)
+                    }
+                    return e
+                }!)
+            monitors.append(
+                NSEvent.addLocalMonitorForEvents(matching: .magnify) { [weak self] e in
+                    guard let self, self.covers(e) else { return e }
+                    self.onZoom?(e.magnification)
+                    return e
+                }!)
+            monitors.append(
+                NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] e in
+                    guard let self, e.clickCount == 2, self.covers(e) else { return e }
+                    let p = self.convert(e.locationInWindow, from: nil)
+                    // NSView is bottom-left origin; SwiftUI expects top-left.
+                    self.onDoubleClick?(CGPoint(x: p.x, y: self.bounds.height - p.y))
+                    return e
+                }!)
         }
-        override func magnify(with event: NSEvent) {
-            onZoom?(event.magnification)
+
+        deinit {
+            for m in monitors { NSEvent.removeMonitor(m) }
         }
-        // Click-drag to pan; double-click zooms in at the clicked point.
-        override func mouseDown(with event: NSEvent) {
-            if event.clickCount == 2 {
-                let p = convert(event.locationInWindow, from: nil)
-                // NSView is bottom-left origin; SwiftUI expects top-left (y down).
-                onDoubleClick?(CGPoint(x: p.x, y: bounds.height - p.y))
-            }
+
+        private func covers(_ e: NSEvent) -> Bool {
+            guard e.window === window else { return false }
+            let p = convert(e.locationInWindow, from: nil)
+            return bounds.contains(p)
         }
-        override func mouseDragged(with event: NSEvent) {
-            onPan?(event.deltaX, event.deltaY)
-        }
-        override func resetCursorRects() {
-            addCursorRect(bounds, cursor: .openHand)
-        }
-        // Receive scroll/pinch over the canvas. Clicks here have no target, so
-        // capturing them is harmless; toolbar/inspector/zoom controls sit above.
-        override func hitTest(_ point: NSPoint) -> NSView? {
-            bounds.contains(convert(point, from: superview)) ? self : nil
-        }
-        override var acceptsFirstResponder: Bool { true }
     }
 }
 
