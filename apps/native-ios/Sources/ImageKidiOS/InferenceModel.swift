@@ -358,6 +358,31 @@ final class InferenceModel: ObservableObject {
         commit(resized, status: "Resized to \(width)×\(height)")
     }
 
+    /// Resize; when ENLARGING, upscale with the chosen AI quality instead of a
+    /// plain stretch. Shrinking (or same size) uses a plain resample.
+    func applyResize(width: Int, height: Int, upscaleQuality: EnhanceQuality) {
+        guard let source = workingImage?.normalizedCGImage() else { return }
+        let enlarging = width > source.width || height > source.height
+        guard enlarging else {
+            applyResize(width: width, height: height)
+            return
+        }
+        let target = CGSize(width: CGFloat(width), height: CGFloat(height))
+        run(status: "Upscaled to \(width)×\(height)") { [self] progress in
+            switch upscaleQuality {
+            case .quick:
+                let resolved = UpscaleContentMode.resolved(.automatic, for: source)
+                let sharpening: CoreImageUpscaler.Sharpening = resolved == .textAndUI ? .textAndUI : .photoArtwork
+                return try await CoreImageUpscaler(sharpening: sharpening)
+                    .upscale(source, to: target, progress: progress)
+            case .high:
+                return try await realESRGANUpscaler.upscale(source, to: target, progress: progress)
+            case .max:
+                return try await auraSRUpscaler.upscale(source, to: target, progress: progress)
+            }
+        }
+    }
+
     /// Replaces the working image with an already-rendered edit (annotations,
     /// refinement).
     func applyEditedImage(_ image: CGImage, status: String) {

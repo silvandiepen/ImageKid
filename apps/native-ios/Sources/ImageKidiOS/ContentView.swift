@@ -632,6 +632,7 @@ private struct ResizeInspector: View {
     @State private var width: Int
     @State private var height: Int
     @State private var lockAspect = true
+    @State private var quality: EnhanceQuality = .quick
 
     private let aspect: CGFloat
 
@@ -643,6 +644,13 @@ private struct ResizeInspector: View {
         _height = State(initialValue: max(1, Int(pixelSize.height.rounded())))
         aspect = pixelSize.width / max(pixelSize.height, 1)
     }
+
+    /// Enlarging → route through AI upscaling (the user only picks quality).
+    private var isEnlarging: Bool {
+        CGFloat(width) > pixelSize.width || CGFloat(height) > pixelSize.height
+    }
+
+    private var qualityReady: Bool { model.enhanceReady(quality) }
 
     var body: some View {
         InspectorPanel(title: "Resize", systemImage: "arrow.up.left.and.arrow.down.right", onClose: onClose) {
@@ -666,19 +674,36 @@ private struct ResizeInspector: View {
                     }
                 }
 
+                // Enlarging always uses AI upscaling — the only choice is quality.
+                if isEnlarging {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("AI upscale quality")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Picker("Quality", selection: $quality) {
+                            ForEach(EnhanceQuality.allCases) { Text($0.label).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+                        Text(quality.detail)
+                            .font(.caption2).foregroundStyle(.secondary)
+                        if !qualityReady, let downloadable = quality.requiredModel {
+                            ModelDownloadRow(model: model, downloadable: downloadable)
+                        }
+                    }
+                }
+
                 Button {
-                    model.applyResize(width: max(1, width), height: max(1, height))
+                    if isEnlarging {
+                        model.applyResize(width: max(1, width), height: max(1, height), upscaleQuality: quality)
+                    } else {
+                        model.applyResize(width: max(1, width), height: max(1, height))
+                    }
                     onClose()
                 } label: {
-                    Label("Apply Resize", systemImage: "checkmark")
+                    Label(isEnlarging ? "Upscale with AI" : "Apply Resize", systemImage: "checkmark")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-
-                Text("Want to enlarge with more detail? Use Magic ▸ Enhance Image.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                .disabled(isEnlarging && !qualityReady)
             }
         }
     }
@@ -905,6 +930,13 @@ private struct ColourInspector: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
+                    if let current {
+                        Menu {
+                            copyButtons(for: current)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                        }
+                    }
                     Button(action: onSave) {
                         Image(systemName: "plus.circle.fill")
                     }
@@ -915,12 +947,25 @@ private struct ColourInspector: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else {
+                    HStack {
+                        Text("Saved").font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Menu {
+                            Button("Copy HEX list") { copyPalette(\.hex) }
+                            Button("Copy RGB list") { copyPalette(\.rgb) }
+                            Button("Copy CSS variables") { copyPalette(\.cssVariable) }
+                            Button("Copy JSON") { copyPaletteJSON() }
+                        } label: {
+                            Label("Export", systemImage: "square.and.arrow.up")
+                                .font(.caption)
+                        }
+                    }
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 10) {
                             ForEach(model.sampledColors) { swatch in
                                 Menu {
-                                    Button("Copy \(swatch.hex)") { UIPasteboard.general.string = swatch.hex }
-                                    Button("Copy \(swatch.rgb)") { UIPasteboard.general.string = swatch.rgb }
+                                    copyButtons(for: swatch)
+                                    Divider()
                                     Button("Remove", role: .destructive) { model.removeSampledColor(swatch.id) }
                                 } label: {
                                     RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -934,6 +979,23 @@ private struct ColourInspector: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func copyButtons(for c: SampledColor) -> some View {
+        Button("Copy \(c.hex)") { UIPasteboard.general.string = c.hex }
+        Button("Copy \(c.rgb)") { UIPasteboard.general.string = c.rgb }
+        Button("Copy \(c.hsl)") { UIPasteboard.general.string = c.hsl }
+        Button("Copy CSS variable") { UIPasteboard.general.string = c.cssVariable }
+    }
+
+    private func copyPalette(_ keyPath: KeyPath<SampledColor, String>) {
+        UIPasteboard.general.string = model.sampledColors.map { $0[keyPath: keyPath] }.joined(separator: "\n")
+    }
+
+    private func copyPaletteJSON() {
+        let items = model.sampledColors.map { "  \"\($0.hex)\"" }.joined(separator: ",\n")
+        UIPasteboard.general.string = "[\n\(items)\n]"
     }
 }
 
