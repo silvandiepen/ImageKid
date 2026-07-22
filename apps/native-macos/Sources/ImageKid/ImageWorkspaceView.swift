@@ -242,8 +242,10 @@ struct ImageWorkspaceView: View {
             .animation(.easeOut(duration: 0.18), value: session.showGridPanel)
 
             // Movable, minimizable dockable panels + their minimized icon rail.
+            // Top inset clears the window's traffic-light controls; leading matches
+            // the panels below so the rail lines up with them.
             dockablePanelsLayer
-                .padding(.top, 14)
+                .padding(.top, 38)
                 .padding(.leading, 18)
         }
     }
@@ -354,8 +356,6 @@ struct ImageWorkspaceView: View {
 
                 PanelDockRail(model: panelDock, axis: .horizontal)
             }
-            // Clear the window's traffic-light controls at the top-left.
-            .padding(.leading, 62)
 
             ZStack(alignment: .topLeading) {
                 if panelDock.isExpanded(.files) {
