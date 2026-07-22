@@ -189,6 +189,17 @@ struct ImageWorkspaceView: View {
                             applyRotate()
                             return true
                         }
+                        if session.isEditingMask {
+                            session.endMaskEdit()
+                            return true
+                        }
+                        // Enter confirms/deselects a selected layer or annotation.
+                        if session.selectedLayerID != nil || session.selectedAnnotationID != nil {
+                            session.selectedLayerID = nil
+                            session.selectedLayerIDs = []
+                            session.selectedAnnotationID = nil
+                            return true
+                        }
                         return false
                     }
                 )
@@ -227,6 +238,14 @@ struct ImageWorkspaceView: View {
                 session: session,
                 offset: $panelOffset,
                 onDone: { session.endMaskEdit() }
+            )
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+        } else if let layerID = session.selectedLayerID {
+            TransformControls(
+                session: session,
+                layerID: layerID,
+                offset: $panelOffset,
+                onClose: { session.selectedLayerID = nil; session.selectedLayerIDs = [] }
             )
             .transition(.move(edge: .trailing).combined(with: .opacity))
         } else if appModel.activeTool == .select, session.hasImageSelection, session.selectedAnnotationID == nil {
@@ -535,11 +554,43 @@ struct ImageWorkspaceView: View {
                     .allowsHitTesting(false)
 
                 if session.selectedLayerID == layer.id {
-                    selectionOverlay(for: rect)
+                    rotatedLayerSelectionOverlay(for: rect, rotation: layer.rotation)
                         .allowsHitTesting(false)
                 }
             }
         }
+    }
+
+    private func rotatedLayerSelectionOverlay(for rect: CGRect, rotation: Double) -> some View {
+        let corners = [
+            CGPoint(x: 0, y: 0), CGPoint(x: rect.width, y: 0),
+            CGPoint(x: 0, y: rect.height), CGPoint(x: rect.width, y: rect.height)
+        ]
+        return ZStack {
+            Rectangle()
+                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
+            ForEach(Array(corners.enumerated()), id: \.offset) { _, point in
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(Color.white)
+                    .frame(width: 12, height: 12)
+                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.accentColor, lineWidth: 2))
+                    .position(point)
+            }
+        }
+        .frame(width: rect.width, height: rect.height)
+        .rotationEffect(.degrees(rotation))
+        .position(x: rect.midX, y: rect.midY)
+    }
+
+    /// Map a screen point back into a layer's un-rotated space for hit-testing.
+    private func unrotatePoint(_ point: CGPoint, around center: CGPoint, degrees: Double) -> CGPoint {
+        guard degrees != 0 else { return point }
+        let a = -degrees * .pi / 180
+        let dx = point.x - center.x, dy = point.y - center.y
+        return CGPoint(
+            x: center.x + dx * cos(a) - dy * sin(a),
+            y: center.y + dx * sin(a) + dy * cos(a)
+        )
     }
 
     @ViewBuilder
@@ -1297,7 +1348,9 @@ struct ImageWorkspaceView: View {
     private func hitLayer(at point: CGPoint, imageRect: CGRect) -> ImageLayer? {
         session.imageLayers.reversed().first { layer in
             guard session.isLayerEffectivelyVisible(layer), let displayed = displayedAnnotationFrame(layer.frame) else { return false }
-            return GeometryMapper.viewRect(from: displayed, in: imageRect).contains(point)
+            let rect = GeometryMapper.viewRect(from: displayed, in: imageRect)
+            let center = CGPoint(x: rect.midX, y: rect.midY)
+            return rect.contains(unrotatePoint(point, around: center, degrees: layer.rotation))
         }
     }
 
@@ -1308,7 +1361,9 @@ struct ImageWorkspaceView: View {
               let selected = session.imageLayers.first(where: { $0.id == selectedID }),
               let displayed = displayedAnnotationFrame(selected.frame) else { return nil }
         let rect = GeometryMapper.viewRect(from: displayed, in: imageRect)
-        if let corner = cornerHandle(at: point, rect: rect) {
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let local = unrotatePoint(point, around: center, degrees: selected.rotation)
+        if let corner = cornerHandle(at: local, rect: rect) {
             return .resizeLayer(id: selectedID, corner: corner, start: selected.frame)
         }
         // Rotate ring: just beyond a corner dot.
@@ -1316,9 +1371,8 @@ struct ImageWorkspaceView: View {
             CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY),
             CGPoint(x: rect.minX, y: rect.maxY), CGPoint(x: rect.maxX, y: rect.maxY)
         ]
-        let nearest = corners.map { hypot($0.x - point.x, $0.y - point.y) }.min() ?? .infinity
+        let nearest = corners.map { hypot($0.x - local.x, $0.y - local.y) }.min() ?? .infinity
         if nearest > 11, nearest < 36 {
-            let center = CGPoint(x: rect.midX, y: rect.midY)
             let startAngle = atan2(point.y - center.y, point.x - center.x)
             return .rotateLayer(id: selectedID, center: center, startAngle: startAngle, startRotation: selected.rotation)
         }
