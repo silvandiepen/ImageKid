@@ -10,6 +10,7 @@ struct ColorPalettePanel: View {
     let onClose: () -> Void
 
     @State private var expandedColorIDs: Set<UUID> = []
+    @State private var detailColorID: UUID?
     @State private var panelSize = CGSize(width: 320, height: 460)
     @State private var extractCount = 6
     @State private var swipeOffsets: [UUID: CGFloat] = [:]
@@ -192,64 +193,73 @@ struct ColorPalettePanel: View {
                 Spacer()
 
                 Button {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        toggleExpanded(sample.id)
-                    }
+                    detailColorID = (detailColorID == sample.id) ? nil : sample.id
                 } label: {
-                    Image(systemName: expandedColorIDs.contains(sample.id) ? "chevron.up" : "chevron.down")
+                    Image(systemName: "info.circle")
                         .frame(width: 26, height: 26)
                         .background(.white.opacity(0.08), in: Circle())
                 }
                 .buttonStyle(.plain)
-                .help(expandedColorIDs.contains(sample.id) ? "Collapse Colour Details" : "Expand Colour Details")
-                .accessibilityLabel(expandedColorIDs.contains(sample.id) ? "Collapse Colour Details" : "Expand Colour Details")
+                .help("Colour details")
+                .accessibilityLabel("Colour details")
+                .popover(
+                    isPresented: Binding(
+                        get: { detailColorID == sample.id },
+                        set: { if !$0 { detailColorID = nil } }
+                    ),
+                    arrowEdge: .leading
+                ) {
+                    colorDetail(sample)
+                        .frame(width: 250)
+                        .padding(14)
+                }
             }
             .padding(10)
-
-            if expandedColorIDs.contains(sample.id) {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("Adjust")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.62))
-                        Spacer()
-                        ColorPicker(
-                            "Adjust colour",
-                            selection: colorBinding(for: sample.id),
-                            supportsOpacity: true
-                        )
-                        .labelsHidden()
-                    }
-
-                    valueRow("HEX", sample.hex)
-                    valueRow("RGB", sample.rgb)
-                    valueRow("RGBA", sample.rgba)
-                    valueRow("HSL", sample.hsl)
-                    valueRow("SwiftUI", sample.swiftUIColor)
-
-                    Button(role: .destructive) {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            removeSample(sample.id)
-                        }
-                    } label: {
-                        Label("Remove Colour", systemImage: "trash")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .padding(.top, 2)
-                }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 12)
-            }
         }
         .background(.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func colorDetail(_ sample: SampledColor) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color(nsColor: sample.sRGB))
+                    .frame(width: 44, height: 32)
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(.primary.opacity(0.2)))
+                Spacer()
+                ColorPicker("Adjust", selection: colorBinding(for: sample.id), supportsOpacity: true)
+                    .labelsHidden()
+            }
+            valueRow("HEX", sample.hex)
+            valueRow("RGB", sample.rgb)
+            valueRow("RGBA", sample.rgba)
+            valueRow("HSL", sample.hsl)
+            valueRow("SwiftUI", sample.swiftUIColor)
+            Divider()
+            HStack {
+                Menu("Add to Swatches") {
+                    ForEach(library.sets) { set in
+                        Button(set.name) { library.addColor(sample.color, to: set.id) }
+                    }
+                }
+                Spacer()
+                Button(role: .destructive) {
+                    detailColorID = nil
+                    session.removeSamples([sample.id])
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+            }
+        }
     }
 
     private func valueRow(_ label: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(label)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.52))
+                .foregroundStyle(.secondary)
                 .frame(width: 48, alignment: .leading)
             Text(value)
                 .font(.caption.monospaced())
