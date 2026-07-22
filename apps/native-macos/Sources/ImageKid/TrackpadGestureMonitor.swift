@@ -65,8 +65,12 @@ struct TrackpadGestureMonitor: NSViewRepresentable {
         /// True when the event lands inside an NSScrollView (a panel's list),
         /// so canvas pan/zoom should defer to that scroll view.
         private func isOverScrollableContent(_ event: NSEvent) -> Bool {
-            guard let content = view?.window?.contentView,
-                  let hit = content.hitTest(event.locationInWindow) else { return false }
+            guard let content = view?.window?.contentView else { return false }
+            // hitTest expects the point in the content view's own coordinate space;
+            // convert from window coords so a flipped/offset hosting view still
+            // resolves the correct location.
+            let point = content.convert(event.locationInWindow, from: nil)
+            guard let hit = content.hitTest(point) else { return false }
             var candidate: NSView? = hit
             while let current = candidate {
                 if current is NSScrollView { return true }
