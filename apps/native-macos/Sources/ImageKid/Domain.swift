@@ -1108,6 +1108,31 @@ final class ImageSession: ObservableObject {
         record("Reorder layer", systemImage: "square.3.layers.3d")
     }
 
+    /// Drag-reorder in the Layers panel's visual (front-to-back) order: move the
+    /// dragged annotation so it takes the target's slot.
+    func reorderAnnotationVisual(moving sourceID: UUID, onto targetID: UUID) {
+        guard sourceID != targetID else { return }
+        var visual = Array(annotations.reversed())
+        guard let from = visual.firstIndex(where: { $0.id == sourceID }) else { return }
+        let moved = visual.remove(at: from)
+        guard let targetIdx = visual.firstIndex(where: { $0.id == targetID }) else { return }
+        visual.insert(moved, at: targetIdx)
+        annotations = Array(visual.reversed())
+        record("Reorder layer", systemImage: "arrow.up.arrow.down")
+    }
+
+    /// Drag-reorder image layers in the Layers panel's visual (front-to-back) order.
+    func reorderImageLayerVisual(moving sourceID: UUID, onto targetID: UUID) {
+        guard sourceID != targetID else { return }
+        var visual = Array(imageLayers.reversed())
+        guard let from = visual.firstIndex(where: { $0.id == sourceID }) else { return }
+        let moved = visual.remove(at: from)
+        guard let targetIdx = visual.firstIndex(where: { $0.id == targetID }) else { return }
+        visual.insert(moved, at: targetIdx)
+        imageLayers = Array(visual.reversed())
+        record("Reorder layer", systemImage: "arrow.up.arrow.down")
+    }
+
     // MARK: - Image layers
 
     /// Add a placed image as a new layer, centred and scaled to ~half the canvas.

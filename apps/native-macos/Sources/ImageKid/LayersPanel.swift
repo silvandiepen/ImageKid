@@ -1,5 +1,6 @@
 import SwiftUI
 import ImageKidKit
+import UniformTypeIdentifiers
 
 /// Lists annotation layers front-to-back, with selection, reordering,
 /// duplication and deletion. Front-most layer sits at the top of the list.
@@ -12,6 +13,8 @@ struct LayersPanel: View {
 
     @State private var editingID: UUID?
     @State private var editingText: String = ""
+    @State private var draggingID: UUID?
+    @State private var dropTargetID: UUID?
     @FocusState private var nameFieldFocused: Bool
 
     /// Front-most first (last in the draw array renders on top).
@@ -53,9 +56,17 @@ struct LayersPanel: View {
                         }
                         ForEach(ungroupedLayers) { layer in
                             imageLayerRow(layer)
+                                .modifier(ReorderDrag(
+                                    id: layer.id, draggingID: $draggingID, dropTargetID: $dropTargetID,
+                                    onDrop: { src in session.reorderImageLayerVisual(moving: src, onto: layer.id) }
+                                ))
                         }
                         ForEach(orderedLayers) { layer in
                             row(layer)
+                                .modifier(ReorderDrag(
+                                    id: layer.id, draggingID: $draggingID, dropTargetID: $dropTargetID,
+                                    onDrop: { src in session.reorderAnnotationVisual(moving: src, onto: layer.id) }
+                                ))
                         }
                         backgroundRow
                     }
@@ -333,5 +344,60 @@ struct LayersPanel: View {
             return text.isEmpty ? "Text" : text
         }
         return layer.drawingMode?.label ?? "Shape"
+    }
+}
+
+/// Adds drag-to-reorder to a layer row: drag to pick up, drop onto another row
+/// to move it there. Shows a highlight line at the drop target.
+private struct ReorderDrag: ViewModifier {
+    let id: UUID
+    @Binding var draggingID: UUID?
+    @Binding var dropTargetID: UUID?
+    let onDrop: (UUID) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(draggingID == id ? 0.35 : 1)
+            .overlay(alignment: .top) {
+                if dropTargetID == id, draggingID != id, draggingID != nil {
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(Color.accentColor)
+                        .frame(height: 2)
+                        .offset(y: -3)
+                }
+            }
+            .onDrag {
+                draggingID = id
+                return NSItemProvider(object: id.uuidString as NSString)
+            }
+            .onDrop(of: [UTType.plainText], delegate: ReorderDropDelegate(
+                id: id, draggingID: $draggingID, dropTargetID: $dropTargetID, onDrop: onDrop
+            ))
+    }
+}
+
+private struct ReorderDropDelegate: DropDelegate {
+    let id: UUID
+    @Binding var draggingID: UUID?
+    @Binding var dropTargetID: UUID?
+    let onDrop: (UUID) -> Void
+
+    func dropEntered(info: DropInfo) {
+        if let dragging = draggingID, dragging != id { dropTargetID = id }
+    }
+
+    func dropExited(info: DropInfo) {
+        if dropTargetID == id { dropTargetID = nil }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        defer { draggingID = nil; dropTargetID = nil }
+        guard let source = draggingID, source != id else { return false }
+        onDrop(source)
+        return true
     }
 }
