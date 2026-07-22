@@ -343,6 +343,27 @@ enum ShapeStrokeStyle: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
+/// Where a shape's stroke sits relative to its edge.
+enum StrokeAlignment: String, CaseIterable, Identifiable, Hashable {
+    case inset, center, outset
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .inset: return "Inside"
+        case .center: return "Center"
+        case .outset: return "Outside"
+        }
+    }
+    /// How far (in stroke-width multiples) to shift the stroke path outward.
+    var edgeShift: CGFloat {
+        switch self {
+        case .inset: return -0.5
+        case .center: return 0
+        case .outset: return 0.5
+        }
+    }
+}
+
 struct Annotation: Identifiable {
     enum Kind {
         case rectangle
@@ -360,6 +381,14 @@ struct Annotation: Identifiable {
     var fillColor: NSColor?
     var lineWidth: CGFloat
     var strokeStyle: ShapeStrokeStyle
+    var strokeAlignment: StrokeAlignment
+    /// Corner radius for rectangles, in source pixels (0 = square corners).
+    var cornerRadius: CGFloat
+    /// Custom dash: length of a dash and the gap after it, in source pixels.
+    /// When dashLength <= 0 the strokeStyle preset is used instead.
+    var dashLength: CGFloat
+    var dashGap: CGFloat
+    var dashOffset: CGFloat
     var opacity: Double
     var fontFamily: String
     var fontSize: CGFloat
@@ -377,6 +406,11 @@ struct Annotation: Identifiable {
         fillColor: NSColor? = nil,
         lineWidth: CGFloat = 3,
         strokeStyle: ShapeStrokeStyle = .solid,
+        strokeAlignment: StrokeAlignment = .center,
+        cornerRadius: CGFloat = 0,
+        dashLength: CGFloat = 0,
+        dashGap: CGFloat = 0,
+        dashOffset: CGFloat = 0,
         opacity: Double = 1,
         fontFamily: String = "",
         fontSize: CGFloat = 48,
@@ -393,6 +427,11 @@ struct Annotation: Identifiable {
         self.fillColor = fillColor
         self.lineWidth = lineWidth
         self.strokeStyle = strokeStyle
+        self.strokeAlignment = strokeAlignment
+        self.cornerRadius = cornerRadius
+        self.dashLength = dashLength
+        self.dashGap = dashGap
+        self.dashOffset = dashOffset
         self.opacity = opacity
         self.fontFamily = fontFamily
         self.fontSize = fontSize
@@ -401,6 +440,15 @@ struct Annotation: Identifiable {
         self.textAlignment = textAlignment
         self.customName = customName
         self.isVisible = isVisible
+    }
+
+    /// The dash pattern to render with: custom (dashLength/dashGap scaled by the
+    /// given render scale) when set, otherwise the strokeStyle preset.
+    func effectiveDash(lineWidth: CGFloat, scale: CGFloat = 1) -> [CGFloat] {
+        if dashLength > 0 {
+            return [dashLength * scale, max(dashGap, 0) * scale]
+        }
+        return strokeStyle.dashPattern(lineWidth: lineWidth)
     }
 
     var textValue: String? {
@@ -420,6 +468,19 @@ struct Annotation: Identifiable {
     }
 
     var isDrawable: Bool { !isText }
+
+    /// Rectangle or ellipse — shapes that can be filled.
+    var isFillable: Bool {
+        switch kind {
+        case .rectangle, .ellipse: return true
+        default: return false
+        }
+    }
+
+    var isRectangle: Bool {
+        if case .rectangle = kind { return true }
+        return false
+    }
 
     var drawingMode: DrawingMode? {
         switch kind {
@@ -565,6 +626,11 @@ final class ImageSession: ObservableObject {
     @Published var drawingFillColor: NSColor?
     @Published var drawingLineWidth: CGFloat = 4
     @Published var drawingStrokeStyle: ShapeStrokeStyle = .solid
+    @Published var drawingStrokeAlignment: StrokeAlignment = .center
+    @Published var drawingCornerRadius: CGFloat = 0
+    @Published var drawingDashLength: CGFloat = 0
+    @Published var drawingDashGap: CGFloat = 0
+    @Published var drawingDashOffset: CGFloat = 0
     @Published var drawingOpacity: Double = 1
     /// Freehand brush smoothing (0 = raw, 1 = heavily smoothed sampling).
     @Published var drawingSmoothing: Double = 0.3

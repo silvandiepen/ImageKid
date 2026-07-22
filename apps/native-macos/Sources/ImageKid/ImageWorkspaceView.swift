@@ -242,11 +242,9 @@ struct ImageWorkspaceView: View {
             .animation(.easeOut(duration: 0.18), value: session.showGridPanel)
 
             // Movable, minimizable dockable panels + their minimized icon rail.
-            // Top inset clears the window's traffic-light controls; leading matches
-            // the panels below so the rail lines up with them.
             dockablePanelsLayer
-                .padding(.top, 38)
-                .padding(.leading, 18)
+                .padding(.top, 15)
+                .padding(.leading, 15)
         }
     }
 
@@ -1334,6 +1332,11 @@ struct ImageWorkspaceView: View {
             fillColor: mode.supportsFill ? session.drawingFillColor : nil,
             lineWidth: session.drawingLineWidth,
             strokeStyle: session.drawingStrokeStyle,
+            strokeAlignment: session.drawingStrokeAlignment,
+            cornerRadius: mode == .rectangle ? session.drawingCornerRadius : 0,
+            dashLength: session.drawingDashLength,
+            dashGap: session.drawingDashGap,
+            dashOffset: session.drawingDashOffset,
             opacity: session.drawingOpacity
         )
     }
@@ -1748,35 +1751,52 @@ struct ImageWorkspaceView: View {
         }
     }
 
+    private func roundedRectPath(_ rect: CGRect, radius: CGFloat) -> Path {
+        guard radius > 0 else { return Path(rect) }
+        let r = min(radius, min(abs(rect.width), abs(rect.height)) / 2)
+        return Path(roundedRect: rect, cornerRadius: r, style: .continuous)
+    }
+
     private func drawAnnotation(
         _ annotation: Annotation,
         context: inout GraphicsContext,
         size: CGSize
     ) {
         let stroke = GraphicsContext.Shading.color(Color(nsColor: annotation.strokeColor))
-        let dash = annotation.strokeStyle.dashPattern(lineWidth: annotation.lineWidth)
+        let dash = annotation.effectiveDash(lineWidth: annotation.lineWidth)
         let style = StrokeStyle(
             lineWidth: annotation.lineWidth,
             lineCap: .round,
             lineJoin: .round,
-            dash: dash
+            dash: dash,
+            dashPhase: annotation.dashOffset
+        )
+        let lw = annotation.lineWidth
+        let baseRect = CGRect(origin: .zero, size: size)
+        let strokeRect = baseRect.insetBy(
+            dx: -annotation.strokeAlignment.edgeShift * lw,
+            dy: -annotation.strokeAlignment.edgeShift * lw
         )
 
         switch annotation.kind {
         case .rectangle:
-            let path = Path(CGRect(origin: .zero, size: size))
+            let radius = annotation.cornerRadius
+            let fillPath = roundedRectPath(baseRect, radius: radius)
             if let fill = annotation.fillColor {
-                context.fill(path, with: .color(Color(nsColor: fill)))
+                context.fill(fillPath, with: .color(Color(nsColor: fill)))
             }
-            context.stroke(path, with: stroke, style: style)
+            let strokeRadius = max(0, radius + annotation.strokeAlignment.edgeShift * lw)
+            context.stroke(roundedRectPath(strokeRect, radius: strokeRadius), with: stroke, style: style)
 
         case .ellipse:
-            var path = Path()
-            path.addEllipse(in: CGRect(origin: .zero, size: size))
             if let fill = annotation.fillColor {
-                context.fill(path, with: .color(Color(nsColor: fill)))
+                var fillPath = Path()
+                fillPath.addEllipse(in: baseRect)
+                context.fill(fillPath, with: .color(Color(nsColor: fill)))
             }
-            context.stroke(path, with: stroke, style: style)
+            var strokePath = Path()
+            strokePath.addEllipse(in: strokeRect)
+            context.stroke(strokePath, with: stroke, style: style)
 
         case .line(let start, let end):
             var path = Path()

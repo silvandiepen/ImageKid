@@ -8,6 +8,9 @@ struct DrawingInspector: View {
     @Binding var offset: CGSize
     let onClose: () -> Void
 
+    @State private var showFillPopover = false
+    @State private var showBorderPopover = false
+
     var body: some View {
         FloatingToolPanel(
             title: selectedDrawable == nil ? "Draw" : "Shape",
@@ -17,104 +20,10 @@ struct DrawingInspector: View {
             onClose: onClose
         ) {
             VStack(alignment: .leading, spacing: 18) {
-                field("Mode") {
-                    LazyVGrid(columns: columns, spacing: 8) {
-                        ForEach(DrawingMode.allCases) { mode in
-                            modeButton(mode)
-                        }
-                    }
-                }
-
-                field("Stroke") {
-                    HStack {
-                        ColorPicker("Stroke colour", selection: strokeColorBinding, supportsOpacity: false)
-                            .labelsHidden()
-                        Spacer()
-                        Text("\(Int(lineWidthBinding.wrappedValue)) px")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.white.opacity(0.58))
-                    }
-                    Slider(value: lineWidthBinding, in: 1...32, step: 1)
-                    BaseSwatchStrip(colors: library.baseColors) { strokeColorBinding.wrappedValue = Color(nsColor: $0) }
-
-                    Picker("Style", selection: strokeStyleBinding) {
-                        ForEach(ShapeStrokeStyle.allCases) { Text($0.label).tag($0) }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                }
-
-                if modeBinding.wrappedValue == .freehand {
-                    field("Brush") {
-                        LazyVGrid(columns: columns, spacing: 8) {
-                            ForEach(brushPresets) { preset in
-                                brushButton(preset)
-                            }
-                        }
-                    }
-
-                    field("Smoothing") {
-                        HStack(spacing: 10) {
-                            Image(systemName: "scribble")
-                                .font(.system(size: 12))
-                                .foregroundStyle(.white.opacity(0.55))
-                            Slider(value: $session.drawingSmoothing, in: 0...1, step: 0.05)
-                            Text("\(Int(session.drawingSmoothing * 100))%")
-                                .font(.caption.monospacedDigit())
-                                .frame(width: 40, alignment: .trailing)
-                        }
-                    }
-                }
-
-                if modeBinding.wrappedValue.supportsFill {
-                    field("Fill") {
-                        HStack {
-                            Toggle(fillEnabledBinding.wrappedValue ? "Colour" : "Transparent", isOn: fillEnabledBinding)
-                            Spacer()
-                            if fillEnabledBinding.wrappedValue {
-                                ColorPicker("Fill colour", selection: fillColorBinding, supportsOpacity: false)
-                                    .labelsHidden()
-                            }
-                        }
-                        if fillEnabledBinding.wrappedValue {
-                            BaseSwatchStrip(colors: library.baseColors) { fillColorBinding.wrappedValue = Color(nsColor: $0) }
-                        }
-                    }
-                }
-
-                field("Opacity") {
-                    HStack(spacing: 10) {
-                        Slider(value: opacityBinding, in: 0.05...1, step: 0.05)
-                        Text("\(Int(opacityBinding.wrappedValue * 100))%")
-                            .font(.caption.monospacedDigit())
-                            .frame(width: 38, alignment: .trailing)
-                    }
-                }
-
-                if modeBinding.wrappedValue != .freehand {
-                    Toggle("Snap to grid", isOn: $session.snapToGrid)
-                        .font(.caption.weight(.medium))
-                }
-
-                Text(modeBinding.wrappedValue == .freehand
-                     ? "Press and drag to draw a freehand stroke."
-                     : "Press and drag on the image to create the selected shape.")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.55))
-                    .fixedSize(horizontal: false, vertical: true)
-
                 if let selected = selectedDrawable {
-                    Rectangle()
-                        .fill(.white.opacity(0.09))
-                        .frame(height: 1)
-
-                    Button(role: .destructive) {
-                        session.removeAnnotation(id: selected.id)
-                    } label: {
-                        Label("Delete Shape", systemImage: "trash")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
+                    selectedShapeContent(selected)
+                } else {
+                    drawingDefaultsContent
                 }
             }
             .darkPanelControl()
@@ -125,6 +34,246 @@ struct DrawingInspector: View {
         GridItem(.flexible(), spacing: 8),
         GridItem(.flexible(), spacing: 8)
     ]
+
+    // MARK: - Drawing defaults (no shape selected)
+
+    @ViewBuilder
+    private var drawingDefaultsContent: some View {
+        field("Mode") {
+            LazyVGrid(columns: columns, spacing: 8) {
+                ForEach(DrawingMode.allCases) { mode in
+                    modeButton(mode)
+                }
+            }
+        }
+
+        field("Stroke") {
+            HStack {
+                ColorPicker("Stroke colour", selection: strokeColorBinding, supportsOpacity: false)
+                    .labelsHidden()
+                Spacer()
+                Text("\(Int(lineWidthBinding.wrappedValue)) px")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.58))
+            }
+            Slider(value: lineWidthBinding, in: 1...32, step: 1)
+            BaseSwatchStrip(colors: library.baseColors) { strokeColorBinding.wrappedValue = Color(nsColor: $0) }
+
+            Picker("Style", selection: strokeStyleBinding) {
+                ForEach(ShapeStrokeStyle.allCases) { Text($0.label).tag($0) }
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+        }
+
+        if modeBinding.wrappedValue == .freehand {
+            field("Brush") {
+                LazyVGrid(columns: columns, spacing: 8) {
+                    ForEach(brushPresets) { preset in
+                        brushButton(preset)
+                    }
+                }
+            }
+            field("Smoothing") {
+                HStack(spacing: 10) {
+                    Image(systemName: "scribble")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.55))
+                    Slider(value: $session.drawingSmoothing, in: 0...1, step: 0.05)
+                    Text("\(Int(session.drawingSmoothing * 100))%")
+                        .font(.caption.monospacedDigit())
+                        .frame(width: 40, alignment: .trailing)
+                }
+            }
+        }
+
+        if modeBinding.wrappedValue.supportsFill {
+            field("Fill") {
+                HStack {
+                    Toggle(fillEnabledBinding.wrappedValue ? "Colour" : "Transparent", isOn: fillEnabledBinding)
+                    Spacer()
+                    if fillEnabledBinding.wrappedValue {
+                        ColorPicker("Fill colour", selection: fillColorBinding, supportsOpacity: false)
+                            .labelsHidden()
+                    }
+                }
+                if fillEnabledBinding.wrappedValue {
+                    BaseSwatchStrip(colors: library.baseColors) { fillColorBinding.wrappedValue = Color(nsColor: $0) }
+                }
+            }
+        }
+
+        opacityField
+
+        if modeBinding.wrappedValue != .freehand {
+            Toggle("Snap to grid", isOn: $session.snapToGrid)
+                .font(.caption.weight(.medium))
+        }
+
+        Text(modeBinding.wrappedValue == .freehand
+             ? "Press and drag to draw a freehand stroke."
+             : "Press and drag on the image to create the selected shape.")
+            .font(.caption)
+            .foregroundStyle(.white.opacity(0.55))
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    // MARK: - Selected shape: Fill + Border
+
+    @ViewBuilder
+    private func selectedShapeContent(_ selected: Annotation) -> some View {
+        if selected.isFillable {
+            field("Fill") { fillRow }
+        }
+
+        field("Border") { borderRow(selected) }
+
+        opacityField
+
+        Toggle("Snap to grid", isOn: $session.snapToGrid)
+            .font(.caption.weight(.medium))
+
+        Rectangle().fill(.white.opacity(0.09)).frame(height: 1)
+
+        Button(role: .destructive) {
+            session.removeAnnotation(id: selected.id)
+        } label: {
+            Label("Delete Shape", systemImage: "trash")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+    }
+
+    private var opacityField: some View {
+        field("Opacity") {
+            HStack(spacing: 10) {
+                Slider(value: opacityBinding, in: 0.05...1, step: 0.05)
+                Text("\(Int(opacityBinding.wrappedValue * 100))%")
+                    .font(.caption.monospacedDigit())
+                    .frame(width: 38, alignment: .trailing)
+            }
+        }
+    }
+
+    // MARK: Fill row + popover
+
+    private var fillRow: some View {
+        Button {
+            showFillPopover = true
+        } label: {
+            HStack(spacing: 10) {
+                colorWell(fillEnabledBinding.wrappedValue ? fillColorBinding.wrappedValue : nil)
+                Text(fillEnabledBinding.wrappedValue ? fillColorBinding.wrappedValue.hexLabel : "Transparent")
+                    .font(.caption.weight(.medium))
+                Spacer()
+                Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.white.opacity(0.4))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $showFillPopover, arrowEdge: .leading) {
+            fillPopover
+        }
+    }
+
+    private var fillPopover: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Toggle(fillEnabledBinding.wrappedValue ? "Filled" : "Transparent", isOn: fillEnabledBinding)
+            if fillEnabledBinding.wrappedValue {
+                ColorPicker("Fill colour", selection: fillColorBinding, supportsOpacity: false)
+                    .labelsHidden()
+                BaseSwatchStrip(colors: library.baseColors) { fillColorBinding.wrappedValue = Color(nsColor: $0) }
+            }
+        }
+        .padding(14)
+        .frame(width: 236)
+    }
+
+    // MARK: Border row + popover
+
+    private func borderRow(_ selected: Annotation) -> some View {
+        Button {
+            showBorderPopover = true
+        } label: {
+            HStack(spacing: 10) {
+                colorWell(strokeColorBinding.wrappedValue)
+                Text("\(Int(lineWidthBinding.wrappedValue)) px · \(strokeStyleBinding.wrappedValue.label)")
+                    .font(.caption.weight(.medium))
+                Spacer()
+                Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.white.opacity(0.4))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $showBorderPopover, arrowEdge: .leading) {
+            borderPopover(selected)
+        }
+    }
+
+    private func borderPopover(_ selected: Annotation) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                field("Stroke colour") {
+                    ColorPicker("Stroke colour", selection: strokeColorBinding, supportsOpacity: false).labelsHidden()
+                    BaseSwatchStrip(colors: library.baseColors) { strokeColorBinding.wrappedValue = Color(nsColor: $0) }
+                }
+                field("Width") {
+                    labeledSlider(value: lineWidthBinding, range: 0...64, step: 1, suffix: "px")
+                }
+                field("Style") {
+                    Picker("Style", selection: strokeStyleBinding) {
+                        ForEach(ShapeStrokeStyle.allCases) { Text($0.label).tag($0) }
+                    }
+                    .labelsHidden().pickerStyle(.segmented)
+                }
+                field("Dash") {
+                    labeledSlider(value: dashLengthBinding, range: 0...80, step: 1, suffix: "size")
+                    labeledSlider(value: dashGapBinding, range: 0...80, step: 1, suffix: "gap")
+                    labeledSlider(value: dashOffsetBinding, range: 0...80, step: 1, suffix: "offset")
+                    Text("Dash size 0 uses the style preset above.")
+                        .font(.system(size: 10)).foregroundStyle(.white.opacity(0.45))
+                }
+                if selected.isRectangle {
+                    field("Rounded corners") {
+                        labeledSlider(value: cornerRadiusBinding, range: 0...400, step: 1, suffix: "px")
+                    }
+                }
+                field("Alignment") {
+                    Picker("Alignment", selection: strokeAlignmentBinding) {
+                        ForEach(StrokeAlignment.allCases) { Text($0.label).tag($0) }
+                    }
+                    .labelsHidden().pickerStyle(.segmented)
+                }
+            }
+            .padding(14)
+        }
+        .frame(width: 268, height: 380)
+    }
+
+    private func labeledSlider(value: Binding<Double>, range: ClosedRange<Double>, step: Double, suffix: String) -> some View {
+        HStack(spacing: 10) {
+            Slider(value: value, in: range, step: step)
+            Text("\(Int(value.wrappedValue)) \(suffix)")
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.6))
+                .frame(width: 62, alignment: .trailing)
+        }
+    }
+
+    private func colorWell(_ color: Color?) -> some View {
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .fill(color ?? .clear)
+            .frame(width: 24, height: 24)
+            .overlay {
+                if color == nil {
+                    // Transparent: checker + slash.
+                    Image(systemName: "circle.slash")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+            }
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.white.opacity(0.25)))
+    }
 
     /// A freehand brush preset: a named bundle of width/opacity/style/smoothing.
     private struct BrushPreset: Identifiable {
@@ -256,6 +405,56 @@ struct DrawingInspector: View {
         )
     }
 
+    private var strokeAlignmentBinding: Binding<StrokeAlignment> {
+        Binding(
+            get: { selectedDrawable?.strokeAlignment ?? session.drawingStrokeAlignment },
+            set: { value in
+                session.drawingStrokeAlignment = value
+                guard let selected = selectedDrawable else { return }
+                session.updateAnnotation(id: selected.id) { $0.strokeAlignment = value }
+            }
+        )
+    }
+
+    private var cornerRadiusBinding: Binding<Double> {
+        shapeMetricBinding(get: { $0.cornerRadius }, sessionGet: { $0.drawingCornerRadius },
+                           set: { $0.cornerRadius = $1 }, sessionSet: { $0.drawingCornerRadius = $1 })
+    }
+
+    private var dashLengthBinding: Binding<Double> {
+        shapeMetricBinding(get: { $0.dashLength }, sessionGet: { $0.drawingDashLength },
+                           set: { $0.dashLength = $1 }, sessionSet: { $0.drawingDashLength = $1 })
+    }
+
+    private var dashGapBinding: Binding<Double> {
+        shapeMetricBinding(get: { $0.dashGap }, sessionGet: { $0.drawingDashGap },
+                           set: { $0.dashGap = $1 }, sessionSet: { $0.drawingDashGap = $1 })
+    }
+
+    private var dashOffsetBinding: Binding<Double> {
+        shapeMetricBinding(get: { $0.dashOffset }, sessionGet: { $0.drawingDashOffset },
+                           set: { $0.dashOffset = $1 }, sessionSet: { $0.drawingDashOffset = $1 })
+    }
+
+    /// Builds a Double binding for a CGFloat shape metric that also writes the
+    /// session drawing default.
+    private func shapeMetricBinding(
+        get: @escaping (Annotation) -> CGFloat,
+        sessionGet: @escaping (ImageSession) -> CGFloat,
+        set: @escaping (inout Annotation, CGFloat) -> Void,
+        sessionSet: @escaping (ImageSession, CGFloat) -> Void
+    ) -> Binding<Double> {
+        Binding(
+            get: { Double(selectedDrawable.map(get) ?? sessionGet(session)) },
+            set: { value in
+                let v = CGFloat(value)
+                sessionSet(session, v)
+                guard let selected = selectedDrawable else { return }
+                session.updateAnnotation(id: selected.id) { set(&$0, v) }
+            }
+        )
+    }
+
     private var opacityBinding: Binding<Double> {
         Binding(
             get: { selectedDrawable?.opacity ?? session.drawingOpacity },
@@ -290,4 +489,9 @@ struct DrawingInspector: View {
             }
         )
     }
+}
+
+private extension Color {
+    /// Short hex label (e.g. "#E5484D") for display in the inspector.
+    var hexLabel: String { ColorHex.string(from: NSColor(self)) }
 }
