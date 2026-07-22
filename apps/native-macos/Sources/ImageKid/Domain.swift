@@ -321,6 +321,28 @@ enum AnnotationTextAlignment: String, CaseIterable, Identifiable {
     }
 }
 
+/// Stroke line style for shapes and lines.
+enum ShapeStrokeStyle: String, CaseIterable, Identifiable, Hashable {
+    case solid, dashed, dotted
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .solid: return "Solid"
+        case .dashed: return "Dashed"
+        case .dotted: return "Dotted"
+        }
+    }
+    /// Dash pattern scaled to the stroke width (empty = solid line).
+    func dashPattern(lineWidth: CGFloat) -> [CGFloat] {
+        let w = max(lineWidth, 1)
+        switch self {
+        case .solid: return []
+        case .dashed: return [w * 3, w * 2.2]
+        case .dotted: return [w * 0.05, w * 1.8]
+        }
+    }
+}
+
 struct Annotation: Identifiable {
     enum Kind {
         case rectangle
@@ -337,6 +359,7 @@ struct Annotation: Identifiable {
     var strokeColor: NSColor
     var fillColor: NSColor?
     var lineWidth: CGFloat
+    var strokeStyle: ShapeStrokeStyle
     var opacity: Double
     var fontFamily: String
     var fontSize: CGFloat
@@ -353,6 +376,7 @@ struct Annotation: Identifiable {
         strokeColor: NSColor = .systemRed,
         fillColor: NSColor? = nil,
         lineWidth: CGFloat = 3,
+        strokeStyle: ShapeStrokeStyle = .solid,
         opacity: Double = 1,
         fontFamily: String = "",
         fontSize: CGFloat = 48,
@@ -368,6 +392,7 @@ struct Annotation: Identifiable {
         self.strokeColor = strokeColor
         self.fillColor = fillColor
         self.lineWidth = lineWidth
+        self.strokeStyle = strokeStyle
         self.opacity = opacity
         self.fontFamily = fontFamily
         self.fontSize = fontSize
@@ -539,6 +564,7 @@ final class ImageSession: ObservableObject {
     @Published var drawingStrokeColor: NSColor = .systemRed
     @Published var drawingFillColor: NSColor?
     @Published var drawingLineWidth: CGFloat = 4
+    @Published var drawingStrokeStyle: ShapeStrokeStyle = .solid
     @Published var drawingOpacity: Double = 1
     @Published var backgroundRemovedImage: NSImage?
     @Published var backgroundRefinementUndoImage: NSImage?

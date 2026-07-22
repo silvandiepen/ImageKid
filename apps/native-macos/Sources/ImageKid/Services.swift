@@ -613,14 +613,15 @@ enum ImageRenderer {
             let path = NSBezierPath()
             path.move(to: outputPoint(start, in: rect))
             path.line(to: outputPoint(end, in: rect))
-            stroke(path, color: annotation.strokeColor, lineWidth: lineWidth)
+            stroke(path, color: annotation.strokeColor, lineWidth: lineWidth, dashStyle: annotation.strokeStyle)
 
         case .arrow(let start, let end):
             drawArrow(
                 from: outputPoint(start, in: rect),
                 to: outputPoint(end, in: rect),
                 color: annotation.strokeColor,
-                lineWidth: lineWidth
+                lineWidth: lineWidth,
+                dashStyle: annotation.strokeStyle
             )
 
         case .freehand(let points):
@@ -632,7 +633,7 @@ enum ImageRenderer {
             }
             path.lineJoinStyle = .round
             path.lineCapStyle = .round
-            stroke(path, color: annotation.strokeColor, lineWidth: lineWidth)
+            stroke(path, color: annotation.strokeColor, lineWidth: lineWidth, dashStyle: annotation.strokeStyle)
 
         case .text(let value):
             let scale = targetSize.width / max(sourceSize.width * cropRect.width, 1)
@@ -670,14 +671,23 @@ enum ImageRenderer {
             fill.setFill()
             path.fill()
         }
+        applyDash(path, style: annotation.strokeStyle, lineWidth: lineWidth)
         annotation.strokeColor.setStroke()
         path.stroke()
     }
 
-    private static func stroke(_ path: NSBezierPath, color: NSColor, lineWidth: CGFloat) {
+    private static func stroke(_ path: NSBezierPath, color: NSColor, lineWidth: CGFloat, dashStyle: ShapeStrokeStyle = .solid) {
         path.lineWidth = lineWidth
+        applyDash(path, style: dashStyle, lineWidth: lineWidth)
         color.setStroke()
         path.stroke()
+    }
+
+    private static func applyDash(_ path: NSBezierPath, style: ShapeStrokeStyle, lineWidth: CGFloat) {
+        let pattern = style.dashPattern(lineWidth: lineWidth)
+        guard !pattern.isEmpty else { return }
+        if style == .dotted { path.lineCapStyle = .round }
+        path.setLineDash(pattern, count: pattern.count, phase: 0)
     }
 
     private static func outputPoint(_ point: CGPoint, in rect: CGRect) -> CGPoint {
@@ -687,11 +697,11 @@ enum ImageRenderer {
         )
     }
 
-    private static func drawArrow(from start: CGPoint, to end: CGPoint, color: NSColor, lineWidth: CGFloat) {
+    private static func drawArrow(from start: CGPoint, to end: CGPoint, color: NSColor, lineWidth: CGFloat, dashStyle: ShapeStrokeStyle = .solid) {
         let path = NSBezierPath()
         path.move(to: start)
         path.line(to: end)
-        stroke(path, color: color, lineWidth: lineWidth)
+        stroke(path, color: color, lineWidth: lineWidth, dashStyle: dashStyle)
 
         let angle = atan2(end.y - start.y, end.x - start.x)
         let headLength = max(10, lineWidth * 4)

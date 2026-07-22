@@ -36,17 +36,26 @@ struct DrawingInspector: View {
                     }
                     Slider(value: lineWidthBinding, in: 1...32, step: 1)
                     BaseSwatchStrip(colors: library.baseColors) { strokeColorBinding.wrappedValue = Color(nsColor: $0) }
+
+                    Picker("Style", selection: strokeStyleBinding) {
+                        ForEach(ShapeStrokeStyle.allCases) { Text($0.label).tag($0) }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
                 }
 
                 if modeBinding.wrappedValue.supportsFill {
                     field("Fill") {
                         HStack {
-                            Toggle("Enabled", isOn: fillEnabledBinding)
+                            Toggle(fillEnabledBinding.wrappedValue ? "Colour" : "Transparent", isOn: fillEnabledBinding)
                             Spacer()
                             if fillEnabledBinding.wrappedValue {
                                 ColorPicker("Fill colour", selection: fillColorBinding, supportsOpacity: false)
                                     .labelsHidden()
                             }
+                        }
+                        if fillEnabledBinding.wrappedValue {
+                            BaseSwatchStrip(colors: library.baseColors) { fillColorBinding.wrappedValue = Color(nsColor: $0) }
                         }
                     }
                 }
@@ -58,6 +67,11 @@ struct DrawingInspector: View {
                             .font(.caption.monospacedDigit())
                             .frame(width: 38, alignment: .trailing)
                     }
+                }
+
+                if modeBinding.wrappedValue != .freehand {
+                    Toggle("Snap to grid", isOn: $session.snapToGrid)
+                        .font(.caption.weight(.medium))
                 }
 
                 Text(modeBinding.wrappedValue == .freehand
@@ -146,6 +160,17 @@ struct DrawingInspector: View {
                 session.drawingStrokeColor = color
                 guard let selected = selectedDrawable else { return }
                 session.updateAnnotation(id: selected.id) { $0.strokeColor = color }
+            }
+        )
+    }
+
+    private var strokeStyleBinding: Binding<ShapeStrokeStyle> {
+        Binding(
+            get: { selectedDrawable?.strokeStyle ?? session.drawingStrokeStyle },
+            set: { style in
+                session.drawingStrokeStyle = style
+                guard let selected = selectedDrawable else { return }
+                session.updateAnnotation(id: selected.id) { $0.strokeStyle = style }
             }
         )
     }

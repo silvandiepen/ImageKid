@@ -1243,12 +1243,28 @@ struct ImageWorkspaceView: View {
         session.record("Add \(session.drawingMode.label.lowercased())", systemImage: session.drawingMode.symbolName)
     }
 
+    /// Snap a view-space point to the nearest (sub)grid intersection, using the
+    /// same anchor/step as the canvas grid overlay. No-op unless snapping is on.
+    private func snappedDrawPoint(_ point: CGPoint, imageRect: CGRect) -> CGPoint {
+        guard session.snapToGrid else { return point }
+        let workingSize = session.effectivePixelSize
+        let step = session.gridSizePx * imageRect.width / max(workingSize.width, 1)
+        guard step > 1 else { return point }
+        let spacing = step / CGFloat(max(1, session.gridSubdivisions))
+        return CGPoint(
+            x: imageRect.minX + ((point.x - imageRect.minX) / spacing).rounded() * spacing,
+            y: imageRect.minY + ((point.y - imageRect.minY) / spacing).rounded() * spacing
+        )
+    }
+
     private func makeShapeAnnotation(
         mode: DrawingMode,
-        start: CGPoint,
-        end: CGPoint,
+        start rawStart: CGPoint,
+        end rawEnd: CGPoint,
         imageRect: CGRect
     ) -> Annotation? {
+        let start = snappedDrawPoint(rawStart, imageRect: imageRect)
+        let end = snappedDrawPoint(rawEnd, imageRect: imageRect)
         guard
             let startDisplay = GeometryMapper.normalizedPoint(start, in: imageRect),
             let endDisplay = GeometryMapper.normalizedPoint(end, in: imageRect),
@@ -1289,6 +1305,7 @@ struct ImageWorkspaceView: View {
             strokeColor: session.drawingStrokeColor,
             fillColor: mode.supportsFill ? session.drawingFillColor : nil,
             lineWidth: session.drawingLineWidth,
+            strokeStyle: session.drawingStrokeStyle,
             opacity: session.drawingOpacity
         )
     }
@@ -1325,6 +1342,7 @@ struct ImageWorkspaceView: View {
             ),
             strokeColor: session.drawingStrokeColor,
             lineWidth: session.drawingLineWidth,
+            strokeStyle: session.drawingStrokeStyle,
             opacity: session.drawingOpacity
         )
     }
@@ -1724,10 +1742,12 @@ struct ImageWorkspaceView: View {
         size: CGSize
     ) {
         let stroke = GraphicsContext.Shading.color(Color(nsColor: annotation.strokeColor))
+        let dash = annotation.strokeStyle.dashPattern(lineWidth: annotation.lineWidth)
         let style = StrokeStyle(
             lineWidth: annotation.lineWidth,
             lineCap: .round,
-            lineJoin: .round
+            lineJoin: .round,
+            dash: dash
         )
 
         switch annotation.kind {
