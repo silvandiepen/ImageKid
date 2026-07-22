@@ -167,7 +167,9 @@ final class AppModel: ObservableObject {
 
     func openPanel() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.image, .movie]
+        var types: [UTType] = [.image, .movie]
+        if let ik = UTType(filenameExtension: ImageKidDocument.fileExtension) { types.insert(ik, at: 0) }
+        panel.allowedContentTypes = types
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
 
@@ -208,6 +210,10 @@ final class AppModel: ObservableObject {
 
         for url in urls {
             do {
+                if url.pathExtension.lowercased() == ImageKidDocument.fileExtension {
+                    if let id = openImageKidDocument(url) { firstLoadedID = firstLoadedID ?? id }
+                    continue
+                }
                 let media = try MediaLoader.load(url: url)
                 let item = WorkspaceItem(media: media)
                 items.append(item)
@@ -222,6 +228,73 @@ final class AppModel: ObservableObject {
             selectedItemID = firstLoadedID
             selectedItemIDs = [firstLoadedID]
             activeTool = .view
+        }
+    }
+
+    // MARK: - Work files (.imagekid)
+
+    var canSaveDocument: Bool {
+        if case .image = media { return true }
+        return false
+    }
+
+    @discardableResult
+    private func openImageKidDocument(_ url: URL) -> UUID? {
+        do {
+            let data = try Data(contentsOf: url)
+            let document = try ImageKidDocument.decoded(from: data)
+            guard let session = document.makeSession() else {
+                errorMessage = "This ImageKid file could not be opened."
+                return nil
+            }
+            session.documentURL = url
+            let item = WorkspaceItem(media: .image(session))
+            items.append(item)
+            NSDocumentController.shared.noteNewRecentDocumentURL(url)
+            return item.id
+        } catch {
+            errorMessage = "Could not open the ImageKid file: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    /// Save to the session's existing document URL, or prompt for one.
+    func saveDocument() {
+        guard case .image(let session) = media else { return }
+        if let url = session.documentURL {
+            writeDocument(session, to: url)
+        } else {
+            saveDocumentAs()
+        }
+    }
+
+    func saveDocumentAs() {
+        guard case .image(let session) = media else { return }
+        let panel = NSSavePanel()
+        if let type = UTType(filenameExtension: ImageKidDocument.fileExtension) {
+            panel.allowedContentTypes = [type]
+        }
+        let base = session.documentURL?.deletingPathExtension().lastPathComponent
+            ?? session.sourceURL?.deletingPathExtension().lastPathComponent
+            ?? "Untitled"
+        panel.nameFieldStringValue = "\(base).\(ImageKidDocument.fileExtension)"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        writeDocument(session, to: url)
+    }
+
+    private func writeDocument(_ session: ImageSession, to url: URL) {
+        guard let document = ImageKidDocument(session: session) else {
+            errorMessage = "Could not prepare the ImageKid file."
+            return
+        }
+        do {
+            let data = try document.encoded()
+            try data.write(to: url, options: .atomic)
+            session.documentURL = url
+            session.isDirty = false
+            NSDocumentController.shared.noteNewRecentDocumentURL(url)
+        } catch {
+            errorMessage = "Could not save: \(error.localizedDescription)"
         }
     }
 
@@ -1302,6 +1375,18 @@ struct AppCommands: Commands {
             Button("Open…") { currentAppModel?.openPanel() }
                 .keyboardShortcut("o")
                 .disabled(currentAppModel == nil)
+
+            Divider()
+
+            Button("Save") { currentAppModel?.saveDocument() }
+                .keyboardShortcut("s")
+                .disabled(currentAppModel?.canSaveDocument != true)
+
+            Button("Save As…") { currentAppModel?.saveDocumentAs() }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .disabled(currentAppModel?.canSaveDocument != true)
+
+            Divider()
 
             Button("Close Image") { currentAppModel?.closeSelectedItem() }
                 .keyboardShortcut("w")

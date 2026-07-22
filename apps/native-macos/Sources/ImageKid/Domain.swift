@@ -661,6 +661,10 @@ final class ImageSession: ObservableObject {
     let sourceURL: URL?
     let sourceImage: NSImage
 
+    /// URL of the saved .imagekid work file, if this session was opened from or
+    /// saved to one.
+    @Published var documentURL: URL?
+
     @Published var zoom: CGFloat = 1
     @Published var pan: CGSize = .zero
     @Published var viewportMode: ViewportMode = .contain

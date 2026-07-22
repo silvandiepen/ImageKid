@@ -253,7 +253,9 @@ struct WorkspaceItem: Identifiable {
     var title: String {
         switch media {
         case .image(let session):
-            return session.sourceURL?.lastPathComponent ?? "Pasted Image"
+            return session.documentURL?.lastPathComponent
+                ?? session.sourceURL?.lastPathComponent
+                ?? "Pasted Image"
         case .video(let session):
             return session.sourceURL.lastPathComponent
         }
