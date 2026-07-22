@@ -54,6 +54,32 @@ struct Annotation: Identifiable {
 
     var isText: Bool { kind == .text }
 
+    /// A copy shifted by a normalised (0…1) delta — moves every point so the
+    /// whole annotation (text origin, shape endpoints, freehand path) translates.
+    func translated(dx: CGFloat, dy: CGFloat) -> Annotation {
+        var copy = self
+        copy.start = CGPoint(x: start.x + dx, y: start.y + dy)
+        copy.end = CGPoint(x: end.x + dx, y: end.y + dy)
+        copy.points = points.map { CGPoint(x: $0.x + dx, y: $0.y + dy) }
+        return copy
+    }
+
+    /// A generous hit rectangle (view space) for selecting/moving the annotation
+    /// by touch — padded so thin strokes and text are easy to grab.
+    func hitBounds(in rect: CGRect) -> CGRect {
+        if isText {
+            let fs = fontSize(in: rect)
+            let origin = textOrigin(in: rect)
+            let width = max(CGFloat(text.count) * fs * 0.62, fs)
+            return CGRect(x: origin.x, y: origin.y, width: width, height: fs * 1.25)
+                .insetBy(dx: -14, dy: -14)
+        }
+        let box = path(in: rect).boundingBoxOfPath
+        guard !box.isNull, !box.isInfinite else { return .null }
+        let pad = max(strokeWidth(in: rect), 22)
+        return box.insetBy(dx: -pad, dy: -pad)
+    }
+
     /// Top-left origin of a text annotation, mapped into `rect`.
     func textOrigin(in rect: CGRect) -> CGPoint {
         CGPoint(x: rect.minX + start.x * rect.width, y: rect.minY + start.y * rect.height)

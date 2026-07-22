@@ -967,6 +967,10 @@ private struct InlineEditingCanvas: View {
     @State private var panOffset: CGSize = .zero
     @State private var committedPanOffset: CGSize = .zero
     @State private var isPanning = false
+    // Drag-to-move an existing annotation (e.g. reposition a text after placing).
+    @State private var movingAnnotationIndex: Int?
+    @State private var moveOriginalAnnotation: Annotation?
+    @State private var didHitTestThisDrag = false
 
     var body: some View {
         GeometryReader { geo in
@@ -1125,6 +1129,14 @@ private struct InlineEditingCanvas: View {
         .allowsHitTesting(false)
     }
 
+    /// Topmost annotation whose hit area contains `point` (view space), if any.
+    private func hitTestAnnotation(at point: CGPoint, in imageRect: CGRect) -> Int? {
+        for idx in annotations.indices.reversed() where annotations[idx].hitBounds(in: imageRect).contains(point) {
+            return idx
+        }
+        return nil
+    }
+
     private func canvasGesture(in imageRect: CGRect) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onChanged { value in
@@ -1134,6 +1146,26 @@ private struct InlineEditingCanvas: View {
                         height: committedPanOffset.height + value.translation.height
                     )
                     return
+                }
+                // Draw/Text tools: if the drag starts on an existing annotation,
+                // move it instead of drawing — this is how a placed text is
+                // repositioned. Decided once, on the first change of the drag.
+                if activeTool == .draw || activeTool == .text {
+                    if !didHitTestThisDrag {
+                        didHitTestThisDrag = true
+                        if draftAnnotation == nil,
+                           let idx = hitTestAnnotation(at: value.startLocation, in: imageRect) {
+                            movingAnnotationIndex = idx
+                            moveOriginalAnnotation = annotations[idx]
+                        }
+                    }
+                    if let idx = movingAnnotationIndex, let original = moveOriginalAnnotation,
+                       annotations.indices.contains(idx) {
+                        let dx = (value.location.x - value.startLocation.x) / imageRect.width
+                        let dy = (value.location.y - value.startLocation.y) / imageRect.height
+                        annotations[idx] = original.translated(dx: dx, dy: dy)
+                        return
+                    }
                 }
                 switch activeTool {
                 case .colour:
@@ -1171,6 +1203,15 @@ private struct InlineEditingCanvas: View {
                     committedPanOffset = panOffset
                     return
                 }
+                // Finish a move (draw/text tools): if we were repositioning an
+                // annotation, commit it and don't also draw or add new text.
+                let wasMoving = movingAnnotationIndex != nil
+                defer {
+                    didHitTestThisDrag = false
+                    movingAnnotationIndex = nil
+                    moveOriginalAnnotation = nil
+                }
+                if wasMoving { return }
                 switch activeTool {
                 case .crop:
                     dragStartCrop = nil
