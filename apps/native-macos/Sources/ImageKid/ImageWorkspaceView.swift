@@ -618,7 +618,8 @@ struct ImageWorkspaceView: View {
 
     @ViewBuilder
     private func gridOverlay(in imageRect: CGRect, canvas canvasBounds: CGRect) -> some View {
-        if session.showGrid {
+        // Always show the grid while snapping so the user sees what they snap to.
+        if session.showGrid || session.snapToGrid {
             let workingSize = session.effectivePixelSize
             let step = session.gridSizePx * imageRect.width / max(workingSize.width, 1)
             if step > 3 {
@@ -1106,14 +1107,14 @@ struct ImageWorkspaceView: View {
 
         case .moveSelection(let start):
             let delta = normalizedDisplayTranslation(value.translation, imageRect: imageRect)
-            session.selectionRect = movedRect(start, by: delta)
+            session.selectionRect = session.gridSnappedDisplayNormalized(movedRect(start, by: delta), keepSize: true)
 
         case .resizeSelection(let handle, let start):
             let delta = normalizedDisplayTranslation(value.translation, imageRect: imageRect)
-            session.selectionRect = resizedRect(start, handle: handle, delta: delta)
+            session.selectionRect = session.gridSnappedDisplayNormalized(resizedRect(start, handle: handle, delta: delta))
 
         case .crop(let handle, let start):
-            let displayedRect: CGRect
+            var displayedRect: CGRect
             if handle == .new {
                 guard let newRect = GeometryMapper.normalizedRect(
                     from: value.startLocation,
@@ -1121,12 +1122,14 @@ struct ImageWorkspaceView: View {
                     in: imageRect
                 ) else { return }
                 displayedRect = cropRectApplyingRatio(newRect, handle: .bottomRight)
+                displayedRect = session.gridSnappedDisplayNormalized(displayedRect)
             } else {
                 let delta = normalizedDisplayTranslation(value.translation, imageRect: imageRect)
                 let changed = handle == .inside
                     ? movedRect(start, by: delta)
                     : resizedRect(start, handle: handle, delta: delta)
                 displayedRect = cropRectApplyingRatio(changed, handle: handle)
+                displayedRect = session.gridSnappedDisplayNormalized(displayedRect, keepSize: handle == .inside)
             }
 
             session.draftCropRect = WorkingImageGeometry.sourceRect(
@@ -1147,7 +1150,8 @@ struct ImageWorkspaceView: View {
             ) else {
                 return
             }
-            session.selectionRect = GeometryMapper.clampedNormalizedRect(selection, minimumSize: 0.001)
+            let snapped = session.gridSnappedDisplayNormalized(selection)
+            session.selectionRect = GeometryMapper.clampedNormalizedRect(snapped, minimumSize: 0.001)
 
         case .refineBackground:
             backgroundBrushLocation = value.location

@@ -611,6 +611,26 @@ final class ImageSession: ObservableObject {
         )
     }
 
+    /// Snap a rect expressed in normalised display space (0…1 over the displayed
+    /// image) to the visible grid. Used for the selection and crop regions so
+    /// they line up with the same grid lines shown on the canvas.
+    /// - Parameter keepSize: snap only the origin (for moves); otherwise snap all edges.
+    func gridSnappedDisplayNormalized(_ rect: CGRect, keepSize: Bool = false) -> CGRect {
+        guard snapToGrid, gridSizePx > 0 else { return rect }
+        let px = effectivePixelSize
+        let sx = gridSizePx / max(px.width, 1)
+        let sy = gridSizePx / max(px.height, 1)
+        guard sx > 0, sy > 0 else { return rect }
+        let minX = (rect.minX / sx).rounded() * sx
+        let minY = (rect.minY / sy).rounded() * sy
+        if keepSize {
+            return CGRect(x: minX, y: minY, width: rect.width, height: rect.height)
+        }
+        let maxX = (rect.maxX / sx).rounded() * sx
+        let maxY = (rect.maxY / sy).rounded() * sy
+        return CGRect(x: minX, y: minY, width: max(maxX - minX, sx), height: max(maxY - minY, sy))
+    }
+
     // MARK: - Undo / Redo
 
     /// Snapshot of the reversible edit intent. View state (zoom/pan/viewport) and

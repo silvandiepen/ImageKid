@@ -25,6 +25,10 @@ struct SelectionPanel: View {
 
                 Rectangle().fill(.white.opacity(0.09)).frame(height: 1)
 
+                Toggle("Snap to grid", isOn: $session.snapToGrid)
+                    .font(.caption.weight(.medium))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
                 Button("Deselect") { session.selectionRect = nil }
                     .buttonStyle(.bordered)
                     .frame(maxWidth: .infinity)
