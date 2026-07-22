@@ -7,6 +7,7 @@ import ImageKidKit
 enum IPadDockPanel: String, CaseIterable, Identifiable, Hashable {
     case annotate
     case colours
+    case mask
     case layers
     case history
 
@@ -18,10 +19,13 @@ enum IPadDockPanel: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .annotate:
             DockPanelSpec(id: self, title: "Draw", systemImage: "pencil.tip.crop.circle",
-                          defaultPosition: .zero, defaultSize: CGSize(width: 340, height: 300))
+                          defaultPosition: .zero, defaultSize: CGSize(width: 340, height: 470))
         case .colours:
             DockPanelSpec(id: self, title: "Colours", systemImage: "eyedropper",
                           defaultPosition: CGSize(width: 0, height: 320), defaultSize: CGSize(width: 340, height: 260))
+        case .mask:
+            DockPanelSpec(id: self, title: "Mask", systemImage: "person.and.background.dotted",
+                          defaultPosition: .zero, defaultSize: CGSize(width: 340, height: 360))
         case .layers:
             DockPanelSpec(id: self, title: "Layers", systemImage: "square.3.layers.3d",
                           defaultPosition: .zero, defaultSize: CGSize(width: 300, height: 380))
@@ -61,6 +65,9 @@ struct IPadPanelsLayer: View {
     @Binding var annotationKind: Annotation.Kind
     @Binding var annotationColor: Color
     @Binding var annotationWidthFraction: CGFloat
+    @Binding var annotationBrush: BrushPreset
+    @Binding var annotationOpacity: CGFloat
+    @Binding var annotationSoftness: CGFloat
     @Binding var textSizeFraction: CGFloat
     @Binding var annotations: [Annotation]
     @Binding var selectedAnnotationID: UUID?
@@ -68,6 +75,16 @@ struct IPadPanelsLayer: View {
     let onSaveSample: () -> Void
     let onAnnotateCancel: () -> Void
     let onAnnotateApply: () -> Void
+    /// Mask panel state and actions (the session itself lives in ContentView).
+    let maskHasMask: Bool
+    let maskEngineTitle: String
+    let isBusy: Bool
+    @Binding var maskRevealMode: Bool
+    @Binding var maskWidthFraction: CGFloat
+    @Binding var maskSoftness: CGFloat
+    let onMaskFromSubject: () -> Void
+    let onMaskCancel: () -> Void
+    let onMaskApply: () -> Void
     /// Rail taps on the tool-driven panels (annotate, colours) toggle their
     /// tool in ContentView; the dock's presented set follows the tool.
     let onToggleTool: (IPadDockPanel) -> Void
@@ -90,6 +107,9 @@ struct IPadPanelsLayer: View {
                             selectedTool: $annotationKind,
                             color: $annotationColor,
                             widthFraction: $annotationWidthFraction,
+                            brush: $annotationBrush,
+                            opacity: $annotationOpacity,
+                            softness: $annotationSoftness,
                             textSizeFraction: $textSizeFraction,
                             annotations: $annotations,
                             selectedAnnotationID: $selectedAnnotationID,
@@ -102,6 +122,21 @@ struct IPadPanelsLayer: View {
                 if dock.isExpanded(.colours) {
                     panel(.colours) {
                         ColourSampleControls(model: model, current: currentSample, onSave: onSaveSample)
+                    }
+                }
+                if dock.isExpanded(.mask) {
+                    panel(.mask) {
+                        MaskControls(
+                            hasMask: maskHasMask,
+                            isBusy: isBusy,
+                            engineTitle: maskEngineTitle,
+                            revealMode: $maskRevealMode,
+                            widthFraction: $maskWidthFraction,
+                            softness: $maskSoftness,
+                            onMaskFromSubject: onMaskFromSubject,
+                            onCancel: onMaskCancel,
+                            onApply: onMaskApply
+                        )
                     }
                 }
                 if dock.isExpanded(.layers) {
@@ -149,7 +184,7 @@ struct IPadPanelsLayer: View {
 
     private func railTap(_ id: IPadDockPanel) {
         switch id {
-        case .annotate, .colours:
+        case .annotate, .colours, .mask:
             // Tool-driven panels: a minimized panel restores in place; any
             // other state toggles the underlying tool, which shows/hides the
             // panel through the dock sync in ContentView.

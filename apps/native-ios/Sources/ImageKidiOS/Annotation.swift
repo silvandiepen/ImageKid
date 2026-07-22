@@ -54,8 +54,63 @@ struct Annotation: Identifiable {
     /// Hidden layers stay in the stack but are skipped by the editor canvas
     /// and the rasteriser (toggled from the Layers panel's eye button).
     var isHidden = false
+    /// The brush behind a freehand stroke (nil for shapes and text). Names the
+    /// stroke's layer and sets its cap style; opacity/softness are copied onto
+    /// the stroke so slider tweaks after picking a preset still land per stroke.
+    var brush: BrushPreset?
+    /// Stroke opacity, applied to the composited stroke as a whole so
+    /// overlapping pressure segments never double-darken.
+    var opacity: CGFloat = 1
+    /// Soft-edge amount 0…1; the blur radius scales with the stroke width.
+    var softness: CGFloat = 0
+    /// Per-point width multipliers from Apple Pencil pressure, parallel to
+    /// `points`. Empty (or all ~1) renders as a uniform stroke.
+    var pressureWidths: [CGFloat] = []
 
     var isText: Bool { kind == .text }
+
+    /// Highlighter strokes render with flat (butt) caps.
+    var flatCaps: Bool { brush?.flatCaps ?? false }
+
+    /// Layer name: the brush name for brush strokes, the tool name otherwise.
+    var displayLabel: String {
+        if kind == .freehand, let brush { return brush.label }
+        return kind.label
+    }
+
+    /// Gaussian radius for the soft edge in a given target rectangle.
+    func blurRadius(in rect: CGRect) -> CGFloat {
+        guard softness > 0 else { return 0 }
+        return softness * strokeWidth(in: rect) * 0.6
+    }
+
+    /// Whether the stroke renders as pressure-varied segments (freehand with
+    /// recorded pencil force that actually deviates from the base width).
+    var hasVariableWidth: Bool {
+        kind == .freehand && !flatCaps
+            && points.count > 1 && pressureWidths.count == points.count
+            && pressureWidths.contains { abs($0 - 1) > 0.01 }
+    }
+
+    /// One short stroked path per freehand segment, each with its own width
+    /// (the average of its endpoints' pressure multipliers). Round caps make
+    /// consecutive segments join seamlessly.
+    func segmentPaths(in rect: CGRect) -> [(path: CGPath, width: CGFloat)] {
+        guard points.count > 1, pressureWidths.count == points.count else { return [] }
+        func map(_ point: CGPoint) -> CGPoint {
+            CGPoint(x: rect.minX + point.x * rect.width, y: rect.minY + point.y * rect.height)
+        }
+        let base = strokeWidth(in: rect)
+        var segments: [(path: CGPath, width: CGFloat)] = []
+        for index in 1..<points.count {
+            let segment = CGMutablePath()
+            segment.move(to: map(points[index - 1]))
+            segment.addLine(to: map(points[index]))
+            let width = base * (pressureWidths[index - 1] + pressureWidths[index]) / 2
+            segments.append((segment, max(0.5, width)))
+        }
+        return segments
+    }
 
     /// Top-left origin of a text annotation, mapped into `rect`.
     func textOrigin(in rect: CGRect) -> CGPoint {
@@ -174,12 +229,111 @@ enum AnnotationRasterizer {
                     )
                     continue
                 }
-                cg.setStrokeColor(UIColor(annotation.color).cgColor)
-                cg.setLineWidth(annotation.strokeWidth(in: fullRect))
-                cg.addPath(annotation.path(in: fullRect))
-                cg.strokePath()
+                drawStroke(annotation, into: cg, pixelSize: pixelSize)
             }
         }
         return output.cgImage
+    }
+
+    /// Strokes one annotation with its opacity, softness, caps, and pressure
+    /// widths. Soft strokes are rendered offscreen at full alpha, blurred
+    /// once, and composited with the stroke's opacity so the feathered edge
+    /// and the translucency read exactly like the live Canvas preview.
+    private static func drawStroke(_ annotation: Annotation, into cg: CGContext, pixelSize: CGSize) {
+        let fullRect = CGRect(origin: .zero, size: pixelSize)
+
+        if annotation.softness > 0 {
+            guard let strokeImage = annotation.softStrokeImage(pixelSize: pixelSize) else { return }
+            UIImage(cgImage: strokeImage).draw(in: fullRect, blendMode: .normal, alpha: annotation.opacity)
+            return
+        }
+
+        cg.saveGState()
+        cg.setAlpha(annotation.opacity)
+        cg.setStrokeColor(UIColor(annotation.color).cgColor)
+        cg.setLineCap(annotation.flatCaps ? .butt : .round)
+        cg.setLineJoin(.round)
+        if annotation.hasVariableWidth {
+            // Full-alpha segments inside a transparency layer, composited once
+            // with the stroke's opacity, so overlaps never darken.
+            cg.beginTransparencyLayer(auxiliaryInfo: nil)
+            for segment in annotation.segmentPaths(in: fullRect) {
+                cg.setLineWidth(segment.width)
+                cg.addPath(segment.path)
+                cg.strokePath()
+            }
+            cg.endTransparencyLayer()
+        } else {
+            cg.setLineWidth(annotation.strokeWidth(in: fullRect))
+            cg.addPath(annotation.path(in: fullRect))
+            cg.strokePath()
+        }
+        cg.restoreGState()
+    }
+}
+
+extension Annotation {
+    /// The stroke alone at full alpha, feathered when soft — the rasteriser
+    /// composites this once with the stroke's opacity.
+    func softStrokeImage(pixelSize: CGSize) -> CGImage? {
+        let fullRect = CGRect(origin: .zero, size: pixelSize)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = false
+        let rendered = UIGraphicsImageRenderer(size: pixelSize, format: format).image { context in
+            let cg = context.cgContext
+            cg.setStrokeColor(UIColor(color).cgColor)
+            cg.setLineCap(flatCaps ? .butt : .round)
+            cg.setLineJoin(.round)
+            if hasVariableWidth {
+                for segment in segmentPaths(in: fullRect) {
+                    cg.setLineWidth(segment.width)
+                    cg.addPath(segment.path)
+                    cg.strokePath()
+                }
+            } else {
+                cg.setLineWidth(strokeWidth(in: fullRect))
+                cg.addPath(path(in: fullRect))
+                cg.strokePath()
+            }
+        }
+        guard let cgImage = rendered.cgImage else { return nil }
+        return StrokeSoftener.blurred(cgImage, radius: blurRadius(in: fullRect))
+    }
+}
+
+extension GraphicsContext {
+    /// Live-preview twin of the rasteriser's stroke pass: the stroke is built
+    /// at full alpha inside a layer, then the layer is composited once with
+    /// the stroke's opacity and blur, so pressure segments and soft edges look
+    /// the same on screen as in the flattened image.
+    func drawStroke(_ annotation: Annotation, in rect: CGRect) {
+        var context = self
+        context.opacity *= Double(annotation.opacity)
+        if annotation.softness > 0 {
+            context.addFilter(.blur(radius: annotation.blurRadius(in: rect)))
+        }
+        let shading = GraphicsContext.Shading.color(annotation.color)
+        context.drawLayer { layer in
+            if annotation.hasVariableWidth {
+                for segment in annotation.segmentPaths(in: rect) {
+                    layer.stroke(
+                        Path(segment.path),
+                        with: shading,
+                        style: StrokeStyle(lineWidth: segment.width, lineCap: .round, lineJoin: .round)
+                    )
+                }
+            } else {
+                layer.stroke(
+                    Path(annotation.path(in: rect)),
+                    with: shading,
+                    style: StrokeStyle(
+                        lineWidth: annotation.strokeWidth(in: rect),
+                        lineCap: annotation.flatCaps ? .butt : .round,
+                        lineJoin: .round
+                    )
+                )
+            }
+        }
     }
 }

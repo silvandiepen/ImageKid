@@ -423,6 +423,62 @@ final class InferenceModel: ObservableObject {
         }
     }
 
+    /// The best background engine ready right now (used by Mask from Subject).
+    var preferredBackgroundEngine: BackgroundEngine {
+        if downloader.isDownloaded(.birefnet) { return .birefnet }
+        if downloader.isDownloaded(.u2net) { return .u2net }
+        return .vision
+    }
+
+    /// Runs background removal and hands back the cutout WITHOUT committing a
+    /// history step — the Mask tool derives its editable alpha mask from it
+    /// and only its Apply commits. Busy/progress plumbing matches `run`.
+    func generateCutout(engine: BackgroundEngine, completion: @escaping (CGImage?) -> Void) {
+        guard !isBusy, let source = workingImage?.normalizedCGImage() else {
+            completion(nil)
+            return
+        }
+        let targetID = selectedItemID
+        isBusy = true
+        errorMessage = nil
+        progress = nil
+        statusText = "Finding subject…"
+
+        let handler: InferenceProgressHandler = { [weak self] update in
+            Task { @MainActor in
+                guard self?.selectedItemID == targetID else { return }
+                self?.statusText = update.detail
+                self?.progress = update.fraction
+            }
+        }
+
+        Task {
+            var output: CGImage?
+            do {
+                switch engine {
+                case .vision:
+                    output = try await visionRemover.removeBackground(from: source, progress: handler)
+                case .birefnet:
+                    output = try await birefnetRemover.removeBackground(from: source, progress: handler)
+                case .u2net:
+                    output = try await u2netRemover.removeBackground(from: source, progress: handler)
+                }
+                if selectedItemID == targetID {
+                    statusText = "Subject masked — paint to refine"
+                }
+            } catch {
+                if selectedItemID == targetID {
+                    errorMessage = error.localizedDescription
+                    statusText = nil
+                }
+            }
+            progress = nil
+            isBusy = false
+            // Never hand a result to a picture the user switched away from.
+            completion(selectedItemID == targetID ? output : nil)
+        }
+    }
+
     /// Whether a quality grade is ready to run now (built-in, or model downloaded).
     func enhanceReady(_ quality: EnhanceQuality) -> Bool {
         guard let model = quality.requiredModel else { return true }
