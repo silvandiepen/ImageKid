@@ -268,3 +268,62 @@ final class ContainerTests: XCTestCase {
         XCTAssertNil(old.containerMemberships)
     }
 }
+
+// MARK: - Roles & partials
+
+extension ContainerTests {
+    func testEntryRolesAndDefaultExportFilter() throws {
+        var wf = Workfile()
+        wf.entryRoles = ["badge": "container", "sparkle": "partial", "junk": "wat"]
+        XCTAssertEqual(wf.role(of: "badge"), .container)
+        XCTAssertEqual(wf.role(of: "sparkle"), .partial)
+        XCTAssertEqual(wf.role(of: "star"), .icon)
+        XCTAssertEqual(wf.role(of: "junk"), .icon)  // unknown strings degrade
+        XCTAssertTrue(wf.isExportedByDefault("star"))
+        XCTAssertFalse(wf.isExportedByDefault("badge"))
+        XCTAssertFalse(wf.isExportedByDefault("sparkle"))
+        wf.partialLinks = ["sparkle": ["badge"]]
+        let decoded = try Workfile.decode(wf.encoded())
+        XCTAssertEqual(decoded, wf)
+    }
+
+    func testMergedAppendsPartialsInContainerSpace() throws {
+        let container = containerDoc()
+        let partial = contentDoc(ViewBox(width: 72, height: 72))
+        let merged = Containers.merged(container, partials: [partial])
+        XCTAssertEqual(merged.viewBox, container.viewBox)
+        XCTAssertEqual(merged.nodes.count, container.nodes.count + 1)
+        guard case .group(let g) = merged.nodes.last else {
+            return XCTFail("partial wrapper group missing")
+        }
+        XCTAssertNil(g.transform)  // partials share the container's space
+        XCTAssertEqual(g.children.count, partial.nodes.count)
+        // No partials → container returned untouched.
+        XCTAssertEqual(Containers.merged(container, partials: []), container)
+    }
+
+    func testMatrixExportsMergePartialsIntoLinkedContainers() throws {
+        let icons = ["star": contentDoc(ViewBox(width: 24, height: 24))]
+        let containers: [String: (GraphicDocument, Workfile.ContainerSlot)] = [
+            "badge": (containerDoc(), slot(12, 12, 48, 48)),
+            "plain": (containerDoc(), slot(12, 12, 48, 48)),
+        ]
+        let partials = ["sparkle": contentDoc(ViewBox(width: 72, height: 72))]
+        let exports = try Containers.matrixExports(
+            icons: icons, containers: containers,
+            memberships: ["star": ["badge", "plain"]],
+            partials: partials,
+            partialsByContainer: ["badge": ["sparkle", "ghost"]])  // ghost ignored
+        XCTAssertEqual(exports.map(\.fileName), ["star-badge.svg", "star-plain.svg"])
+        // badge export = container + partial wrapper + content wrapper.
+        let badge = exports[0].doc
+        let plain = exports[1].doc
+        XCTAssertEqual(badge.nodes.count, plain.nodes.count + 1)
+        // Determinism across calls.
+        let again = try Containers.matrixExports(
+            icons: icons, containers: containers,
+            memberships: ["star": ["badge", "plain"]],
+            partials: partials, partialsByContainer: ["badge": ["sparkle", "ghost"]])
+        XCTAssertEqual(exports.map { SVGWriter.write($0.doc) }, again.map { SVGWriter.write($0.doc) })
+    }
+}

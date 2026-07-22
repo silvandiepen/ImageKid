@@ -124,6 +124,48 @@ public enum Containers {
     /// `{icon}-{container}.svg`. Membership entries whose icon has no
     /// document in `icons` are skipped; membership container names with no
     /// entry in `containers` throw `ExportError.unknownContainers`.
+    /// A container merged with its partials: the partials' nodes are appended
+    /// after the container's, each wrapped in an untransformed group (partials
+    /// share the container's coordinate space), under the container's viewBox
+    /// and root attributes. Node ids are reassigned in document order.
+    public static func merged(
+        _ container: GraphicDocument, partials: [GraphicDocument]
+    ) -> GraphicDocument {
+        guard !partials.isEmpty else { return container }
+        var nodes = container.nodes
+        for partial in partials {
+            nodes.append(.group(GroupNode(id: 0, children: partial.nodes)))
+        }
+        var out = GraphicDocument(
+            viewBox: container.viewBox, rootAttributes: container.rootAttributes,
+            hadXMLDeclaration: container.hadXMLDeclaration, nodes: nodes)
+        renumber(&out.nodes)
+        return out
+    }
+
+    /// Matrix export with partial merging: each container is first merged
+    /// with its linked partials (`partialsByContainer`, names resolved against
+    /// `partials`), then every member icon is composed into it. Unknown
+    /// partial names are ignored (a partial may have been deleted); unknown
+    /// container names still throw.
+    public static func matrixExports(
+        icons: [String: GraphicDocument],
+        containers: [String: (GraphicDocument, Workfile.ContainerSlot)],
+        memberships: [String: [String]],
+        partials: [String: GraphicDocument],
+        partialsByContainer: [String: [String]]
+    ) throws -> [(fileName: String, doc: GraphicDocument)] {
+        var enriched = containers
+        for (name, entry) in containers {
+            let linked = (partialsByContainer[name] ?? []).sorted().compactMap { partials[$0] }
+            if !linked.isEmpty {
+                enriched[name] = (merged(entry.0, partials: linked), entry.1)
+            }
+        }
+        return try matrixExports(
+            icons: icons, containers: enriched, memberships: memberships)
+    }
+
     public static func matrixExports(
         icons: [String: GraphicDocument],
         containers: [String: (GraphicDocument, Workfile.ContainerSlot)],

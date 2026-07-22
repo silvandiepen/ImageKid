@@ -28,13 +28,21 @@ public struct Workfile: Codable, Equatable, Sendable {
     /// Container memberships (P2): icon name → names of containers the icon
     /// is exported into (see `Containers.matrixExports`).
     public var containerMemberships: [String: [String]]?
+    /// Role per entry NAME: "container" or "partial"; absent = plain icon.
+    /// Only plain icons export by default — containers and partials are
+    /// composition ingredients (see `EntryRole`).
+    public var entryRoles: [String: String]?
+    /// Partial name → container names it augments. At export a container is
+    /// merged with its linked partials before content is composed in.
+    public var partialLinks: [String: [String]]?
 
     public init(
         version: Int = 1, folder: FolderRef? = nil, artboards: [EmbeddedArtboard]? = nil,
         categories: [String]? = nil, settings: WorkspaceSettings? = nil,
         exportProfiles: [ExportProfile]? = nil,
         styleTokens: [StyleToken]? = nil, containers: [ContainerSlot]? = nil,
-        containerMemberships: [String: [String]]? = nil
+        containerMemberships: [String: [String]]? = nil,
+        entryRoles: [String: String]? = nil, partialLinks: [String: [String]]? = nil
     ) {
         self.version = version
         self.folder = folder
@@ -45,6 +53,31 @@ public struct Workfile: Codable, Equatable, Sendable {
         self.styleTokens = styleTokens
         self.containers = containers
         self.containerMemberships = containerMemberships
+        self.entryRoles = entryRoles
+        self.partialLinks = partialLinks
+    }
+
+    /// The three kinds of workspace entry. Plain icons are the product;
+    /// containers and partials exist to be merged into exports.
+    public enum EntryRole: String, Equatable, Sendable {
+        /// A real icon — exported by default, composable into containers.
+        case icon
+        /// A frame/backdrop with a content slot — never exported alone.
+        case container
+        /// A reusable fragment linked to containers — never exported alone.
+        case partial
+    }
+
+    /// The role recorded for an entry name; unknown strings and absent
+    /// entries are plain icons.
+    public func role(of name: String) -> EntryRole {
+        EntryRole(rawValue: entryRoles?[name] ?? "") ?? .icon
+    }
+
+    /// Whether a default (unscoped) export includes this entry: only plain
+    /// icons do — containers and partials are ingredients.
+    public func isExportedByDefault(_ name: String) -> Bool {
+        role(of: name) == .icon
     }
 
     /// Workspace standards: the artboard size new icons start with, the
