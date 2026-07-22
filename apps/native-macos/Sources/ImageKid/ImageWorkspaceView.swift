@@ -23,6 +23,8 @@ struct ImageWorkspaceView: View {
     @State private var gridPanelOffset: CGSize = .zero
     @State private var lastMaskPoint: CGPoint?
     @State private var maskBrushCursor: CGPoint?
+    /// Set when a new text item is created so its default "Text" is selected.
+    @State private var pendingTextSelectAll = false
     /// Live brush-stroke points (view space) accumulated during a drag; rasterised
     /// into the mask once on release so painting stays fast.
     @State private var maskStrokeViewPoints: [CGPoint] = []
@@ -825,6 +827,7 @@ struct ImageWorkspaceView: View {
                 .overlay(RoundedRectangle(cornerRadius: 2).stroke(Color.accentColor, lineWidth: 1))
                 .position(x: rect.midX, y: rect.midY)
                 .onExitCommand { endTextEditing() }
+                .background(TextSelectAllHelper(trigger: $pendingTextSelectAll))
         }
     }
 
@@ -1505,9 +1508,11 @@ struct ImageWorkspaceView: View {
         session.selectedAnnotationID = annotation.id
         session.record("Add text", systemImage: "textformat")
         appModel.activeTool = .select
-        // Immediately edit the new text in place.
+        // Immediately edit the new text in place, with the default "Text" selected
+        // so the first keystroke replaces it.
         editingTextID = annotation.id
         inlineTextFocused = true
+        pendingTextSelectAll = true
     }
 
     private func updateLiveSample(at point: CGPoint, imageRect: CGRect) {
@@ -2119,5 +2124,23 @@ struct ImageWorkspaceView: View {
         case bottomRight
         case inside
         case new
+    }
+}
+
+/// Selects all text in the focused NSTextView when triggered — used so a newly
+/// created text item's default "Text" is highlighted for immediate replacement.
+private struct TextSelectAllHelper: NSViewRepresentable {
+    @Binding var trigger: Bool
+
+    func makeNSView(context: Context) -> NSView { NSView(frame: .zero) }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard trigger else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            if let textView = nsView.window?.firstResponder as? NSTextView {
+                textView.selectAll(nil)
+            }
+            trigger = false
+        }
     }
 }
