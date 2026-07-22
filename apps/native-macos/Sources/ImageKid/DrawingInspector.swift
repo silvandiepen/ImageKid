@@ -371,13 +371,17 @@ struct DrawingInspector: View {
     private var strokeColorBinding: Binding<Color> {
         Binding(
             get: {
-                Color(nsColor: selectedDrawable?.strokeColor ?? session.drawingStrokeColor)
+                Color(nsColor: selectedDrawable?.strokeColor ?? library.foreground)
             },
             set: { value in
                 let color = NSColor(value)
                 session.drawingStrokeColor = color
-                guard let selected = selectedDrawable else { return }
-                session.updateAnnotation(id: selected.id) { $0.strokeColor = color }
+                if let selected = selectedDrawable {
+                    session.updateAnnotation(id: selected.id) { $0.strokeColor = color }
+                } else {
+                    // No selection: this is the default draw colour = foreground.
+                    library.foreground = color
+                }
             }
         )
     }

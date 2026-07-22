@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 struct ImageWorkspaceView: View {
     @EnvironmentObject private var appModel: AppModel
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var library: ColorLibrary
     @ObservedObject var session: ImageSession
     @ObservedObject var panelDock: PanelDockModel<DockablePanel>
     private let showsBackgroundRefinementControls = false
@@ -353,6 +354,9 @@ struct ImageWorkspaceView: View {
                 .help("New File")
 
                 PanelDockRail(model: panelDock, axis: .horizontal)
+
+                ForegroundBackgroundChips(library: library)
+                    .padding(.leading, 4)
             }
 
             ZStack(alignment: .topLeading) {
@@ -426,8 +430,10 @@ struct ImageWorkspaceView: View {
         return false
     }
 
-    /// Apply a swatch colour to the drawing default and the selected annotation.
+    /// Apply a swatch colour: it becomes the foreground (default stroke/text)
+    /// colour and recolours the selected annotation.
     private func applySwatchColor(_ color: NSColor) {
+        library.foreground = color
         session.drawingStrokeColor = color
         if let id = session.selectedAnnotationID {
             session.updateAnnotation(id: id) { $0.strokeColor = color }
@@ -1342,7 +1348,7 @@ struct ImageWorkspaceView: View {
                 fromDisplayNormalized: displayFrame,
                 cropRect: session.cropRect
             ),
-            strokeColor: session.drawingStrokeColor,
+            strokeColor: library.foreground,
             fillColor: mode.supportsFill ? session.drawingFillColor : nil,
             lineWidth: session.drawingLineWidth,
             strokeStyle: session.drawingStrokeStyle,
@@ -1369,7 +1375,7 @@ struct ImageWorkspaceView: View {
                 fromDisplayNormalized: CGRect(x: 0, y: 0, width: 1, height: 1),
                 cropRect: session.cropRect
             ),
-            strokeColor: session.drawingStrokeColor,
+            strokeColor: library.foreground,
             lineWidth: session.drawingLineWidth,
             strokeStyle: session.drawingStrokeStyle,
             opacity: session.drawingOpacity
@@ -1392,7 +1398,7 @@ struct ImageWorkspaceView: View {
                 fromDisplayNormalized: displayFrame,
                 cropRect: session.cropRect
             ),
-            strokeColor: session.autoContrastColor
+            strokeColor: library.foreground
         )
         session.annotations.append(annotation)
         session.selectedAnnotationID = annotation.id

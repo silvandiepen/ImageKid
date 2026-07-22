@@ -39,6 +39,11 @@ struct SwatchSet: Identifiable, Codable {
 final class ColorLibrary: ObservableObject {
     @Published var sets: [SwatchSet] { didSet { save() } }
 
+    /// App-wide foreground/background colours (Photoshop-style), used as the
+    /// default stroke/text (foreground) and fill (background) colours.
+    @Published var foregroundHex: String { didSet { UserDefaults.standard.set(foregroundHex, forKey: "colorLibrary.foreground") } }
+    @Published var backgroundHex: String { didSet { UserDefaults.standard.set(backgroundHex, forKey: "colorLibrary.background") } }
+
     private let storeKey = "colorLibrary.v1"
 
     init() {
@@ -49,6 +54,24 @@ final class ColorLibrary: ObservableObject {
         } else {
             sets = [ColorLibrary.defaultBaseSet()]
         }
+        foregroundHex = UserDefaults.standard.string(forKey: "colorLibrary.foreground") ?? "#111111"
+        backgroundHex = UserDefaults.standard.string(forKey: "colorLibrary.background") ?? "#FFFFFF"
+    }
+
+    var foreground: NSColor {
+        get { ColorHex.color(from: foregroundHex) ?? .black }
+        set { foregroundHex = ColorHex.string(from: newValue) }
+    }
+
+    var background: NSColor {
+        get { ColorHex.color(from: backgroundHex) ?? .white }
+        set { backgroundHex = ColorHex.string(from: newValue) }
+    }
+
+    func swapForegroundBackground() {
+        let f = foregroundHex
+        foregroundHex = backgroundHex
+        backgroundHex = f
     }
 
     private func save() {
