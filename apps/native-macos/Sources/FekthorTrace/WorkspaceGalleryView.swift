@@ -31,6 +31,10 @@ struct WorkspaceGalleryView: View {
     /// Move-to-NEW-category flow: asks for the name, then moves.
     @State private var moveTarget: IconEntry? = nil
     @State private var moveCategoryText = ""
+    // Workspace panels (also reachable from the Workspace menu).
+    @State private var exportShown = false
+    @State private var tokensShown = false
+    @State private var containerTarget: IconEntry? = nil
 
     enum SortMode: String, CaseIterable {
         case name = "Name"
@@ -58,6 +62,7 @@ struct WorkspaceGalleryView: View {
             await runSearch()
         }
         .background(alertHosts)
+        .background(panelHosts)
     }
 
     // MARK: - Bars
@@ -101,6 +106,18 @@ struct WorkspaceGalleryView: View {
             } label: {
                 Label("New Category", systemImage: "folder.badge.plus")
             }
+            Button {
+                tokensShown = true
+            } label: {
+                Label("Styles", systemImage: "paintpalette")
+            }
+            .help("Workspace style tokens: scan, census, retheme.")
+            Button {
+                exportShown = true
+            } label: {
+                Label("Export", systemImage: "square.and.arrow.up")
+            }
+            .help("Export profiles: run a pipeline over the workspace.")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -232,6 +249,8 @@ struct WorkspaceGalleryView: View {
         IconCell(
             entry: entry, thumbnails: session.thumbnails,
             selected: selection == entry.id,
+            isContainer: session.isContainer(entry.name),
+            membershipCount: session.memberships(of: entry.name).count,
             onSelect: { selection = entry.id },
             onOpen: { onOpenEntry(entry) }
         )
@@ -263,10 +282,36 @@ struct WorkspaceGalleryView: View {
         }
         Button("Duplicate") { session.duplicate(entry) }
         Divider()
+        Button(
+            session.isContainer(entry.name) ? "Edit Container Slot…" : "Use as Container…"
+        ) {
+            containerTarget = entry
+        }
+        containersSubmenu(for: entry)
+        Divider()
         Button("Show in Finder") {
             NSWorkspace.shared.activateFileViewerSelecting([entry.url])
         }
         Button("Delete…", role: .destructive) { deleteTarget = entry }
+    }
+
+    /// Membership checkboxes: which defined containers this icon is composed
+    /// into on export. An icon never lists itself.
+    @ViewBuilder
+    private func containersSubmenu(for entry: IconEntry) -> some View {
+        let names = session.containerSlots.map(\.container).filter { $0 != entry.name }
+        if !names.isEmpty {
+            Menu("Containers") {
+                ForEach(names, id: \.self) { name in
+                    Toggle(
+                        name,
+                        isOn: Binding(
+                            get: { session.memberships(of: entry.name).contains(name) },
+                            set: { session.setMembership(icon: entry.name, container: name, member: $0) }
+                        ))
+                }
+            }
+        }
     }
 
     // MARK: - Sections / search / sort
@@ -433,6 +478,32 @@ struct WorkspaceGalleryView: View {
                 Text(session.errorMessage ?? "")
             }
     }
+
+    /// A second hidden host for the workspace panels (sheets + the
+    /// Workspace-menu listeners), keeping each modifier chain small enough
+    /// for the type checker.
+    private var panelHosts: some View {
+        Color.clear
+            .sheet(isPresented: $exportShown) {
+                WorkspaceExportView(session: session, selectedEntryID: selection)
+            }
+            .sheet(isPresented: $tokensShown) {
+                WorkspaceTokensView(session: session)
+            }
+            .sheet(item: $containerTarget) { entry in
+                ContainerSlotSheet(session: session, entry: entry)
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(for: .fekthorWorkspaceExport)
+            ) { _ in
+                exportShown = true
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(for: .fekthorWorkspaceTokens)
+            ) { _ in
+                tokensShown = true
+            }
+    }
 }
 
 // MARK: - One icon cell
@@ -441,6 +512,8 @@ private struct IconCell: View {
     let entry: IconEntry
     @ObservedObject var thumbnails: ThumbnailStore
     let selected: Bool
+    var isContainer: Bool = false
+    var membershipCount: Int = 0
     var onSelect: () -> Void
     var onOpen: () -> Void
 
@@ -463,6 +536,7 @@ private struct IconCell: View {
                 }
             }
             .frame(width: 96, height: 96)
+            .overlay(alignment: .topTrailing) { badges }
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
                     .strokeBorder(
@@ -485,5 +559,31 @@ private struct IconCell: View {
         .task(id: thumbnails.key(for: entry)) {
             thumbnails.request(entry)
         }
+    }
+
+    /// Container / membership badges: a box for containers, a count capsule
+    /// for icons composed into containers on export.
+    @ViewBuilder
+    private var badges: some View {
+        HStack(spacing: 3) {
+            if isContainer {
+                Image(systemName: "shippingbox.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .padding(3)
+                    .background(.regularMaterial, in: Circle())
+                    .help("Container — icons compose into its slot on export")
+            }
+            if membershipCount > 0 {
+                Text("×\(membershipCount)")
+                    .font(.system(size: 9, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(.regularMaterial, in: Capsule())
+                    .help("Composed into \(membershipCount) container(s) on export")
+            }
+        }
+        .padding(4)
     }
 }

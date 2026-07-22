@@ -27,6 +27,12 @@ final class WorkspaceSession: ObservableObject {
     /// Non-nil presents a user-facing alert (op failures, stale bookmarks).
     @Published var errorMessage: String?
     @Published private(set) var recents: [RecentWorkspace]
+    /// The workspace's full `.fekthor` workfile — export profiles, style
+    /// tokens, containers, memberships. Held even when the workspace was
+    /// opened as a bare folder (settings then live in memory until the
+    /// first edit prompts for a workfile location). Mutate ONLY through
+    /// `updateSettings`, which persists deterministically on real change.
+    @Published private(set) var settings = Workfile(version: 1)
 
     let thumbnails = ThumbnailStore()
 
@@ -35,6 +41,10 @@ final class WorkspaceSession: ObservableObject {
     /// on — balanced in `closeCurrent()`.
     private var scopedURL: URL?
     private var workfileURL: URL?
+    /// The user cancelled the create-a-workfile panel once: keep settings in
+    /// memory for the rest of this workspace session instead of re-prompting
+    /// on every further edit.
+    private var declinedWorkfileSave = false
     private var watcher: FolderWatcher?
     private var debounce: Task<Void, Never>?
     private var scanGeneration = 0
@@ -103,7 +113,10 @@ final class WorkspaceSession: ObservableObject {
             let resolved = resolveBookmark(bookmarkData)
         {
             let access = resolved.url.startAccessingSecurityScopedResource()
-            if open(folder: resolved.url, alreadyScoped: access ? resolved.url : nil, workfile: url) {
+            if open(
+                folder: resolved.url, alreadyScoped: access ? resolved.url : nil,
+                workfile: url, decodedWorkfile: workfile)
+            {
                 if resolved.stale { refreshBookmark(in: url, for: resolved.url) }
                 return true
             }
@@ -114,7 +127,7 @@ final class WorkspaceSession: ObservableObject {
         let candidate = URL(
             fileURLWithPath: ref.path, relativeTo: url.deletingLastPathComponent()
         ).standardizedFileURL
-        if open(folder: candidate, workfile: url, quiet: true) {
+        if open(folder: candidate, workfile: url, decodedWorkfile: workfile, quiet: true) {
             refreshBookmark(in: url, for: candidate)
             return true
         }
@@ -132,7 +145,7 @@ final class WorkspaceSession: ObservableObject {
             errorMessage = "The workspace folder could not be opened: \(ref.path)"
             return true
         }
-        if open(folder: picked, workfile: url) {
+        if open(folder: picked, workfile: url, decodedWorkfile: workfile) {
             refreshBookmark(in: url, for: picked)
         }
         return true
@@ -168,7 +181,8 @@ final class WorkspaceSession: ObservableObject {
     /// (used for best-effort fallbacks).
     @discardableResult
     func open(
-        folder: URL, alreadyScoped: URL? = nil, workfile: URL? = nil, quiet: Bool = false
+        folder: URL, alreadyScoped: URL? = nil, workfile: URL? = nil,
+        decodedWorkfile: Workfile? = nil, quiet: Bool = false
     ) -> Bool {
         let scanned: Workspace
         do {
@@ -181,6 +195,7 @@ final class WorkspaceSession: ObservableObject {
         folderURL = scanned.root
         scopedURL = alreadyScoped
         workfileURL = workfile
+        settings = decodedWorkfile ?? Self.loadWorkfile(at: workfile) ?? Workfile(version: 1)
         workspace = scanned
         status = summary(of: scanned)
         startWatching()
@@ -205,6 +220,8 @@ final class WorkspaceSession: ObservableObject {
         scopedURL = nil
         folderURL = nil
         workfileURL = nil
+        settings = Workfile(version: 1)
+        declinedWorkfileSave = false
         scanGeneration += 1
     }
 
@@ -223,17 +240,158 @@ final class WorkspaceSession: ObservableObject {
             status = "Workspace opened (no workfile saved — File ▸ Save As can add one later)."
             return
         }
-        let workfile = Workfile(
-            version: 1,
-            folder: .init(path: folder.path, bookmark: makeBookmark(for: folder)))
+        var workfile = settings
+        workfile.folder = .init(path: folder.path, bookmark: makeBookmark(for: folder))
         do {
             try workfile.encoded().write(to: url)
+            settings = workfile
             workfileURL = url
             status = "Workspace saved as \(url.lastPathComponent)."
             rememberRecent(folder: folder, workfile: url)
         } catch {
             errorMessage = "Could not save the workfile: \(error.localizedDescription)"
         }
+    }
+
+    // MARK: - Workspace settings (export profiles, tokens, containers)
+
+    var exportProfiles: [Workfile.ExportProfile] { settings.exportProfiles ?? [] }
+    var styleTokens: [Workfile.StyleToken] { settings.styleTokens ?? [] }
+    var containerSlots: [Workfile.ContainerSlot] { settings.containers ?? [] }
+    var containerMemberships: [String: [String]] { settings.containerMemberships ?? [:] }
+
+    /// The single mutation path for workspace settings. The edit is applied
+    /// to a copy; nothing is written (and nothing is published) unless the
+    /// workfile actually changed. When the workspace was opened as a bare
+    /// folder, the first real edit prompts for a `.fekthor` location
+    /// (defaulted NEXT TO the folder, named after it — the same place
+    /// New Workspace puts it).
+    func updateSettings(_ edit: (inout Workfile) -> Void) {
+        var updated = settings
+        edit(&updated)
+        Self.normalize(&updated)
+        guard updated != settings else { return }
+        settings = updated
+        persistSettings()
+    }
+
+    /// Empty collections collapse to nil so an untouched section never
+    /// appears in the JSON (deterministic, diff-friendly files).
+    private static func normalize(_ workfile: inout Workfile) {
+        if workfile.exportProfiles?.isEmpty == true { workfile.exportProfiles = nil }
+        if workfile.styleTokens?.isEmpty == true { workfile.styleTokens = nil }
+        if workfile.containers?.isEmpty == true { workfile.containers = nil }
+        if workfile.containerMemberships?.isEmpty == true { workfile.containerMemberships = nil }
+        workfile.containerMemberships = workfile.containerMemberships?.compactMapValues {
+            $0.isEmpty ? nil : $0
+        }
+        if workfile.containerMemberships?.isEmpty == true { workfile.containerMemberships = nil }
+    }
+
+    private func persistSettings() {
+        guard ensureWorkfileURL() else {
+            status = "Settings kept for this session only — no workfile was saved."
+            return
+        }
+        guard let url = workfileURL else { return }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let data = try settings.encoded()
+            // Deterministic write: skip when the bytes on disk already match.
+            if let existing = try? Data(contentsOf: url), existing == data { return }
+            try data.write(to: url)
+        } catch {
+            errorMessage = "Could not save workspace settings: \(error.localizedDescription)"
+        }
+    }
+
+    /// Bare-folder workspaces get their `.fekthor` on the first settings
+    /// edit: an NSSavePanel defaulted next to the folder (folder name +
+    /// `.fekthor`), matching where New Workspace saves it.
+    private func ensureWorkfileURL() -> Bool {
+        if workfileURL != nil { return true }
+        guard let folderURL, !declinedWorkfileSave else { return false }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [Self.fekthorType]
+        panel.directoryURL = folderURL.deletingLastPathComponent()
+        panel.nameFieldStringValue = folderURL.lastPathComponent + ".fekthor"
+        panel.message =
+            "This workspace has no workfile yet — its settings (export profiles, tokens, containers) are stored in a .fekthor file."
+        guard panel.runModal() == .OK, let url = panel.url else {
+            declinedWorkfileSave = true
+            return false
+        }
+        settings.folder = .init(path: folderURL.path, bookmark: makeBookmark(for: folderURL))
+        workfileURL = url
+        rememberRecent(folder: folderURL, workfile: url)
+        return true
+    }
+
+    // MARK: Containers
+
+    func slot(forContainer name: String) -> Workfile.ContainerSlot? {
+        containerSlots.first { $0.container == name }
+    }
+
+    func isContainer(_ name: String) -> Bool {
+        slot(forContainer: name) != nil
+    }
+
+    /// Insert or replace the slot for `slot.container`.
+    func setSlot(_ slot: Workfile.ContainerSlot) {
+        updateSettings { workfile in
+            var slots = workfile.containers ?? []
+            if let i = slots.firstIndex(where: { $0.container == slot.container }) {
+                slots[i] = slot
+            } else {
+                slots.append(slot)
+                slots.sort { $0.container < $1.container }
+            }
+            workfile.containers = slots
+        }
+        status = "Container \(slot.container): slot saved."
+    }
+
+    /// Remove a container definition and every membership that references it.
+    func removeContainer(named name: String) {
+        updateSettings { workfile in
+            workfile.containers?.removeAll { $0.container == name }
+            workfile.containerMemberships = workfile.containerMemberships?.compactMapValues {
+                let kept = $0.filter { $0 != name }
+                return kept.isEmpty ? nil : kept
+            }
+        }
+        status = "Container \(name) removed."
+    }
+
+    func memberships(of iconName: String) -> [String] {
+        containerMemberships[iconName] ?? []
+    }
+
+    func setMembership(icon: String, container: String, member: Bool) {
+        updateSettings { workfile in
+            var all = workfile.containerMemberships ?? [:]
+            var list = all[icon] ?? []
+            if member {
+                if !list.contains(container) {
+                    list.append(container)
+                    list.sort()
+                }
+            } else {
+                list.removeAll { $0 == container }
+            }
+            all[icon] = list.isEmpty ? nil : list
+            workfile.containerMemberships = all
+        }
+    }
+
+    private static func loadWorkfile(at url: URL?) -> Workfile? {
+        guard let url else { return nil }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? Workfile.decode(data)
     }
 
     /// Rewrites the workfile's folder ref with a fresh bookmark (best
@@ -247,6 +405,10 @@ final class WorkspaceSession: ObservableObject {
         else { return }
         decoded.folder = .init(path: folder.path, bookmark: bookmark)
         try? decoded.encoded().write(to: workfile)
+        // Keep the in-memory settings in step when this IS the open workfile.
+        if workfile == workfileURL {
+            settings.folder = decoded.folder
+        }
     }
 
     // MARK: - Bookmarks

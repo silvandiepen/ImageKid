@@ -13,6 +13,8 @@ extension Notification.Name {
     static let fekthorSendBackward = Notification.Name("fekthor.sendBackward")
     static let fekthorBringToFront = Notification.Name("fekthor.bringToFront")
     static let fekthorSendToBack = Notification.Name("fekthor.sendToBack")
+    static let fekthorWorkspaceExport = Notification.Name("fekthor.workspaceExport")
+    static let fekthorWorkspaceTokens = Notification.Name("fekthor.workspaceTokens")
 }
 
 @main
@@ -54,6 +56,16 @@ struct FekthorApp: App {
                     NotificationCenter.default.post(name: .fekthorTraceImage, object: nil)
                 }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
+            }
+            CommandMenu("Workspace") {
+                Button("Export Profiles…") {
+                    NotificationCenter.default.post(name: .fekthorWorkspaceExport, object: nil)
+                }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+                Button("Style Tokens…") {
+                    NotificationCenter.default.post(name: .fekthorWorkspaceTokens, object: nil)
+                }
+                .keyboardShortcut("k", modifiers: [.command, .shift])
             }
             CommandMenu("Object") {
                 Button("Group") {
