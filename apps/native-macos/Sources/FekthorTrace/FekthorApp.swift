@@ -1,3 +1,4 @@
+import FekthorKit
 import SwiftUI
 
 extension Notification.Name {
@@ -22,6 +23,12 @@ extension Notification.Name {
     static let fekthorPathSubtract = Notification.Name("fekthor.pathSubtract")
     static let fekthorPathIntersect = Notification.Name("fekthor.pathIntersect")
     static let fekthorPathExclude = Notification.Name("fekthor.pathExclude")
+    /// userInfo["edge"]: AlignEdge — one notification for all six edges.
+    static let fekthorAlign = Notification.Name("fekthor.align")
+    /// userInfo["axis"]: DistributeAxis.
+    static let fekthorDistribute = Notification.Name("fekthor.distribute")
+    static let fekthorExportPNG = Notification.Name("fekthor.exportPNG")
+    static let fekthorExportPDF = Notification.Name("fekthor.exportPDF")
 }
 
 /// State the menu bar needs to reflect app context: whether a workspace is
@@ -34,6 +41,12 @@ final class MenuState: ObservableObject {
 
     @Published var workspaceOpen = false
     @Published var canCombine = false
+    /// The editor selection can align: anything selected (a single node
+    /// aligns to the artboard; 2+ align to each other).
+    @Published var canAlign = false
+    /// An editor session is open (File ▸ Export targets its document; the
+    /// trace flow keeps its own Export SVG button).
+    @Published var editorOpen = false
     /// Grid visibility (⌘'). App-side because the engine's WorkspaceSettings
     /// has no showGrid field; persisted globally in UserDefaults so hiding
     /// never erases a workspace's configured spacing.
@@ -63,6 +76,15 @@ extension Color {
 @main
 struct FekthorApp: App {
     @ObservedObject private var menuState = MenuState.shared
+
+    private func postAlign(_ edge: AlignEdge) {
+        NotificationCenter.default.post(name: .fekthorAlign, object: nil, userInfo: ["edge": edge])
+    }
+
+    private func postDistribute(_ axis: DistributeAxis) {
+        NotificationCenter.default.post(
+            name: .fekthorDistribute, object: nil, userInfo: ["axis": axis])
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -95,6 +117,16 @@ struct FekthorApp: App {
                     NotificationCenter.default.post(name: .fekthorSaveAs, object: nil)
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
+                Divider()
+                Menu("Export") {
+                    Button("Export PNG…") {
+                        NotificationCenter.default.post(name: .fekthorExportPNG, object: nil)
+                    }
+                    Button("Export PDF…") {
+                        NotificationCenter.default.post(name: .fekthorExportPDF, object: nil)
+                    }
+                }
+                .disabled(!menuState.editorOpen)
             }
             CommandGroup(after: .pasteboard) {
                 Divider()
@@ -165,6 +197,19 @@ struct FekthorApp: App {
                     }
                 }
                 .disabled(!menuState.canCombine)
+                Menu("Align") {
+                    Button("Align Left") { postAlign(.left) }
+                    Button("Align Center") { postAlign(.centerX) }
+                    Button("Align Right") { postAlign(.right) }
+                    Divider()
+                    Button("Align Top") { postAlign(.top) }
+                    Button("Align Middle") { postAlign(.centerY) }
+                    Button("Align Bottom") { postAlign(.bottom) }
+                    Divider()
+                    Button("Distribute Horizontally") { postDistribute(.horizontal) }
+                    Button("Distribute Vertically") { postDistribute(.vertical) }
+                }
+                .disabled(!menuState.canAlign)
                 Divider()
                 Button("Bring to Front") {
                     NotificationCenter.default.post(name: .fekthorBringToFront, object: nil)

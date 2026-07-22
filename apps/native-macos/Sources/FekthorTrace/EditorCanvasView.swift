@@ -40,6 +40,13 @@ struct EditorCanvasView: View {
     @State private var marqueeBase: Set<Int> = []
     @State private var drawStart: Pt? = nil
     @State private var drawDraft: ShapeKind? = nil
+    /// Pen-tool gesture state. The press APPENDS the anchor (session state);
+    /// these only track the in-flight gesture: whether the press landed on
+    /// the first anchor (close), whether the drag has pulled handles out,
+    /// and the cursor for the rubber-band preview.
+    @State private var penClosing = false
+    @State private var penDragging = false
+    @State private var penHover: CGPoint? = nil
 
     private let hitRadius: CGFloat = 8
     /// The selection frame sits this far outside the geometry so its scale
@@ -106,6 +113,11 @@ struct EditorCanvasView: View {
                 ctx.stroke(p, with: .color(.blue.opacity(0.8)), lineWidth: 1.5)
             }
 
+            // Pen-tool preview: committed segments, rubber band, anchors.
+            if session.tool == .pen, !session.penAnchors.isEmpty {
+                drawPenPreview(&ctx, base: cg, t: t)
+            }
+
             // Marquee band (view coordinates).
             if let band = marqueeRect {
                 ctx.fill(Path(band), with: .color(.blue.opacity(0.08)))
@@ -113,6 +125,16 @@ struct EditorCanvasView: View {
             }
         }
         .gesture(dragGesture(in: size))
+        .onContinuousHover(coordinateSpace: .local) { phase in
+            guard session.tool == .pen else {
+                if penHover != nil { penHover = nil }
+                return
+            }
+            switch phase {
+            case .active(let p): penHover = p
+            case .ended: penHover = nil
+            }
+        }
     }
 
     // MARK: - Grid
@@ -489,6 +511,10 @@ struct EditorCanvasView: View {
     /// Classify the press: Bézier handle → anchor → transform handle →
     /// selected body → marquee (Select tool), or a shape-drawing start.
     private func beginDrag(_ v: DragGesture.Value, in size: CGSize) {
+        if session.tool == .pen {
+            beginPen(v, in: size)
+            return
+        }
         if session.tool != .select {
             drawStart = snapped(docPoint(from: v.startLocation, in: size))
             return
@@ -560,6 +586,10 @@ struct EditorCanvasView: View {
     }
 
     private func continueDrag(_ v: DragGesture.Value, in size: CGSize) {
+        if session.tool == .pen {
+            continuePen(v, in: size)
+            return
+        }
         if session.tool != .select {
             updateDraft(v, in: size)
             return
@@ -599,6 +629,10 @@ struct EditorCanvasView: View {
 
     private func endDrag(_ v: DragGesture.Value, in size: CGSize) {
         defer { gestureBegan = false }
+        if session.tool == .pen {
+            endPen(v, in: size)
+            return
+        }
         if session.tool != .select {
             finishDraft(v, in: size)
             return
@@ -768,8 +802,8 @@ struct EditorCanvasView: View {
     private func draftKind(from s: Pt, to p: Pt, shift: Bool, option: Bool) -> ShapeKind? {
         var d = Pt(p.x - s.x, p.y - s.y)
         switch session.tool {
-        case .select:
-            return nil
+        case .select, .pen:
+            return nil  // pen paths are built anchor by anchor, not dragged out
         case .line:
             if shift {
                 let len = (d.x * d.x + d.y * d.y).squareRoot()
@@ -802,6 +836,150 @@ struct EditorCanvasView: View {
             }
             return .ellipse(center: c, rx: w / 2, ry: h / 2)
         }
+    }
+
+    // MARK: - Pen tool
+
+    /// Pen press. On the FIRST anchor (with ≥2 placed) it closes the path;
+    /// anywhere else it places the next anchor (snapped) — a corner until
+    /// the drag pulls handles out.
+    private func beginPen(_ v: DragGesture.Value, in size: CGSize) {
+        // The double-click finish (TrackpadCatcher monitor) fires on the
+        // second mouse-down BEFORE this gesture sees it — that second click
+        // must not seed a stray new path.
+        if let e = NSApp.currentEvent, e.type == .leftMouseDown, e.clickCount >= 2 {
+            return
+        }
+        let t = transform(doc: session.document, in: size)
+        session.penTolerance = Double(hitRadius / t.s)
+        penDragging = false
+        if penCloseHit(v.startLocation, t: t) {
+            penClosing = true
+            return
+        }
+        penClosing = false
+        session.penAppendAnchor(at: snapped(docPoint(from: v.startLocation, in: size)))
+    }
+
+    /// Dragging pulls the newest anchor's outgoing handle to the cursor
+    /// (unsnapped — snap is for anchors); the incoming handle mirrors it
+    /// unless ⌥ breaks the symmetry.
+    private func continuePen(_ v: DragGesture.Value, in size: CGSize) {
+        penHover = v.location
+        guard !penClosing else { return }
+        if !penDragging {
+            let dist = hypot(
+                v.location.x - v.startLocation.x, v.location.y - v.startLocation.y)
+            guard dist > 3 else { return }
+            penDragging = true
+        }
+        let out = docPoint(from: v.location, in: size)
+        session.penSetLastHandles(out: out, mirror: !NSEvent.modifierFlags.contains(.option))
+    }
+
+    private func endPen(_ v: DragGesture.Value, in size: CGSize) {
+        defer {
+            penDragging = false
+            penClosing = false
+        }
+        if penClosing {
+            session.finishPenPath(closed: true)
+        }
+    }
+
+    /// Is a view point on the first pen anchor (the close target)?
+    private func penCloseHit(_ p: CGPoint, t: T) -> Bool {
+        guard session.penAnchors.count >= 2, let first = session.penAnchors.first
+        else { return false }
+        let fv = CGPoint(x: first.point.x * t.s + t.tx, y: first.point.y * t.s + t.ty)
+        return hypot(fv.x - p.x, fv.y - p.y) <= hitRadius
+    }
+
+    /// The in-progress pen path: committed segments in the current drawing
+    /// style, a rubber band from the newest anchor to the cursor, the
+    /// newest anchor's handle levers while they exist, anchor dots, and a
+    /// close badge when the cursor is over the first anchor.
+    private func drawPenPreview(_ ctx: inout GraphicsContext, base: CGAffineTransform, t: T) {
+        let anchors = session.penAnchors
+        guard let last = anchors.last, let first = anchors.first else { return }
+        func view(_ p: Pt) -> CGPoint {
+            CGPoint(x: p.x * t.s + t.tx, y: p.y * t.s + t.ty)
+        }
+        // Committed segments, styled like the shape they will become.
+        if let path = session.penPreviewPath() {
+            let node = ShapeNode(id: -1, kind: .path([path]), style: session.drawingStyle)
+            drawNodes([.shape(node)], into: &ctx, base: base, scale: t.s, opacity: 1)
+        }
+        // Rubber band to the cursor (hover; during a handle drag the levers
+        // are the live feedback). Aimed at the close target it previews the
+        // closing segment instead.
+        let closing = penHover.map { penCloseHit($0, t: t) } ?? false
+        if !penDragging, let hover = penHover {
+            let target: PenTargetAnchor
+            if closing {
+                target = PenTargetAnchor(point: first.point, handleIn: first.handleIn)
+            } else {
+                target = PenTargetAnchor(
+                    point: snapped(docPoint(from: hover, in: t)), handleIn: nil)
+            }
+            let seg: RefinedSegment
+            if last.handleOut == nil && target.handleIn == nil {
+                seg = .line(to: target.point)
+            } else {
+                seg = .cubic(
+                    c1: last.handleOut ?? last.point,
+                    c2: target.handleIn ?? target.point, to: target.point)
+            }
+            let band = RefinedPath(start: last.point, segments: [seg], closed: false)
+            var p = Path(CGPathBuilder.path(for: .path([band])))
+            p = p.applying(base)
+            ctx.stroke(
+                p, with: .color(.blue.opacity(0.6)),
+                style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+        }
+        // Handle levers on the newest anchor.
+        let av = view(last.point)
+        for h in [last.handleIn, last.handleOut].compactMap({ $0 }) {
+            let hv = view(h)
+            var lever = Path()
+            lever.move(to: av)
+            lever.addLine(to: hv)
+            ctx.stroke(lever, with: .color(.blue.opacity(0.6)), lineWidth: 1)
+            let r: CGFloat = 3
+            ctx.fill(
+                Path(
+                    ellipseIn: CGRect(x: hv.x - r, y: hv.y - r, width: 2 * r, height: 2 * r)),
+                with: .color(.blue))
+        }
+        // Anchor dots; the first one grows a ring when it is the close target.
+        for (i, a) in anchors.enumerated() {
+            let p = view(a.point)
+            let r: CGFloat = i == anchors.count - 1 ? 4 : 3.5
+            let rect = CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)
+            ctx.fill(Path(ellipseIn: rect), with: .color(i == 0 ? .blue : .white))
+            ctx.stroke(Path(ellipseIn: rect), with: .color(.blue), lineWidth: 1.5)
+            if i == 0, closing {
+                let ring = rect.insetBy(dx: -3.5, dy: -3.5)
+                ctx.stroke(Path(ellipseIn: ring), with: .color(.blue.opacity(0.8)), lineWidth: 1.5)
+            }
+        }
+        // Close badge riding the cursor near the first anchor.
+        if closing, let hover = penHover {
+            let badge = CGRect(x: hover.x + 9, y: hover.y + 9, width: 7, height: 7)
+            ctx.fill(Path(ellipseIn: badge), with: .color(.white))
+            ctx.stroke(Path(ellipseIn: badge), with: .color(.blue), lineWidth: 1.2)
+        }
+    }
+
+    /// A rubber-band target: either the raw cursor or the close anchor.
+    private struct PenTargetAnchor {
+        var point: Pt
+        var handleIn: Pt?
+    }
+
+    /// docPoint variant for contexts that already computed the transform.
+    private func docPoint(from v: CGPoint, in t: T) -> Pt {
+        Pt(Double((v.x - t.tx) / t.s), Double((v.y - t.ty) / t.s))
     }
 
     // MARK: - Hit testing

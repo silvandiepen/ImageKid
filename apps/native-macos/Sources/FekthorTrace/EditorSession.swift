@@ -15,12 +15,23 @@ final class EditorSession: ObservableObject {
     }
 
     /// The canvas tool. Drawing tools drag out primitives; Select owns the
-    /// existing click/marquee/anchor interactions.
+    /// existing click/marquee/anchor interactions; Pen places anchors one
+    /// click (or click-drag) at a time.
     enum Tool: String, CaseIterable {
         case select
         case rect
         case ellipse
         case line
+        case pen
+    }
+
+    /// One anchor placed by the pen tool. Handles are ABSOLUTE control
+    /// points: `handleIn` shapes the segment arriving at this anchor,
+    /// `handleOut` the segment leaving it. A corner anchor has neither.
+    struct PenAnchor: Equatable {
+        var point: Pt
+        var handleIn: Pt? = nil
+        var handleOut: Pt? = nil
     }
 
     @Published var document: GraphicDocument
@@ -30,7 +41,21 @@ final class EditorSession: ObservableObject {
     @Published var status: String
     /// Bumped on every mutation so the canvas invalidates.
     @Published var generation = 0
-    @Published var tool: Tool = .select
+    @Published var tool: Tool = .select {
+        didSet {
+            // Leaving the pen tool mid-path must never strand invisible
+            // state: ≥2 anchors finish as an open path, fewer cancel.
+            guard oldValue == .pen, tool != .pen, !penAnchors.isEmpty else { return }
+            finishPenPath(closed: false)
+        }
+    }
+    /// The pen tool's in-progress path (empty = no path being drawn). Lives
+    /// outside the document — nothing exists to undo until the path lands
+    /// as a shape in `finishPenPath`.
+    @Published var penAnchors: [PenAnchor] = []
+    /// Doc-space hit tolerance for pen bookkeeping (duplicate-anchor trim on
+    /// a double-click finish); the canvas refreshes it from its zoom.
+    var penTolerance: Double = 0.5
     /// The style newly drawn shapes are born with. Starts at the icon-work
     /// default (no fill, near-black 2pt stroke — SVG's spec-default black
     /// fill is wrong for stroke icons) and follows the last style-panel edit.
@@ -271,6 +296,189 @@ final class EditorSession: ObservableObject {
         mutate { $0.nodes.append(.shape(node)) }
         selection = [node.id]
         status = "Added \(tool.rawValue)."
+    }
+
+    // MARK: - Pen tool (path under construction; commits as ONE shape)
+
+    /// Place the next anchor (a corner until a drag pulls handles out).
+    func penAppendAnchor(at p: Pt) {
+        penAnchors.append(PenAnchor(point: p))
+        generation += 1
+    }
+
+    /// Live handle pull on the newest anchor: the outgoing control follows
+    /// the cursor; with `mirror` the incoming control stays its reflection
+    /// (⌥ breaks the symmetry and leaves the incoming handle where it was).
+    func penSetLastHandles(out: Pt, mirror: Bool) {
+        guard var last = penAnchors.last else { return }
+        last.handleOut = out
+        if mirror {
+            last.handleIn = Pt(2 * last.point.x - out.x, 2 * last.point.y - out.y)
+        }
+        penAnchors[penAnchors.count - 1] = last
+        generation += 1
+    }
+
+    /// Backspace while drawing: drop the newest anchor (with its handles).
+    /// Removing the only anchor cancels the path.
+    func penRemoveLastAnchor() {
+        guard !penAnchors.isEmpty else { return }
+        penAnchors.removeLast()
+        generation += 1
+        if penAnchors.isEmpty { status = "Path cancelled." }
+    }
+
+    /// Esc: throw the in-progress path away entirely.
+    func cancelPenPath() {
+        guard !penAnchors.isEmpty else { return }
+        penAnchors = []
+        generation += 1
+        status = "Path cancelled."
+    }
+
+    /// The path as placed so far (open), for the canvas preview.
+    func penPreviewPath() -> RefinedPath? {
+        guard penAnchors.count >= 2 else { return nil }
+        return Self.penPath(penAnchors, closed: false)
+    }
+
+    /// Commit the pen path as ONE `.path` ShapeNode with the drawing style;
+    /// one undo snapshot; the shape becomes the selection and the tool stays
+    /// pen (Illustrator convention). `trimDuplicate` drops a trailing anchor
+    /// that coincides with the previous one — the double-click finish placed
+    /// its second click as an anchor before the finish arrived.
+    func finishPenPath(closed: Bool, trimDuplicate: Bool = false) {
+        if trimDuplicate, penAnchors.count >= 2 {
+            let a = penAnchors[penAnchors.count - 2].point
+            let b = penAnchors[penAnchors.count - 1].point
+            if (a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)
+                <= penTolerance * penTolerance
+            {
+                penAnchors.removeLast()
+            }
+        }
+        guard penAnchors.count >= 2 else {
+            cancelPenPath()
+            return
+        }
+        let path = Self.penPath(penAnchors, closed: closed)
+        penAnchors = []
+        beginGesture()
+        let node = ShapeNode(id: document.nextNodeID, kind: .path([path]), style: drawingStyle)
+        mutate { $0.nodes.append(.shape(node)) }
+        selection = [node.id]
+        status = closed ? "Added closed path." : "Added path."
+    }
+
+    /// Anchors → RefinedPath: neighbours with no handles between them join
+    /// with a line; any handle makes the span a cubic (a missing control
+    /// degenerates onto its anchor, which is exactly SVG's smooth-corner
+    /// behaviour).
+    static func penPath(_ anchors: [PenAnchor], closed: Bool) -> RefinedPath {
+        func segment(from a: PenAnchor, to b: PenAnchor) -> RefinedSegment {
+            if a.handleOut == nil && b.handleIn == nil { return .line(to: b.point) }
+            return .cubic(c1: a.handleOut ?? a.point, c2: b.handleIn ?? b.point, to: b.point)
+        }
+        var segments: [RefinedSegment] = []
+        for i in 1..<anchors.count {
+            segments.append(segment(from: anchors[i - 1], to: anchors[i]))
+        }
+        if closed, let last = anchors.last, let first = anchors.first {
+            segments.append(segment(from: last, to: first))
+        }
+        return RefinedPath(start: anchors[0].point, segments: segments, closed: closed)
+    }
+
+    // MARK: - Align & distribute (Object ▸ Align)
+
+    /// Align the selection: 2+ nodes align to their collective bounds, a
+    /// single node aligns to the artboard. One undo step, only if something
+    /// actually moved.
+    func alignSelection(_ edge: AlignEdge) {
+        guard !selection.isEmpty else {
+            status = "Select something to align."
+            return
+        }
+        let next =
+            selection.count >= 2
+            ? Align.align(selection, edge: edge, in: document)
+            : Align.alignToArtboard(selection, edge: edge, in: document)
+        guard next != document else {
+            status = "Already aligned."
+            return
+        }
+        beginGesture()
+        mutate { $0 = next }
+        status = selection.count >= 2 ? "Aligned selection." : "Aligned to artboard."
+    }
+
+    /// Equalise the gaps between 3+ selected nodes along an axis.
+    func distributeSelection(_ axis: DistributeAxis) {
+        guard selection.count >= 3 else {
+            status = "Select three or more nodes to distribute."
+            return
+        }
+        let next = Align.distribute(selection, axis: axis, in: document)
+        guard next != document else {
+            status = "Already distributed."
+            return
+        }
+        beginGesture()
+        mutate { $0 = next }
+        status = "Distributed selection."
+    }
+
+    // MARK: - Raster export (File ▸ Export)
+
+    /// The default export file stem: the open file's name, else "untitled".
+    private var exportStem: String {
+        fileURL?.deletingPathExtension().lastPathComponent ?? "untitled"
+    }
+
+    /// Export PNG via a save panel with a scale popup accessory (1×/2×/4×
+    /// pixels per document unit, defaulting 1×).
+    func exportPNG() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.png]
+        panel.nameFieldStringValue = exportStem + ".png"
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        popup.addItems(withTitles: ["1×", "2×", "4×"])
+        let label = NSTextField(labelWithString: "Scale:")
+        let stack = NSStackView(views: [label, popup])
+        stack.orientation = .horizontal
+        stack.spacing = 8
+        stack.edgeInsets = NSEdgeInsets(top: 10, left: 0, bottom: 10, right: 0)
+        stack.frame = NSRect(x: 0, y: 0, width: 200, height: 40)
+        panel.accessoryView = stack
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let scale = [1.0, 2.0, 4.0][max(0, popup.indexOfSelectedItem)]
+        guard let data = RasterExport.pngData(document, scale: scale) else {
+            status = "PNG export failed (empty artboard?)."
+            return
+        }
+        writeExport(data, to: url)
+    }
+
+    /// Export a single-page vector PDF (1 document unit = 1 pt).
+    func exportPDF() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = exportStem + ".pdf"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let data = RasterExport.pdfData(document) else {
+            status = "PDF export failed (empty artboard?)."
+            return
+        }
+        writeExport(data, to: url)
+    }
+
+    private func writeExport(_ data: Data, to url: URL) {
+        do {
+            try data.write(to: url)
+            status = "Exported \(url.lastPathComponent)"
+        } catch {
+            status = "Export failed: \(error.localizedDescription)"
+        }
     }
 
     // MARK: - Path booleans

@@ -658,7 +658,7 @@ private struct HomeCard: View {
             VStack(spacing: 10) {
                 Image(systemName: icon)
                     .font(.system(size: 34))
-                    .foregroundStyle(enabled ? Color.primary : Color.secondary)
+                    .foregroundStyle(enabled ? Color.accentColor : Color.secondary)
                 Text(title).font(.headline)
                 Text(subtitle)
                     .font(.caption)
