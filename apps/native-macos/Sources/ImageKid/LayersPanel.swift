@@ -46,14 +46,21 @@ struct LayersPanel: View {
             VStack(alignment: .leading, spacing: 10) {
                 ScrollView {
                     LazyVStack(spacing: 4) {
-                        // One unified stack, top-to-bottom — image layers and shapes
-                        // interleaved by their shared z order.
-                        ForEach(session.stackTopToBottom) { item in
-                            stackRow(item)
-                                .modifier(ReorderDrag(
-                                    id: item.id, draggingID: $draggingID, dropTargetID: $dropTargetID,
-                                    onDrop: { src in session.reorderStack(moving: src, above: item.id) }
-                                ))
+                        // Unified stack, top-to-bottom — image layers and shapes
+                        // share a z order; grouped layers nest under a folder header.
+                        ForEach(panelRows) { r in
+                            switch r {
+                            case .group(let group):
+                                groupHeader(group)
+                            case .groupedLayer(let layer):
+                                imageLayerRow(layer).padding(.leading, 18)
+                            case .item(let item):
+                                stackRow(item)
+                                    .modifier(ReorderDrag(
+                                        id: item.id, draggingID: $draggingID, dropTargetID: $dropTargetID,
+                                        onDrop: { src in session.reorderStack(moving: src, above: item.id) }
+                                    ))
+                            }
                         }
                         if !session.baseUnlocked {
                             backgroundRow
@@ -78,6 +85,46 @@ struct LayersPanel: View {
         case .layer(let layer): imageLayerRow(layer)
         case .annotation(let annotation): row(annotation)
         }
+    }
+
+    /// A row in the panel: a group folder header, a layer nested in a group, or a
+    /// top-level stack item.
+    private enum PanelRow: Identifiable {
+        case group(LayerGroup)
+        case groupedLayer(ImageLayer)
+        case item(StackItem)
+        var id: UUID {
+            switch self {
+            case .group(let g): return g.id
+            case .groupedLayer(let l): return l.id
+            case .item(let i): return i.id
+            }
+        }
+    }
+
+    /// Build the display list top-to-bottom, nesting grouped layers under their
+    /// folder header (placed where the group's top-most member sits in z).
+    private var panelRows: [PanelRow] {
+        var rows: [PanelRow] = []
+        var emitted = Set<UUID>()
+        for item in session.stackTopToBottom {
+            if case .layer(let layer) = item, let gid = session.groupID(forLayer: layer.id) {
+                guard !emitted.contains(gid) else { continue }
+                emitted.insert(gid)
+                if let group = session.layerGroups.first(where: { $0.id == gid }) {
+                    rows.append(.group(group))
+                    if !group.isCollapsed {
+                        let members = group.memberIDs
+                            .compactMap { id in session.imageLayers.first { $0.id == id } }
+                            .sorted { $0.z > $1.z }
+                        for m in members { rows.append(.groupedLayer(m)) }
+                    }
+                }
+            } else {
+                rows.append(.item(item))
+            }
+        }
+        return rows
     }
 
     private func row(_ layer: Annotation) -> some View {
