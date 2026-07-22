@@ -1277,14 +1277,17 @@ private struct InlineEditingCanvas: View {
     private var zoomControls: some View {
         HStack(spacing: 0) {
             zoomButton("minus") { setZoom(zoomScale / 1.5) }
-                .disabled(zoomScale <= 1.01)
+                .disabled(zoomScale <= 0.26)
             Menu {
                 Button("Fit") { fitCanvas() }
+                Button("25%") { setZoom(0.25) }
+                Button("50%") { setZoom(0.5) }
+                Button("100%") { setZoom(1) }
                 Button("200%") { setZoom(2) }
                 Button("400%") { setZoom(4) }
                 Button("800%") { setZoom(8) }
             } label: {
-                Text(zoomScale <= 1.01 ? "Fit" : "\(Int((zoomScale * 100).rounded()))%")
+                Text((zoomScale > 0.99 && zoomScale < 1.01) ? "Fit" : "\(Int((zoomScale * 100).rounded()))%")
                     .font(.footnote.weight(.semibold))
                     .monospacedDigit()
                     .frame(minWidth: 46)
@@ -1635,10 +1638,6 @@ private struct InlineEditingCanvas: View {
             }
             .onEnded { _ in
                 committedZoomScale = zoomScale
-                if zoomScale <= 1.01 {
-                    panOffset = .zero
-                    committedPanOffset = .zero
-                }
             }
     }
 
@@ -1655,10 +1654,6 @@ private struct InlineEditingCanvas: View {
         withAnimation(.snappy) {
             zoomScale = clampedZoom(value)
             committedZoomScale = zoomScale
-            if zoomScale <= 1.01 {
-                panOffset = .zero
-                committedPanOffset = .zero
-            }
         }
     }
 
@@ -1672,7 +1667,7 @@ private struct InlineEditingCanvas: View {
     }
 
     private func clampedZoom(_ value: CGFloat) -> CGFloat {
-        min(max(value, 1), 8)
+        min(max(value, 0.25), 8)
     }
 
     private func cropCornerGesture(_ corner: CropCorner, in imageRect: CGRect) -> some Gesture {
