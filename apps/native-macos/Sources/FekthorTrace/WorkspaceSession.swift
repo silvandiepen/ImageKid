@@ -41,10 +41,6 @@ final class WorkspaceSession: ObservableObject {
     /// on — balanced in `closeCurrent()`.
     private var scopedURL: URL?
     private var workfileURL: URL?
-    /// The user cancelled the create-a-workfile panel once: keep settings in
-    /// memory for the rest of this workspace session instead of re-prompting
-    /// on every further edit.
-    private var declinedWorkfileSave = false
     private var watcher: FolderWatcher?
     private var debounce: Task<Void, Never>?
     private var scanGeneration = 0
@@ -221,7 +217,6 @@ final class WorkspaceSession: ObservableObject {
         folderURL = nil
         workfileURL = nil
         settings = Workfile(version: 1)
-        declinedWorkfileSave = false
         scanGeneration += 1
     }
 
@@ -233,7 +228,9 @@ final class WorkspaceSession: ObservableObject {
     private func saveWorkfilePanel(for folder: URL) {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [Self.fekthorType]
-        panel.directoryURL = folder.deletingLastPathComponent()
+        // Default INSIDE the folder: that's the one location the folder's
+        // own bookmark keeps writable across relaunches.
+        panel.directoryURL = folder
         panel.nameFieldStringValue = folder.lastPathComponent + ".fekthor"
         panel.message = "Save the workspace's .fekthor workfile."
         guard panel.runModal() == .OK, let url = panel.url else {
@@ -303,27 +300,42 @@ final class WorkspaceSession: ObservableObject {
             if let existing = try? Data(contentsOf: url), existing == data { return }
             try data.write(to: url)
         } catch {
-            errorMessage = "Could not save workspace settings: \(error.localizedDescription)"
+            // A workfile OUTSIDE the workspace folder (e.g. next to it, from
+            // an older build) is beyond the folder's security scope after a
+            // relaunch. Relocate it inside the folder — which we always have
+            // access to while the workspace is open — instead of failing.
+            if let relocated = relocateWorkfileInsideFolder() {
+                workfileURL = relocated
+                if let folderURL { rememberRecent(folder: folderURL, workfile: relocated) }
+                status =
+                    "Workfile moved into the workspace folder (\(relocated.lastPathComponent)) — the old copy outside it is no longer used."
+            } else {
+                errorMessage = "Could not save workspace settings: \(error.localizedDescription)"
+            }
         }
     }
 
+    /// Writes the current settings to `<folder>/<folder name>.fekthor`.
+    /// Returns nil when there is no folder or the write fails too.
+    private func relocateWorkfileInsideFolder() -> URL? {
+        guard let folderURL else { return nil }
+        let inside = folderURL.appendingPathComponent(folderURL.lastPathComponent + ".fekthor")
+        guard inside != workfileURL else { return nil }
+        settings.folder = .init(path: folderURL.path, bookmark: makeBookmark(for: folderURL))
+        guard (try? settings.encoded().write(to: inside)) != nil else { return nil }
+        return inside
+    }
+
     /// Bare-folder workspaces get their `.fekthor` on the first settings
-    /// edit: an NSSavePanel defaulted next to the folder (folder name +
-    /// `.fekthor`), matching where New Workspace saves it.
+    /// edit, written directly INSIDE the folder (folder name + `.fekthor`):
+    /// no prompt — the open workspace already grants write access there,
+    /// and inside the folder is the one place the sandbox can always reach
+    /// again after a relaunch through the folder's own bookmark.
     private func ensureWorkfileURL() -> Bool {
         if workfileURL != nil { return true }
-        guard let folderURL, !declinedWorkfileSave else { return false }
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [Self.fekthorType]
-        panel.directoryURL = folderURL.deletingLastPathComponent()
-        panel.nameFieldStringValue = folderURL.lastPathComponent + ".fekthor"
-        panel.message =
-            "This workspace has no workfile yet — its settings (export profiles, tokens, containers) are stored in a .fekthor file."
-        guard panel.runModal() == .OK, let url = panel.url else {
-            declinedWorkfileSave = true
-            return false
-        }
+        guard let folderURL else { return false }
         settings.folder = .init(path: folderURL.path, bookmark: makeBookmark(for: folderURL))
+        let url = folderURL.appendingPathComponent(folderURL.lastPathComponent + ".fekthor")
         workfileURL = url
         rememberRecent(folder: folderURL, workfile: url)
         return true

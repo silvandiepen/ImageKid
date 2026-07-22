@@ -89,6 +89,7 @@ struct WorkspaceGalleryView: View {
                 Label("New Icon", systemImage: "plus")
             }
             .buttonStyle(.borderedProminent)
+            .tint(.fekthorAccent)
             .help("Create a new icon (⌘N)")
             Spacer()
             HStack(spacing: 4) {
@@ -112,22 +113,24 @@ struct WorkspaceGalleryView: View {
                 ForEach(SortMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
             }
             .frame(width: 190)
+            // Small header actions: icon-only and neutral (never accent).
             Button {
                 newCategoryText = ""
                 newCategoryShown = true
             } label: {
-                Label("New Category", systemImage: "folder.badge.plus")
+                Image(systemName: "folder.badge.plus")
             }
+            .help("New category")
             Button {
                 tokensShown = true
             } label: {
-                Label("Styles", systemImage: "paintpalette")
+                Image(systemName: "paintpalette")
             }
             .help("Workspace style tokens: scan, census, retheme.")
             Button {
                 exportShown = true
             } label: {
-                Label("Export", systemImage: "square.and.arrow.up")
+                Image(systemName: "square.and.arrow.up")
             }
             .help("Export profiles: run a pipeline over the workspace.")
             Button {
@@ -135,10 +138,11 @@ struct WorkspaceGalleryView: View {
                 // open the same sheet from anywhere.
                 NotificationCenter.default.post(name: .fekthorWorkspaceSettings, object: nil)
             } label: {
-                Label("Settings", systemImage: "gearshape")
+                Image(systemName: "gearshape")
             }
             .help("Workspace settings: icon size, grid, drawing defaults (⇧⌘,).")
         }
+        .tint(.primary)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(keyboardShortcutHosts)
