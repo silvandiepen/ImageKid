@@ -291,6 +291,19 @@ final class AppModel: ObservableObject {
         writeDocument(session, to: url)
     }
 
+    /// Save every open document that already has a file; prompt for the current
+    /// one if it has never been saved.
+    func saveAllDocuments() {
+        for item in items {
+            if case .image(let session) = item.media, let url = session.documentURL {
+                writeDocument(session, to: url)
+            }
+        }
+        if case .image(let session) = media, session.documentURL == nil {
+            saveDocumentAs()
+        }
+    }
+
     private func writeDocument(_ session: ImageSession, to url: URL) {
         guard let document = ImageKidDocument(session: session) else {
             errorMessage = "Could not prepare the ImageKid file."
@@ -1387,16 +1400,6 @@ struct AppCommands: Commands {
 
             Divider()
 
-            Button("Save") { currentAppModel?.saveDocument() }
-                .keyboardShortcut("s")
-                .disabled(currentAppModel?.canSaveDocument != true)
-
-            Button("Save As…") { currentAppModel?.saveDocumentAs() }
-                .keyboardShortcut("s", modifiers: [.command, .shift])
-                .disabled(currentAppModel?.canSaveDocument != true)
-
-            Divider()
-
             Button("Close Image") { currentAppModel?.closeSelectedItem() }
                 .keyboardShortcut("w")
                 .disabled(currentAppModel?.canCloseSelectedItem != true)
@@ -1608,16 +1611,21 @@ struct AppCommands: Commands {
         }
 
         CommandGroup(replacing: .saveItem) {
-            Button("Save") { currentAppModel?.saveImage() }
+            Button("Save") { currentAppModel?.saveDocument() }
                 .keyboardShortcut("s")
-                .disabled(currentAppModel == nil)
+                .disabled(currentAppModel?.canSaveDocument != true)
 
-            Button("Save All") { currentAppModel?.saveAllImages() }
+            Button("Save As…") { currentAppModel?.saveDocumentAs() }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .disabled(currentAppModel?.canSaveDocument != true)
+
+            Button("Save All") { currentAppModel?.saveAllDocuments() }
                 .keyboardShortcut("s", modifiers: [.command, .option])
                 .disabled(currentAppModel == nil)
 
+            Divider()
+
             Button("Export…") { currentAppModel?.requestExport() }
-                .keyboardShortcut("s", modifiers: [.command, .shift])
                 .disabled(currentAppModel == nil)
         }
     }
