@@ -26,7 +26,8 @@ struct SwatchesPanel: View {
             offset: $offset,
             onMinimize: onMinimize,
             resizable: true,
-            size: $size
+            size: $size,
+            contentPadding: 0
         ) {
             VStack(alignment: .leading, spacing: 10) {
                 ScrollView {
@@ -35,29 +36,36 @@ struct SwatchesPanel: View {
                             setSection(set)
                         }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                    .thinScrollbars()
                 }
                 .frame(maxHeight: .infinity)
 
-                Rectangle().fill(.white.opacity(0.09)).frame(height: 1)
+                VStack(alignment: .leading, spacing: 10) {
+                    Rectangle().fill(.white.opacity(0.09)).frame(height: 1)
 
-                HStack(spacing: 8) {
-                    ColorPicker("New swatch", selection: $newColor, supportsOpacity: true)
-                        .labelsHidden()
-                    Button {
-                        library.addColor(NSColor(newColor), to: currentTargetSetID)
-                    } label: {
-                        Label("Add", systemImage: "plus")
+                    HStack(spacing: 8) {
+                        ColorPicker("New swatch", selection: $newColor, supportsOpacity: true)
+                            .labelsHidden()
+                        Button {
+                            library.addColor(NSColor(newColor), to: currentTargetSetID)
+                        } label: {
+                            Label("Add", systemImage: "plus")
+                        }
+                        .buttonStyle(.bordered)
+                        Spacer()
+                        Button {
+                            targetSetID = library.addSet()
+                        } label: {
+                            Label("Set", systemImage: "folder.badge.plus")
+                        }
+                        .buttonStyle(.bordered)
+                        .help("New swatch set")
                     }
-                    .buttonStyle(.bordered)
-                    Spacer()
-                    Button {
-                        targetSetID = library.addSet()
-                    } label: {
-                        Label("Set", systemImage: "folder.badge.plus")
-                    }
-                    .buttonStyle(.bordered)
-                    .help("New swatch set")
                 }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
             }
             .darkPanelControl()
         }

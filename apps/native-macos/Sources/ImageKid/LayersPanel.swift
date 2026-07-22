@@ -37,7 +37,8 @@ struct LayersPanel: View {
             offset: $offset,
             onMinimize: onMinimize,
             resizable: true,
-            size: $size
+            size: $size,
+            contentPadding: 0
         ) {
             VStack(alignment: .leading, spacing: 10) {
                 ScrollView {
@@ -58,10 +59,15 @@ struct LayersPanel: View {
                         }
                         backgroundRow
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                    .thinScrollbars()
                 }
                 .frame(maxHeight: .infinity)
 
                 controlBar
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 16)
             }
         }
     }

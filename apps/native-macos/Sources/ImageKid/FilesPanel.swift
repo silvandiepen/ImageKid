@@ -14,6 +14,8 @@ struct FilesListContent: View {
                     fileRow(for: item)
                 }
             }
+            .padding(16)
+            .thinScrollbars()
         }
         .frame(maxHeight: .infinity)
     }
@@ -117,7 +119,8 @@ struct FilesPanel: View {
             offset: $offset,
             onMinimize: onMinimize,
             resizable: true,
-            size: $size
+            size: $size,
+            contentPadding: 0
         ) {
             if appModel.items.isEmpty {
                 VStack(spacing: 10) {
@@ -129,6 +132,7 @@ struct FilesPanel: View {
                         .foregroundStyle(.white.opacity(0.55))
                 }
                 .frame(maxWidth: .infinity, minHeight: 120)
+                .padding(16)
             } else {
                 FilesListContent(appModel: appModel)
             }

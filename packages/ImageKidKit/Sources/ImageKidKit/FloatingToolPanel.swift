@@ -15,6 +15,7 @@ public struct FloatingToolPanel<Content: View>: View {
     let minSize: CGSize
     let maxSize: CGSize
     let cornerRadius: CGFloat
+    let contentPadding: CGFloat
     let content: Content
 
     @GestureState private var dragTranslation: CGSize = .zero
@@ -35,6 +36,7 @@ public struct FloatingToolPanel<Content: View>: View {
         minSize: CGSize = CGSize(width: 220, height: 200),
         maxSize: CGSize = CGSize(width: 520, height: 900),
         cornerRadius: CGFloat = 28,
+        contentPadding: CGFloat = 16,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
@@ -49,6 +51,7 @@ public struct FloatingToolPanel<Content: View>: View {
         self.minSize = minSize
         self.maxSize = maxSize
         self.cornerRadius = cornerRadius
+        self.contentPadding = contentPadding
         self.content = content()
     }
 
@@ -71,7 +74,7 @@ public struct FloatingToolPanel<Content: View>: View {
                 .frame(height: 1)
 
             content
-                .padding(16)
+                .padding(contentPadding)
                 .frame(maxHeight: resizable ? .infinity : nil, alignment: .top)
         }
         .frame(width: resolvedWidth, height: resolvedHeight, alignment: .top)

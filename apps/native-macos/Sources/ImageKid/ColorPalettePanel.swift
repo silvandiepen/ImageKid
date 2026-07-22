@@ -22,7 +22,8 @@ struct ColorPalettePanel: View {
             offset: $offset,
             onClose: onClose,
             resizable: true,
-            size: $panelSize
+            size: $panelSize,
+            contentPadding: 0
         ) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 8) {
@@ -52,6 +53,8 @@ struct ColorPalettePanel: View {
                         .buttonStyle(.borderless)
                     }
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
 
                 if session.sampledColors.isEmpty {
                     VStack(spacing: 12) {
@@ -64,6 +67,7 @@ struct ColorPalettePanel: View {
                             .foregroundStyle(.white.opacity(0.58))
                     }
                     .frame(maxWidth: .infinity, minHeight: 150)
+                    .padding(.horizontal, 16)
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 8) {
@@ -71,15 +75,16 @@ struct ColorPalettePanel: View {
                                 swipeableRow(sample)
                             }
                         }
+                        .padding(.horizontal, 16)
+                        .thinScrollbars()
                     }
                     .frame(maxHeight: .infinity)
                 }
 
-                Rectangle()
-                    .fill(.white.opacity(0.09))
-                    .frame(height: 1)
-
                 VStack(spacing: 9) {
+                    Rectangle()
+                        .fill(.white.opacity(0.09))
+                        .frame(height: 1)
                     Menu {
                         Button("HEX list") { copySelected(format: .hex) }
                         Button("RGB list") { copySelected(format: .rgb) }
@@ -128,6 +133,8 @@ struct ColorPalettePanel: View {
                     .buttonStyle(.bordered)
                     .disabled(selectedSamples.isEmpty)
                 }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
             }
             .darkPanelControl()
         }
