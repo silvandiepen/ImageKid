@@ -19,6 +19,13 @@ struct ContentView: View {
         var name: String
     }
 
+    /// The trace flow is active: no editor session on top, and an image or
+    /// traced document is loaded. Only then do the vectorize controls
+    /// (inspector sidebar + trace toolbar) belong on screen.
+    private var inTraceMode: Bool {
+        editorSession == nil && (model.sourceImage != nil || model.document != nil)
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -65,7 +72,7 @@ struct ContentView: View {
             }
             .navigationTitle("Fekthor")
             .toolbar { toolbarContent }
-            .inspector(isPresented: $showInspector) {
+            .inspector(isPresented: inTraceMode ? $showInspector : .constant(false)) {
                 InspectorView(model: model)
                     .inspectorColumnWidth(min: 250, ideal: 290, max: 380)
             }
@@ -280,35 +287,39 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItemGroup(placement: .navigation) {
-            Button { model.openPanel() } label: { Label("Open", systemImage: "photo.badge.plus") }
-        }
-        ToolbarItemGroup(placement: .primaryAction) {
-            if model.hasResult && model.sourceImage != nil {
-                Picker("View", selection: $compareMode) {
-                    ForEach(CompareMode.allCases, id: \.self) { m in
-                        Image(systemName: m.icon).help(m.rawValue).tag(m)
-                    }
+        if inTraceMode {
+            ToolbarItemGroup(placement: .navigation) {
+                Button { model.openPanel() } label: {
+                    Label("Open", systemImage: "photo.badge.plus")
                 }
-                .pickerStyle(.segmented)
             }
-            if zoom != 1 || offset != .zero {
-                Button {
-                    zoom = 1
-                    offset = .zero
-                } label: { Label("Fit", systemImage: "arrow.up.left.and.arrow.down.right") }
-            }
-            Button { model.undoEdit() } label: {
-                Label("Undo", systemImage: "arrow.uturn.backward")
-            }
-            .keyboardShortcut("z", modifiers: .command)
-            .disabled(!model.canUndo)
-            Button { model.exportSVG() } label: {
-                Label("Export SVG", systemImage: "square.and.arrow.up")
-            }
-            .disabled(!model.hasResult)
-            Button { showInspector.toggle() } label: {
-                Label("Inspector", systemImage: "sidebar.trailing")
+            ToolbarItemGroup(placement: .primaryAction) {
+                if model.hasResult && model.sourceImage != nil {
+                    Picker("View", selection: $compareMode) {
+                        ForEach(CompareMode.allCases, id: \.self) { m in
+                            Image(systemName: m.icon).help(m.rawValue).tag(m)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+                if zoom != 1 || offset != .zero {
+                    Button {
+                        zoom = 1
+                        offset = .zero
+                    } label: { Label("Fit", systemImage: "arrow.up.left.and.arrow.down.right") }
+                }
+                Button { model.undoEdit() } label: {
+                    Label("Undo", systemImage: "arrow.uturn.backward")
+                }
+                .keyboardShortcut("z", modifiers: .command)
+                .disabled(!model.canUndo)
+                Button { model.exportSVG() } label: {
+                    Label("Export SVG", systemImage: "square.and.arrow.up")
+                }
+                .disabled(!model.hasResult)
+                Button { showInspector.toggle() } label: {
+                    Label("Inspector", systemImage: "sidebar.trailing")
+                }
             }
         }
     }
@@ -1052,74 +1063,39 @@ struct EditorWorkspaceView: View {
     var backLabel: String = "Home"
     var onClose: () -> Void
 
+    @State private var showStylePanel = true
+
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Button {
-                    onClose()
-                } label: {
-                    Label(backLabel, systemImage: "chevron.left")
-                }
-                Text(session.fileURL?.lastPathComponent ?? "Untitled")
-                    .font(.headline)
-                if session.dirty {
-                    Circle().fill(.orange).frame(width: 7, height: 7)
-                }
-                Spacer()
-                if !session.selection.isEmpty {
-                    Text("\(session.selection.count) selected")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                    ColorPicker(
-                        "Stroke",
-                        selection: Binding(
-                            get: { selectionColor(\Style.stroke) },
-                            set: { session.setSelectionColor($0, target: .stroke) })
-                    )
-                    .frame(width: 90)
-                    ColorPicker(
-                        "Fill",
-                        selection: Binding(
-                            get: { selectionColor(\Style.fill) },
-                            set: { session.setSelectionColor($0, target: .fill) })
-                    )
-                    .frame(width: 70)
-                }
-                Button {
-                    session.undo()
-                } label: {
-                    Label("Undo", systemImage: "arrow.uturn.backward")
-                }
-                .keyboardShortcut("z", modifiers: .command)
-                .disabled(!session.canUndo)
-                Button {
-                    session.save()
-                } label: {
-                    Label("Save", systemImage: "square.and.arrow.down")
-                }
-                // Backspace deletes selected nodes.
-                Button { session.deleteSelection() } label: { EmptyView() }
-                    .keyboardShortcut(.delete, modifiers: [])
-                    .disabled(session.selection.isEmpty)
-                    .frame(width: 0, height: 0)
-                    .opacity(0)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            topBar
             Divider()
-            ZStack(alignment: .bottom) {
-                EditorCanvasView(session: session, zoom: $zoom, offset: $offset)
-                    .overlay(
-                        TrackpadCatcher(
-                            onPan: { dx, dy in
-                                offset = CGSize(
-                                    width: offset.width + dx, height: offset.height + dy)
-                            },
-                            onZoom: { m in zoom = min(64, max(0.2, zoom * (1 + m))) },
-                            onDoubleClick: { _ in zoom = min(64, zoom * 1.6) }
+            HStack(spacing: 0) {
+                ZStack(alignment: .bottom) {
+                    EditorCanvasView(session: session, zoom: $zoom, offset: $offset)
+                        .overlay(
+                            TrackpadCatcher(
+                                onPan: { dx, dy in
+                                    offset = CGSize(
+                                        width: offset.width + dx, height: offset.height + dy)
+                                },
+                                onZoom: { m in zoom = min(64, max(0.2, zoom * (1 + m))) },
+                                onDoubleClick: { _ in
+                                    // Double-click leaves a drawing tool;
+                                    // in Select it keeps its zoom meaning.
+                                    if session.tool != .select {
+                                        session.tool = .select
+                                    } else {
+                                        zoom = min(64, zoom * 1.6)
+                                    }
+                                }
+                            )
                         )
-                    )
-                editorZoomControls
+                    editorZoomControls
+                }
+                if showStylePanel {
+                    Divider()
+                    EditorStylePanel(session: session)
+                }
             }
             Divider()
             HStack {
@@ -1134,13 +1110,91 @@ struct EditorWorkspaceView: View {
         }
     }
 
-    private func selectionColor(_ key: KeyPath<Style, PaintValue?>) -> Color {
-        guard let id = session.selection.sorted().first,
-            let shape = session.document.firstShape(id: id),
-            let paint = shape.effectiveStyle[keyPath: key],
-            let c = paint.renderColor
-        else { return .black }
-        return Color(red: Double(c.r) / 255, green: Double(c.g) / 255, blue: Double(c.b) / 255)
+    private var topBar: some View {
+        HStack(spacing: 10) {
+            Button {
+                onClose()
+            } label: {
+                Label(backLabel, systemImage: "chevron.left")
+            }
+            Text(session.fileURL?.lastPathComponent ?? "Untitled")
+                .font(.headline)
+            if session.dirty {
+                Circle().fill(.orange).frame(width: 7, height: 7)
+            }
+            toolPicker
+            Spacer()
+            if !session.selection.isEmpty {
+                Text("\(session.selection.count) selected")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            Button {
+                session.undo()
+            } label: {
+                Label("Undo", systemImage: "arrow.uturn.backward")
+            }
+            .keyboardShortcut("z", modifiers: .command)
+            .disabled(!session.canUndo)
+            Button {
+                session.save()
+            } label: {
+                Label("Save", systemImage: "square.and.arrow.down")
+            }
+            Button {
+                showStylePanel.toggle()
+            } label: {
+                Label("Style", systemImage: "sidebar.trailing")
+            }
+            // Backspace deletes selected nodes.
+            Button { session.deleteSelection() } label: { EmptyView() }
+                .keyboardShortcut(.delete, modifiers: [])
+                .disabled(session.selection.isEmpty)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+            // Esc returns to the Select tool.
+            Button { session.tool = .select } label: { EmptyView() }
+                .keyboardShortcut(.escape, modifiers: [])
+                .frame(width: 0, height: 0)
+                .opacity(0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    /// Select / Rect / Ellipse / Line. ⌘1–⌘4 switch tools (plain letters
+    /// would steal keystrokes from the panel's text fields); Esc and
+    /// double-click return to Select.
+    private var toolPicker: some View {
+        Picker("", selection: $session.tool) {
+            Image(systemName: "cursorarrow").tag(EditorSession.Tool.select)
+                .help("Select (⌘1)")
+            Image(systemName: "square").tag(EditorSession.Tool.rect)
+                .help("Rectangle (⌘2)")
+            Image(systemName: "circle").tag(EditorSession.Tool.ellipse)
+                .help("Ellipse (⌘3)")
+            Image(systemName: "line.diagonal").tag(EditorSession.Tool.line)
+                .help("Line (⌘4)")
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 150)
+        .background(toolShortcuts)
+    }
+
+    private var toolShortcuts: some View {
+        Group {
+            Button { session.tool = .select } label: { EmptyView() }
+                .keyboardShortcut("1", modifiers: .command)
+            Button { session.tool = .rect } label: { EmptyView() }
+                .keyboardShortcut("2", modifiers: .command)
+            Button { session.tool = .ellipse } label: { EmptyView() }
+                .keyboardShortcut("3", modifiers: .command)
+            Button { session.tool = .line } label: { EmptyView() }
+                .keyboardShortcut("4", modifiers: .command)
+        }
+        .frame(width: 0, height: 0)
+        .opacity(0)
     }
 
     private var editorZoomControls: some View {
