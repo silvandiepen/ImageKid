@@ -788,38 +788,43 @@ private struct CropInspector: View {
     let onCancel: () -> Void
     let onApply: () -> Void
 
+    @State private var ratioLabel = "Free"
+
+    private let presets: [(String, (CGFloat, CGFloat)?)] = [
+        ("Free", nil), ("1:1", (1, 1)), ("4:3", (4, 3)), ("3:2", (3, 2)), ("16:9", (16, 9))
+    ]
+
     var body: some View {
         InspectorPanel(title: "Crop", systemImage: "crop", onClose: onCancel) {
-            VStack(spacing: 12) {
-                HStack(spacing: 8) {
-                    presetButton("Free", ratio: nil)
-                    presetButton("1:1", ratio: (1, 1))
-                    presetButton("4:3", ratio: (4, 3))
-                    presetButton("3:2", ratio: (3, 2))
-                    presetButton("16:9", ratio: (16, 9))
-                }
-                HStack {
-                    Button("Cancel", role: .cancel, action: onCancel)
-                        .buttonStyle(.bordered)
-                    Button(action: onApply) {
-                        Label("Apply Crop", systemImage: "checkmark")
-                            .frame(maxWidth: .infinity)
+            // Compact single row: ratio presets collapse under one menu button.
+            HStack(spacing: 8) {
+                Menu {
+                    ForEach(presets, id: \.0) { preset in
+                        Button(preset.0) { apply(label: preset.0, ratio: preset.1) }
                     }
-                    .buttonStyle(.borderedProminent)
+                } label: {
+                    Label(ratioLabel, systemImage: "aspectratio")
+                        .frame(minWidth: 74)
                 }
+                .buttonStyle(.bordered)
+
+                Spacer(minLength: 4)
+
+                Button("Cancel", role: .cancel, action: onCancel)
+                    .buttonStyle(.bordered)
+                Button(action: onApply) {
+                    Label("Apply", systemImage: "checkmark")
+                }
+                .buttonStyle(.borderedProminent)
             }
         }
     }
 
-    private func presetButton(_ title: String, ratio: (CGFloat, CGFloat)?) -> some View {
-        Button(title) {
-            withAnimation(.snappy) {
-                crop = ratio.map { centeredCrop(ratioW: $0.0, ratioH: $0.1) } ?? CGRect(x: 0, y: 0, width: 1, height: 1)
-            }
+    private func apply(label: String, ratio: (CGFloat, CGFloat)?) {
+        ratioLabel = label
+        withAnimation(.snappy) {
+            crop = ratio.map { centeredCrop(ratioW: $0.0, ratioH: $0.1) } ?? CGRect(x: 0, y: 0, width: 1, height: 1)
         }
-        .buttonStyle(.bordered)
-        .font(.subheadline)
-        .frame(maxWidth: .infinity)
     }
 
     private func centeredCrop(ratioW: CGFloat, ratioH: CGFloat) -> CGRect {
