@@ -73,7 +73,7 @@ struct ContainerSlotSheet: View {
     /// the exact fit math the thumbnail renderer uses (0.88 margin, centered).
     private var preview: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 10).fill(.white)
+            RoundedRectangle(cornerRadius: 14).fill(Color.fekthorWell)
             ThumbnailImage(entry: entry, thumbnails: session.thumbnails, side: Self.previewSide)
             if let vb = viewBox, vb.width > 0, vb.height > 0 {
                 slotRectangle(in: vb)
@@ -81,8 +81,8 @@ struct ContainerSlotSheet: View {
         }
         .frame(width: Self.previewSide, height: Self.previewSide)
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(Color(nsColor: .separatorColor))
+            RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(Color.black.opacity(0.25))
         )
     }
 

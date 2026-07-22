@@ -175,3 +175,73 @@ final class ThumbnailStore: ObservableObject {
         }
     }
 }
+
+/// Thumbnails for the gallery's virtual composed cells (View ▸ Preview
+/// Composed Icons): icon composed into a container merged with its linked
+/// partials, rendered through the same `ThumbnailRenderer` so previews match
+/// what a composed export would produce. Keys are built by the caller over
+/// every input (member file states + slot + link set), so role/link/slot
+/// edits and file changes re-render live; stale keys just age out of the
+/// cache. Nothing is ever written to disk.
+@MainActor
+final class ComposedThumbnailStore: ObservableObject {
+    @Published private(set) var version = 0
+
+    private let cache = NSCache<NSString, NSImage>()
+    private var inFlight: Set<String> = []
+    private var failed: Set<String> = []
+
+    init() {
+        cache.countLimit = 1024
+    }
+
+    func image(forKey key: String) -> NSImage? {
+        cache.object(forKey: key as NSString)
+    }
+
+    func didFail(_ key: String) -> Bool {
+        failed.contains(key)
+    }
+
+    func request(
+        key: String, iconURL: URL, containerURL: URL, partialURLs: [URL],
+        slot: Workfile.ContainerSlot, pixelSize: Int = 192
+    ) {
+        guard cache.object(forKey: key as NSString) == nil,
+            !inFlight.contains(key), !failed.contains(key)
+        else { return }
+        inFlight.insert(key)
+        Task.detached(priority: .utility) {
+            var image: NSImage?
+            if let iconData = try? Data(contentsOf: iconURL),
+                let iconDoc = try? SVGReader.read(iconData),
+                let containerData = try? Data(contentsOf: containerURL),
+                let containerDoc = try? SVGReader.read(containerData)
+            {
+                let partials = partialURLs.compactMap { url -> GraphicDocument? in
+                    guard let data = try? Data(contentsOf: url) else { return nil }
+                    return try? SVGReader.read(data)
+                }
+                let composed = Containers.compose(
+                    content: iconDoc,
+                    into: Containers.merged(containerDoc, partials: partials),
+                    slot: slot)
+                if let cg = ThumbnailRenderer.render(composed, pixelSize: pixelSize) {
+                    let points = CGFloat(pixelSize) / 2  // 2× for Retina
+                    image = NSImage(cgImage: cg, size: NSSize(width: points, height: points))
+                }
+            }
+            let rendered = image
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.inFlight.remove(key)
+                if let rendered {
+                    self.cache.setObject(rendered, forKey: key as NSString)
+                } else {
+                    self.failed.insert(key)
+                }
+                self.version += 1
+            }
+        }
+    }
+}

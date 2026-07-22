@@ -9,6 +9,8 @@ import UniformTypeIdentifiers
 /// context menu's Open in Editor) routes an entry into the editor.
 struct WorkspaceGalleryView: View {
     @ObservedObject var session: WorkspaceSession
+    /// For the View ▸ Preview Composed Icons toggle (⌥⌘P).
+    @ObservedObject private var menuState = MenuState.shared
     /// Hoisted to ContentView so ⌘N knows the selected icon's category
     /// even while the editor is on top.
     @Binding var selection: String?
@@ -108,7 +110,7 @@ struct WorkspaceGalleryView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
             Picker("Sort", selection: $sortMode) {
                 ForEach(SortMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
             }
@@ -211,6 +213,15 @@ struct WorkspaceGalleryView: View {
                                 ForEach(section.entries) { entry in
                                     cell(for: entry)
                                 }
+                                // Virtual icon-in-container previews (View ▸
+                                // Preview Composed Icons) — rendered live,
+                                // never written to disk.
+                                ForEach(composedSpecs(in: section.category)) { spec in
+                                    ComposedIconCell(
+                                        spec: spec,
+                                        thumbnails: session.thumbnails,
+                                        store: session.composedThumbnails)
+                                }
                                 // Creating an icon is always one click away —
                                 // and the obvious first action in an empty
                                 // category.
@@ -233,7 +244,7 @@ struct WorkspaceGalleryView: View {
             }
             .padding(.vertical, 8)
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        // Transparent: the window's black-glass backdrop shows through.
         .contentShape(Rectangle())
         .onTapGesture { selection = nil }
     }
@@ -301,14 +312,16 @@ struct WorkspaceGalleryView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
-        .background(Color(nsColor: .windowBackgroundColor).opacity(0.96))
+        // Material, not an opaque color: pinned headers stay readable while
+        // the glass shows through.
+        .background(.ultraThinMaterial)
     }
 
     private var dropOverlay: some View {
-        RoundedRectangle(cornerRadius: 12)
+        RoundedRectangle(cornerRadius: 16)
             .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [8, 5]))
             .background(
-                RoundedRectangle(cornerRadius: 12).fill(Color.accentColor.opacity(0.06))
+                RoundedRectangle(cornerRadius: 16).fill(Color.accentColor.opacity(0.06))
             )
             .overlay(
                 Label("Drop a PNG to trace it into this workspace", systemImage: "wand.and.rays")
@@ -326,6 +339,7 @@ struct WorkspaceGalleryView: View {
         IconCell(
             entry: entry, thumbnails: session.thumbnails,
             selected: selection == entry.id,
+            role: session.role(of: entry.name),
             isContainer: session.isContainer(entry.name),
             membershipCount: session.memberships(of: entry.name).count,
             onSelect: { selection = entry.id },
@@ -338,6 +352,7 @@ struct WorkspaceGalleryView: View {
     private func contextMenu(for entry: IconEntry) -> some View {
         Button("Open in Editor") { onOpenEntry(entry) }
         Divider()
+        roleMenu(for: entry)
         Button("Rename…") {
             renameText = entry.name
             renameTarget = entry
@@ -365,6 +380,7 @@ struct WorkspaceGalleryView: View {
             containerTarget = entry
         }
         containersSubmenu(for: entry)
+        partialLinkSubmenu(for: entry)
         Divider()
         Button("Show in Finder") {
             NSWorkspace.shared.activateFileViewerSelecting([entry.url])
@@ -389,6 +405,124 @@ struct WorkspaceGalleryView: View {
                 }
             }
         }
+    }
+
+    /// Role submenu: Icon (default, exports) / Container / Partial. Picking
+    /// Container on an entry with no slot yet flows straight into the slot
+    /// sheet — a container without a slot cannot compose anything.
+    private func roleMenu(for entry: IconEntry) -> some View {
+        Menu("Role") {
+            Picker("Role", selection: roleBinding(for: entry)) {
+                Text("Icon").tag(Workfile.EntryRole.icon)
+                Text("Container").tag(Workfile.EntryRole.container)
+                Text("Partial").tag(Workfile.EntryRole.partial)
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        }
+    }
+
+    private func roleBinding(for entry: IconEntry) -> Binding<Workfile.EntryRole> {
+        Binding(
+            get: { session.role(of: entry.name) },
+            set: { role in
+                session.setRole(role, of: entry.name)
+                if role == .container, session.slot(forContainer: entry.name) == nil {
+                    containerTarget = entry
+                }
+            })
+    }
+
+    /// Partials link to the containers they augment; containers report how
+    /// many partials merge into them on export/compose.
+    @ViewBuilder
+    private func partialLinkSubmenu(for entry: IconEntry) -> some View {
+        switch session.role(of: entry.name) {
+        case .partial:
+            let names = session.containerSlots.map(\.container).filter { $0 != entry.name }
+            Menu("Link to Containers") {
+                if names.isEmpty {
+                    Text("No containers defined")
+                }
+                ForEach(names, id: \.self) { name in
+                    Toggle(
+                        name,
+                        isOn: Binding(
+                            get: { session.linkedContainers(of: entry.name).contains(name) },
+                            set: {
+                                session.setPartialLink(
+                                    partial: entry.name, container: name, linked: $0)
+                            }
+                        ))
+                }
+            }
+        case .container:
+            let linked = session.partials(linkedTo: entry.name)
+            if !linked.isEmpty {
+                Text("\(linked.count) linked partial\(linked.count == 1 ? "" : "s")")
+            }
+        case .icon:
+            EmptyView()
+        }
+    }
+
+    // MARK: - Composed previews (View ▸ Preview Composed Icons)
+
+    /// One virtual cell: `icon` composed into `container` (merged with its
+    /// linked partials), shown under `category`. The id carries the category
+    /// because the same composition appears in the container's category AND
+    /// in each linked partial's — the render is shared through `renderKey`.
+    struct ComposedSpec: Identifiable {
+        var icon: IconEntry
+        var container: IconEntry
+        var partials: [IconEntry]
+        var slot: Workfile.ContainerSlot
+        var category: String
+
+        var id: String { "composed:\(icon.id)+\(container.id)@\(category)" }
+        var title: String { "\(icon.name)-\(container.name)" }
+
+        /// Cache key over every input: member file states (id|mtime|size via
+        /// the thumbnail store's key), the slot rect/fit and the link set —
+        /// so role/link/slot edits and file changes re-render live.
+        @MainActor
+        func renderKey(_ thumbnails: ThumbnailStore) -> String {
+            let members = ([icon, container] + partials).map { thumbnails.key(for: $0) }
+            let slotPart =
+                "slot:\(slot.x):\(slot.y):\(slot.width):\(slot.height):\(slot.fit ?? "contain")"
+            return (members + [slotPart]).joined(separator: "|")
+        }
+    }
+
+    /// The composed cells for one category. A composition surfaces in the
+    /// container's category (primary home) and in each linked partial's
+    /// category. Hidden while searching — search matches real files.
+    private func composedSpecs(in category: String) -> [ComposedSpec] {
+        guard menuState.previewComposed, filtered == nil, let ws = session.workspace else {
+            return []
+        }
+        var byName: [String: IconEntry] = [:]
+        for entry in ws.entries where byName[entry.name] == nil {
+            byName[entry.name] = entry
+        }
+        var out: [ComposedSpec] = []
+        for icon in session.containerMemberships.keys.sorted() {
+            guard let iconEntry = byName[icon] else { continue }
+            for name in Set(session.memberships(of: icon)).sorted() {
+                guard let slot = session.slot(forContainer: name),
+                    let containerEntry = byName[name]
+                else { continue }
+                let partialEntries = session.partials(linkedTo: name).compactMap { byName[$0] }
+                var categories = Set([containerEntry.category])
+                for partial in partialEntries { categories.insert(partial.category) }
+                guard categories.contains(category) else { continue }
+                out.append(
+                    ComposedSpec(
+                        icon: iconEntry, container: containerEntry,
+                        partials: partialEntries, slot: slot, category: category))
+            }
+        }
+        return out
     }
 
     // MARK: - Sections / search / sort
@@ -596,7 +730,7 @@ private struct NewIconCell: View {
         Button(action: action) {
             VStack(spacing: 6) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 10)
+                    RoundedRectangle(cornerRadius: 13)
                         .fill(Color.accentColor.opacity(hovering ? 0.10 : 0.04))
                     Image(systemName: "plus")
                         .font(.title2)
@@ -604,7 +738,7 @@ private struct NewIconCell: View {
                 }
                 .frame(width: 96, height: 96)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10)
+                    RoundedRectangle(cornerRadius: 13)
                         .strokeBorder(
                             hovering ? Color.accentColor : Color(nsColor: .separatorColor),
                             style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
@@ -628,6 +762,7 @@ private struct IconCell: View {
     let entry: IconEntry
     @ObservedObject var thumbnails: ThumbnailStore
     let selected: Bool
+    var role: Workfile.EntryRole = .icon
     var isContainer: Bool = false
     var membershipCount: Int = 0
     var onSelect: () -> Void
@@ -636,7 +771,10 @@ private struct IconCell: View {
     var body: some View {
         VStack(spacing: 6) {
             ZStack {
-                RoundedRectangle(cornerRadius: 10).fill(.white)
+                // A light (not hard-white) well with a soft dark rim: the
+                // near-black corpus icons keep full contrast, and white
+                // icons pick up enough of the paper tone + rim to be seen.
+                RoundedRectangle(cornerRadius: 13).fill(Color.fekthorWell)
                 if let image = thumbnails.image(for: entry) {
                     Image(nsImage: image)
                         .resizable()
@@ -654,10 +792,8 @@ private struct IconCell: View {
             .frame(width: 96, height: 96)
             .overlay(alignment: .topTrailing) { badges }
             .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(
-                        selected ? Color.accentColor : Color(nsColor: .separatorColor),
-                        lineWidth: selected ? 2 : 1)
+                RoundedRectangle(cornerRadius: 13)
+                    .strokeBorder(rimColor, lineWidth: selected ? 2 : 1)
             )
             Text(entry.name)
                 .font(.caption)
@@ -677,12 +813,34 @@ private struct IconCell: View {
         }
     }
 
-    /// Container / membership badges: a box for containers, a count capsule
-    /// for icons composed into containers on export.
+    /// The cell rim: selection wins; otherwise a subtle role tint (orange
+    /// box = container, indigo = partial), else a soft dark edge on the
+    /// light well.
+    private var rimColor: Color {
+        if selected { return .accentColor }
+        switch role {
+        case .container: return Color.accentColor.opacity(0.55)
+        case .partial: return Color.indigo.opacity(0.65)
+        case .icon:
+            return isContainer
+                ? Color.accentColor.opacity(0.55) : Color.black.opacity(0.25)
+        }
+    }
+
+    /// Role / membership badges: a box for containers, a puzzle piece for
+    /// partials, a count capsule for icons composed into containers.
     @ViewBuilder
     private var badges: some View {
         HStack(spacing: 3) {
-            if isContainer {
+            if role == .partial {
+                Image(systemName: "puzzlepiece.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Color.indigo)
+                    .padding(3)
+                    .background(.regularMaterial, in: Circle())
+                    .help("Partial — merges into its linked containers on export")
+            }
+            if isContainer || role == .container {
                 Image(systemName: "shippingbox.fill")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
@@ -702,4 +860,72 @@ private struct IconCell: View {
         }
         .padding(4)
     }
+}
+
+// MARK: - Composed preview cell
+
+/// A virtual gallery cell: `icon` composed into `container` (merged with the
+/// container's linked partials), rendered live and never written to disk.
+/// Deliberately styled apart from real cells — dashed rim, slight
+/// transparency, a "composed" badge — and offers no file operations.
+private struct ComposedIconCell: View {
+    let spec: WorkspaceGalleryView.ComposedSpec
+    let thumbnails: ThumbnailStore
+    @ObservedObject var store: ComposedThumbnailStore
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 13)
+                    .fill(Color.fekthorWell.opacity(0.75))
+                if let image = store.image(forKey: renderKey) {
+                    Image(nsImage: image)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFit()
+                        .padding(10)
+                } else if store.didFail(renderKey) {
+                    Image(systemName: "questionmark.square.dashed")
+                        .font(.title2)
+                        .foregroundStyle(.tertiary)
+                } else {
+                    ProgressView().controlSize(.small).opacity(0.4)
+                }
+            }
+            .frame(width: 96, height: 96)
+            .overlay(alignment: .topTrailing) {
+                Image(systemName: "square.on.square.dashed")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(3)
+                    .background(.regularMaterial, in: Circle())
+                    .padding(4)
+                    .help("Composed preview — generated, not a file")
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 13)
+                    .strokeBorder(
+                        Color.secondary.opacity(0.8),
+                        style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+            )
+            Text(spec.title)
+                .font(.caption)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .foregroundStyle(.secondary)
+                .frame(width: 96)
+        }
+        .opacity(0.9)
+        .help(
+            "Composed preview: \(spec.icon.name) in \(spec.container.name)"
+                + (spec.partials.isEmpty
+                    ? "" : " + \(spec.partials.map(\.name).joined(separator: ", "))"))
+        .task(id: renderKey) {
+            store.request(
+                key: renderKey, iconURL: spec.icon.url, containerURL: spec.container.url,
+                partialURLs: spec.partials.map(\.url), slot: spec.slot)
+        }
+    }
+
+    private var renderKey: String { spec.renderKey(thumbnails) }
 }

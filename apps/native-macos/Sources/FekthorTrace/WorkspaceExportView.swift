@@ -28,6 +28,9 @@ struct WorkspaceExportView: View {
     @State private var scopeCategory = ""
     @State private var composeContainers = false
     @State private var replaceExisting = false
+    /// Off by default: containers and partials are composition ingredients,
+    /// not products — a batch export only writes plain icons unless overridden.
+    @State private var includeIngredients = false
 
     enum Scope: String, CaseIterable {
         case workspace = "Whole workspace"
@@ -384,6 +387,18 @@ struct WorkspaceExportView: View {
                 Button("Export…") { pickDestinationAndRun() }
                     .disabled(!canRun)
             }
+            HStack(spacing: 10) {
+                Toggle("Include containers & partials", isOn: $includeIngredients)
+                    .help(
+                        "Containers and partials are composition ingredients and stay out of batch exports by default."
+                    )
+                if let note = exclusionNote {
+                    Text(note)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
             if runner.running {
                 HStack(spacing: 8) {
                     ProgressView(
@@ -429,7 +444,8 @@ struct WorkspaceExportView: View {
         return session.workspace?.entries.first { $0.id == selectedEntryID }
     }
 
-    private var scopedEntries: [IconEntry] {
+    /// The raw scope, before role filtering.
+    private var scopedEntriesRaw: [IconEntry] {
         guard let ws = session.workspace else { return [] }
         switch scope {
         case .workspace:
@@ -439,6 +455,33 @@ struct WorkspaceExportView: View {
         case .selection:
             return selectedEntry.map { [$0] } ?? []
         }
+    }
+
+    /// What the batch actually exports: plain icons only, unless the
+    /// override includes the ingredients too.
+    private var scopedEntries: [IconEntry] {
+        guard !includeIngredients else { return scopedEntriesRaw }
+        return scopedEntriesRaw.filter { session.settings.isExportedByDefault($0.name) }
+    }
+
+    /// "2 containers, 3 partials excluded — ingredients only", or nil when
+    /// nothing in scope is excluded.
+    private var exclusionNote: String? {
+        guard !includeIngredients else { return nil }
+        var containers = 0
+        var partials = 0
+        for entry in scopedEntriesRaw {
+            switch session.settings.role(of: entry.name) {
+            case .container: containers += 1
+            case .partial: partials += 1
+            case .icon: break
+            }
+        }
+        guard containers + partials > 0 else { return nil }
+        var parts: [String] = []
+        if containers > 0 { parts.append("\(containers) container\(containers == 1 ? "" : "s")") }
+        if partials > 0 { parts.append("\(partials) partial\(partials == 1 ? "" : "s")") }
+        return parts.joined(separator: ", ") + " excluded — ingredients only."
     }
 
     private func pickDestinationAndRun() {
@@ -459,6 +502,7 @@ struct WorkspaceExportView: View {
             profile: profile,
             slots: composeContainers ? session.containerSlots : [],
             memberships: composeContainers ? session.containerMemberships : [:],
+            partialLinks: composeContainers ? session.partialLinks : [:],
             compose: composeContainers,
             destination: destination,
             replaceExisting: replaceExisting
@@ -485,7 +529,8 @@ final class ExportRunController: ObservableObject {
 
     func run(
         entries: [IconEntry], allEntries: [IconEntry], profile: Workfile.ExportProfile,
-        slots: [Workfile.ContainerSlot], memberships: [String: [String]], compose: Bool,
+        slots: [Workfile.ContainerSlot], memberships: [String: [String]],
+        partialLinks: [String: [String]], compose: Bool,
         destination: URL, replaceExisting: Bool, onFinished: @escaping (String) -> Void
     ) {
         guard !running else { return }
@@ -532,11 +577,34 @@ final class ExportRunController: ObservableObject {
                             "container \(slot.container): could not read (\(error.localizedDescription))")
                     }
                 }
+                // Linked partials merge into their containers before the
+                // matrix composes; a partial whose file vanished is simply
+                // skipped (matching the engine's contract).
+                var partialsByContainer: [String: [String]] = [:]
+                for (partial, containerNames) in partialLinks {
+                    for name in containerNames {
+                        partialsByContainer[name, default: []].append(partial)
+                    }
+                }
+                var partialDocs: [String: GraphicDocument] = [:]
+                for name in Set(partialLinks.keys).sorted() {
+                    guard let entry = allEntries.first(where: { $0.name == name }) else {
+                        continue
+                    }
+                    if let data = try? Data(contentsOf: entry.url),
+                        let doc = try? SVGReader.read(data)
+                    {
+                        partialDocs[name] = doc
+                    } else {
+                        problems.append("partial \(name): could not read — merged without it")
+                    }
+                }
                 let icons = Dictionary(docs.map { ($0.name, $0.doc) }) { first, _ in first }
                 let scopedMemberships = memberships.filter { icons[$0.key] != nil }
                 do {
                     composed = try Containers.matrixExports(
-                        icons: icons, containers: containers, memberships: scopedMemberships)
+                        icons: icons, containers: containers, memberships: scopedMemberships,
+                        partials: partialDocs, partialsByContainer: partialsByContainer)
                 } catch Containers.ExportError.unknownContainers(let names) {
                     problems.append(
                         "memberships reference unknown containers: \(names.joined(separator: ", ")) — matrix skipped")

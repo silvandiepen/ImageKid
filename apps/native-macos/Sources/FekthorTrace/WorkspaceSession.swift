@@ -35,6 +35,8 @@ final class WorkspaceSession: ObservableObject {
     @Published private(set) var settings = Workfile(version: 1)
 
     let thumbnails = ThumbnailStore()
+    /// Renders for the gallery's virtual composed cells (never files).
+    let composedThumbnails = ComposedThumbnailStore()
 
     private var folderURL: URL?
     /// The URL a successful `startAccessingSecurityScopedResource` was made
@@ -284,6 +286,15 @@ final class WorkspaceSession: ObservableObject {
             $0.isEmpty ? nil : $0
         }
         if workfile.containerMemberships?.isEmpty == true { workfile.containerMemberships = nil }
+        // Roles: the default ("icon") is never stored explicitly.
+        workfile.entryRoles = workfile.entryRoles?.compactMapValues {
+            $0 == Workfile.EntryRole.icon.rawValue ? nil : $0
+        }
+        if workfile.entryRoles?.isEmpty == true { workfile.entryRoles = nil }
+        workfile.partialLinks = workfile.partialLinks?.compactMapValues {
+            $0.isEmpty ? nil : $0
+        }
+        if workfile.partialLinks?.isEmpty == true { workfile.partialLinks = nil }
     }
 
     private func persistSettings() {
@@ -429,7 +440,8 @@ final class WorkspaceSession: ObservableObject {
         status = "Container \(slot.container): slot saved."
     }
 
-    /// Remove a container definition and every membership that references it.
+    /// Remove a container definition, every membership that references it,
+    /// and every partial link pointing at it.
     func removeContainer(named name: String) {
         updateSettings { workfile in
             workfile.containers?.removeAll { $0.container == name }
@@ -437,8 +449,64 @@ final class WorkspaceSession: ObservableObject {
                 let kept = $0.filter { $0 != name }
                 return kept.isEmpty ? nil : kept
             }
+            workfile.partialLinks = workfile.partialLinks?.compactMapValues {
+                let kept = $0.filter { $0 != name }
+                return kept.isEmpty ? nil : kept
+            }
         }
         status = "Container \(name) removed."
+    }
+
+    // MARK: Roles (Icon / Container / Partial)
+
+    /// The entry's role; absent or unknown = plain icon (the only role that
+    /// exports by default — containers and partials are ingredients).
+    func role(of name: String) -> Workfile.EntryRole {
+        settings.role(of: name)
+    }
+
+    /// Record a role. The default role is stored as absence; leaving the
+    /// partial role also drops the entry's container links (they only mean
+    /// something for partials).
+    func setRole(_ role: Workfile.EntryRole, of name: String) {
+        updateSettings { workfile in
+            var roles = workfile.entryRoles ?? [:]
+            roles[name] = role == .icon ? nil : role.rawValue
+            workfile.entryRoles = roles
+            if role != .partial {
+                workfile.partialLinks?[name] = nil
+            }
+        }
+        status = "\(name): role set to \(role.rawValue)."
+    }
+
+    var partialLinks: [String: [String]] { settings.partialLinks ?? [:] }
+
+    /// The containers this partial merges into on export/compose.
+    func linkedContainers(of partial: String) -> [String] {
+        partialLinks[partial] ?? []
+    }
+
+    /// The partials linked to a container (the inverse view, sorted).
+    func partials(linkedTo container: String) -> [String] {
+        partialLinks.compactMap { $0.value.contains(container) ? $0.key : nil }.sorted()
+    }
+
+    func setPartialLink(partial: String, container: String, linked: Bool) {
+        updateSettings { workfile in
+            var all = workfile.partialLinks ?? [:]
+            var list = all[partial] ?? []
+            if linked {
+                if !list.contains(container) {
+                    list.append(container)
+                    list.sort()
+                }
+            } else {
+                list.removeAll { $0 == container }
+            }
+            all[partial] = list.isEmpty ? nil : list
+            workfile.partialLinks = all
+        }
     }
 
     func memberships(of iconName: String) -> [String] {
