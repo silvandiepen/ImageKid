@@ -87,15 +87,27 @@ enum EnhanceSize: String, CaseIterable, Identifiable {
     }
 }
 
+/// One committed step in a picture's edit timeline: the full rendered image
+/// after the edit, plus a short label and icon for the History panel.
+struct HistoryStep: Identifiable {
+    let id = UUID()
+    let name: String
+    let systemImage: String
+    let image: UIImage
+}
+
 /// One picture the user is working on: its original, current edit, per-item
-/// undo/redo history, and saved colour swatches. Value type so mutations flow
+/// history timeline, and saved colour swatches. Value type so mutations flow
 /// through the model's `@Published items` array and republish to SwiftUI.
 struct EditorItem: Identifiable {
     let id = UUID()
     let sourceImage: UIImage
     var current: UIImage
-    var undoStack: [UIImage] = []
-    var redoStack: [UIImage] = []
+    /// Linear, named history timeline (mirrors the macOS ImageSession). Entry
+    /// 0 is always the opened image; `historyIndex` points at the current
+    /// state, and steps after it are redoable.
+    var history: [HistoryStep]
+    var historyIndex = 0
     var sampledColors: [SampledColor] = []
     /// The working image captured immediately before the last background removal,
     /// used as the restore source in Refine (may be cropped, unlike `sourceImage`).
@@ -104,6 +116,7 @@ struct EditorItem: Identifiable {
     init(source: UIImage) {
         self.sourceImage = source
         self.current = source
+        self.history = [HistoryStep(name: "Open", systemImage: "photo", image: source)]
     }
 }
 
@@ -214,9 +227,13 @@ final class InferenceModel: ObservableObject {
     /// The image currently shown and acted on.
     var workingImage: UIImage? { current }
 
-    var canUndo: Bool { active.map { !$0.undoStack.isEmpty } ?? false }
-    var canRedo: Bool { active.map { !$0.redoStack.isEmpty } ?? false }
+    var canUndo: Bool { active.map { $0.historyIndex > 0 } ?? false }
+    var canRedo: Bool { active.map { $0.historyIndex < $0.history.count - 1 } ?? false }
     var isEdited: Bool { canUndo || canRedo }
+
+    /// The selected picture's timeline (empty when nothing is open).
+    var history: [HistoryStep] { active?.history ?? [] }
+    var historyIndex: Int { active?.historyIndex ?? 0 }
 
     /// Saved colour swatches for the selected picture (persist across sheets).
     var sampledColors: [SampledColor] { active?.sampledColors ?? [] }
@@ -291,39 +308,67 @@ final class InferenceModel: ObservableObject {
 
     // MARK: History
 
+    private let historyLimit = 200
+
     /// Commits a new working image to a specific picture (defaults to the selected
-    /// one). Async operations pass the id captured when they started so a result
-    /// never lands on a picture the user selected while it was running.
-    private func commit(_ image: CGImage, status: String, to itemID: UUID? = nil) {
+    /// one) as a named timeline step. Async operations pass the id captured when
+    /// they started so a result never lands on a picture the user selected while
+    /// it was running.
+    private func commit(_ image: CGImage, status: String, systemImage: String, to itemID: UUID? = nil) {
         let targetID = itemID ?? selectedItemID
         guard let index = items.firstIndex(where: { $0.id == targetID }) else { return }
-        items[index].undoStack.append(items[index].current)
-        items[index].redoStack.removeAll()
-        items[index].current = UIImage(cgImage: image)
+        record(HistoryStep(name: status, systemImage: systemImage, image: UIImage(cgImage: image)), at: index)
         if selectedItemID == targetID {
             statusText = status
         }
     }
 
+    /// Appends a step after the timeline cursor, truncating any redoable steps
+    /// ahead of it (the Photoshop timeline rule), and makes it current.
+    private func record(_ step: HistoryStep, at index: Int) {
+        if items[index].historyIndex < items[index].history.count - 1 {
+            items[index].history.removeSubrange((items[index].historyIndex + 1)...)
+        }
+        items[index].history.append(step)
+        if items[index].history.count > historyLimit + 1 {
+            items[index].history.removeFirst(items[index].history.count - (historyLimit + 1))
+        }
+        items[index].historyIndex = items[index].history.count - 1
+        items[index].current = step.image
+    }
+
     func undo() {
-        guard let index = activeIndex, let previous = items[index].undoStack.popLast() else { return }
-        items[index].redoStack.append(items[index].current)
-        items[index].current = previous
+        guard canUndo else { return }
+        jump(to: historyIndex - 1)
         statusText = "Undo"
     }
 
     func redo() {
-        guard let index = activeIndex, let next = items[index].redoStack.popLast() else { return }
-        items[index].undoStack.append(items[index].current)
-        items[index].current = next
+        guard canRedo else { return }
+        jump(to: historyIndex + 1)
         statusText = "Redo"
     }
 
+    /// Restores the state at a timeline index (a History panel tap). Non-
+    /// destructive, exactly like the macOS ImageSession: the cursor moves and
+    /// the image is restored, steps after the cursor stay listed (dimmed) and
+    /// redoable, and only the next *new* edit truncates them.
+    func jump(to index: Int) {
+        guard let itemIndex = activeIndex else { return }
+        let timeline = items[itemIndex].history
+        guard index >= 0, index < timeline.count, index != items[itemIndex].historyIndex else { return }
+        items[itemIndex].historyIndex = index
+        items[itemIndex].current = timeline[index].image
+        statusText = timeline[index].name
+    }
+
+    /// Records going back to the opened image as a step of its own, so the
+    /// revert is itself undoable.
     func revertToOriginal() {
         guard let index = activeIndex, items[index].current !== items[index].sourceImage else { return }
-        items[index].undoStack.append(items[index].current)
-        items[index].redoStack.removeAll()
-        items[index].current = items[index].sourceImage
+        record(
+            HistoryStep(name: "Reverted", systemImage: "arrow.counterclockwise", image: items[index].sourceImage),
+            at: index)
         statusText = "Reverted"
     }
 
@@ -339,20 +384,20 @@ final class InferenceModel: ObservableObject {
             height: normalizedRect.height * CGFloat(source.height)
         ).integral
         guard let cropped = source.cropping(to: pixelRect) else { return }
-        commit(cropped, status: "Cropped")
+        commit(cropped, status: "Cropped", systemImage: "crop")
     }
 
     /// Resizes the working image to an exact pixel size.
     func applyResize(width: Int, height: Int) {
         guard let source = workingImage?.normalizedCGImage() else { return }
         guard let resized = source.resizedExact(width: width, height: height) else { return }
-        commit(resized, status: "Resized to \(width)×\(height)")
+        commit(resized, status: "Resized to \(width)×\(height)", systemImage: "arrow.up.left.and.arrow.down.right")
     }
 
     /// Replaces the working image with an already-rendered edit (annotations,
-    /// refinement).
-    func applyEditedImage(_ image: CGImage, status: String) {
-        commit(image, status: status)
+    /// refinement). The status doubles as the History step's label.
+    func applyEditedImage(_ image: CGImage, status: String, systemImage: String = "wand.and.rays") {
+        commit(image, status: status, systemImage: systemImage)
     }
 
     // MARK: Inference edits
@@ -363,7 +408,7 @@ final class InferenceModel: ObservableObject {
         if let index = activeIndex {
             items[index].preRemovalImage = items[index].current
         }
-        run(status: "Background removed") { [self] progress in
+        run(status: "Background removed", systemImage: "eraser") { [self] progress in
             guard let source = workingImage?.normalizedCGImage() else {
                 throw InferenceError.inputPreparationFailed
             }
@@ -388,7 +433,7 @@ final class InferenceModel: ObservableObject {
     /// chosen quality grade. AI grades upscale 4× natively, then we fit to the
     /// requested output size.
     func enhance(quality: EnhanceQuality, size: EnhanceSize) {
-        run(status: "Enhanced") { [self] progress in
+        run(status: "Enhanced", systemImage: "wand.and.stars") { [self] progress in
             guard let source = workingImage?.normalizedCGImage() else {
                 throw InferenceError.inputPreparationFailed
             }
@@ -413,7 +458,7 @@ final class InferenceModel: ObservableObject {
     /// Prompted editing via OpenAI. Sends the working image and prompt only when
     /// the user starts this action, using their own key.
     func promptEdit(prompt: String, apiKey: String) {
-        run(status: "AI edit") { _ in
+        run(status: "AI edit", systemImage: "text.bubble") { _ in
             guard let source = self.workingImage?.normalizedCGImage() else {
                 throw InferenceError.inputPreparationFailed
             }
@@ -424,6 +469,7 @@ final class InferenceModel: ObservableObject {
     /// Runs an inference operation, wiring progress and committing the result.
     private func run(
         status: String,
+        systemImage: String,
         _ work: @escaping (@escaping InferenceProgressHandler) async throws -> CGImage
     ) {
         guard !isBusy else { return }
@@ -446,7 +492,7 @@ final class InferenceModel: ObservableObject {
         Task {
             do {
                 let output = try await work(handler)
-                commit(output, status: status, to: targetID)
+                commit(output, status: status, systemImage: systemImage, to: targetID)
             } catch {
                 if selectedItemID == targetID {
                     errorMessage = error.localizedDescription

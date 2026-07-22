@@ -39,8 +39,8 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
 
     @Published public var presented: Set<ID> { didSet { persistPanelSets() } }
     @Published public var minimized: Set<ID> = [] { didSet { persistPanelSets() } }
-    @Published public var positions: [ID: CGSize] = [:]
-    @Published public var sizes: [ID: CGSize] = [:]
+    @Published public var positions: [ID: CGSize] = [:] { didSet { persistGeometry() } }
+    @Published public var sizes: [ID: CGSize] = [:] { didSet { persistGeometry() } }
     /// Which panels are magnetically stuck together (ordered top → bottom),
     /// keyed by `stackKey(_:)`.
     @Published public var stacks = PanelStacks() { didSet { persistStacks() } }
@@ -76,6 +76,18 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
         if let raw = defaults.array(forKey: defaultsKey + ".minimized") as? [String] {
             minimized = Set(raw.compactMap { byKey[$0] })
         }
+        if let raw = defaults.dictionary(forKey: defaultsKey + ".positions") as? [String: [Double]] {
+            for (key, value) in raw where value.count == 2 {
+                guard let id = byKey[key] else { continue }
+                positions[id] = CGSize(width: value[0], height: value[1])
+            }
+        }
+        if let raw = defaults.dictionary(forKey: defaultsKey + ".sizes") as? [String: [Double]] {
+            for (key, value) in raw where value.count == 2 {
+                guard let id = byKey[key] else { continue }
+                sizes[id] = CGSize(width: value[0], height: value[1])
+            }
+        }
         if let data = defaults.data(forKey: defaultsKey + ".stacks"),
             var decoded = try? JSONDecoder().decode(PanelStacks.self, from: data)
         {
@@ -99,6 +111,24 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
         defaults.set(
             minimized.map { String(describing: $0) }.sorted(),
             forKey: defaultsKey + ".minimized")
+    }
+
+    /// Panel resting spots and sizes survive relaunches alongside the
+    /// presented/minimized sets, so a dock-managed panel keeps the place the
+    /// user dragged it to (what per-panel @AppStorage offsets used to do).
+    private func persistGeometry() {
+        guard let defaultsKey else { return }
+        let defaults = UserDefaults.standard
+        defaults.set(
+            Dictionary(uniqueKeysWithValues: positions.map {
+                (String(describing: $0.key), [Double($0.value.width), Double($0.value.height)])
+            }),
+            forKey: defaultsKey + ".positions")
+        defaults.set(
+            Dictionary(uniqueKeysWithValues: sizes.map {
+                (String(describing: $0.key), [Double($0.value.width), Double($0.value.height)])
+            }),
+            forKey: defaultsKey + ".sizes")
     }
 
     private func persistStacks() {

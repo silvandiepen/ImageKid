@@ -32,22 +32,15 @@ struct ContentView: View {
     @State private var selectedAnnotationID: UUID?
     @State private var editingAnnotationID: UUID?
     @State private var isShowingLayersSheet = false
+    @State private var isShowingHistorySheet = false
     @State private var currentSample: SampledColor?
     @State private var sampleLocation: CGPoint?
 
-    // The iPad Draw/Text options float over the canvas as a shared-kit panel
-    // (same mechanic and chrome as the Mac apps); its resting spot and
-    // minimized state survive relaunches.
-    @AppStorage("ipad.annotatePanel.offset.x") private var annotatePanelX: Double = 0
-    @AppStorage("ipad.annotatePanel.offset.y") private var annotatePanelY: Double = 0
-    @AppStorage("ipad.annotatePanel.minimized") private var isAnnotatePanelMinimized = false
-
-    // The Layers panel follows the same pattern: toggled from the toolbar,
-    // floating on regular widths, with its resting spot persisted.
-    @AppStorage("ipad.layersPanel.shown") private var isLayersPanelShown = false
-    @AppStorage("ipad.layersPanel.offset.x") private var layersPanelX: Double = 0
-    @AppStorage("ipad.layersPanel.offset.y") private var layersPanelY: Double = 0
-    @AppStorage("ipad.layersPanel.minimized") private var isLayersPanelMinimized = false
+    // On regular widths every panel — Draw/Text options, Colours, Layers,
+    // History — floats over the canvas on one shared dock (same mechanic and
+    // chrome as the Mac app): magnetic stacking, the minimize-chip rail, and
+    // resting spots persisted together under "ipad.panels".
+    @StateObject private var panelDock = PanelDockModel<IPadDockPanel>.makeIPadDock()
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: $preferredColumn) {
@@ -75,7 +68,7 @@ struct ContentView: View {
                         .padding(.vertical, 8)
                         .background(.regularMaterial, in: Capsule())
                 } else if model.workingImage != nil {
-                    if !usesFloatingAnnotatePanel {
+                    if !usesFloatingAnnotatePanel && !usesFloatingColourPanel {
                         toolInspector
                     }
                     bottomToolbar
@@ -83,16 +76,30 @@ struct ContentView: View {
             }
             .padding(.bottom, 6)
         }
-        .overlay(alignment: .topLeading) {
-            if usesFloatingAnnotatePanel {
-                annotateFloatingPanel
-                    .padding(16)
-            }
-        }
-        .overlay(alignment: .topTrailing) {
-            if usesFloatingLayersPanel {
-                layersFloatingPanel
-                    .padding(16)
+        .overlay {
+            if usesPanelDock {
+                IPadPanelsLayer(
+                    model: model,
+                    dock: panelDock,
+                    isTextTool: activeTool == .text,
+                    annotationKind: $annotationKind,
+                    annotationColor: $annotationColor,
+                    annotationWidthFraction: $annotationWidthFraction,
+                    textSizeFraction: $textSizeFraction,
+                    annotations: $annotations,
+                    selectedAnnotationID: $selectedAnnotationID,
+                    currentSample: currentSample,
+                    onSaveSample: {
+                        if let currentSample { model.addSampledColor(currentSample) }
+                    },
+                    onAnnotateCancel: {
+                        resetAnnotations()
+                        activeTool = nil
+                    },
+                    onAnnotateApply: applyAnnotations,
+                    onToggleTool: toggleDockTool
+                )
+                .padding(16)
             }
         }
         .background { hardwareDeleteShortcut }
@@ -101,6 +108,12 @@ struct ContentView: View {
         .toolbar { editorToolbar }
         .onChange(of: pickerItem) { _, newValue in
             loadPickedImage(newValue)
+        }
+        .onChange(of: activeTool) { _, newTool in
+            syncDockToolPanels(newTool)
+        }
+        .onAppear {
+            syncDockToolPanels(activeTool)
         }
     }
 
@@ -115,8 +128,7 @@ struct ContentView: View {
             if model.workingImage != nil, model.videoURL == nil {
                 Button {
                     if isRegularWidth {
-                        isLayersPanelShown.toggle()
-                        isLayersPanelMinimized = false
+                        panelDock.railToggle(.layers)
                     } else {
                         isShowingLayersSheet = true
                     }
@@ -124,6 +136,16 @@ struct ContentView: View {
                     Image(systemName: "square.3.layers.3d")
                 }
                 .accessibilityLabel("Layers")
+                Button {
+                    if isRegularWidth {
+                        panelDock.railToggle(.history)
+                    } else {
+                        isShowingHistorySheet = true
+                    }
+                } label: {
+                    Image(systemName: "clock.arrow.circlepath")
+                }
+                .accessibilityLabel("History")
             }
             if model.workingImage != nil {
                 Button { model.undo() } label: { Image(systemName: "arrow.uturn.backward") }
@@ -149,7 +171,7 @@ struct ContentView: View {
                 if let original = model.refineRestoreImage?.normalizedCGImage(),
                    let current = model.workingImage?.normalizedCGImage() {
                     RefineView(original: original, current: current) { rendered in
-                        model.applyEditedImage(rendered, status: "Refined")
+                        model.applyEditedImage(rendered, status: "Refined", systemImage: "lasso")
                         activeTool = nil
                     }
                 }
@@ -185,6 +207,21 @@ struct ContentView: View {
                 }
                 .presentationDetents([.medium, .large])
             }
+            .sheet(isPresented: $isShowingHistorySheet) {
+                NavigationStack {
+                    HistoryPanelContent(model: model)
+                        .padding()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .navigationTitle("History")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("Done") { isShowingHistorySheet = false }
+                            }
+                        }
+                }
+                .presentationDetents([.medium, .large])
+            }
             .alert("Add text", isPresented: $isEnteringText) {
                 TextField("Text", text: $textInput)
                 Button("Add") { addTextAnnotation() }
@@ -208,106 +245,54 @@ struct ContentView: View {
 
     private var isRegularWidth: Bool { horizontalSizeClass == .regular }
 
-    /// iPad only: Draw/Text options leave the bottom stack and float over the
-    /// canvas. Compact widths keep the existing inline inspector.
-    private var usesFloatingAnnotatePanel: Bool {
+    /// iPad only: the dock's floating panels and chip rail live over the
+    /// canvas. Compact widths keep inline inspectors and sheets, and video
+    /// mode has no panels at all.
+    private var usesPanelDock: Bool {
         isRegularWidth && model.workingImage != nil && model.videoURL == nil
-            && (activeTool == .draw || activeTool == .text)
     }
 
-    private var annotatePanelOffset: Binding<CGSize> {
-        Binding(
-            get: { CGSize(width: annotatePanelX, height: annotatePanelY) },
-            set: { newValue in
-                annotatePanelX = newValue.width
-                annotatePanelY = newValue.height
-            }
-        )
+    /// iPad only: Draw/Text options leave the bottom stack and float on the
+    /// dock. Compact widths keep the existing inline inspector.
+    private var usesFloatingAnnotatePanel: Bool {
+        usesPanelDock && (activeTool == .draw || activeTool == .text)
     }
 
-    /// The shared-kit floating panel hosting the Draw/Text options — draggable
-    /// from its header, snapping to the same 20pt grid as the Mac apps, and
-    /// minimizable to the shared chip.
-    @ViewBuilder
-    private var annotateFloatingPanel: some View {
-        let isText = activeTool == .text
-        if isAnnotatePanelMinimized {
-            MinimizedPanelChip(
-                systemImage: isText ? "textformat" : "pencil.tip.crop.circle",
-                isActive: true
-            ) {
-                isAnnotatePanelMinimized = false
-            }
-        } else {
-            FloatingToolPanel(
-                title: isText ? "Text" : "Draw",
-                systemImage: isText ? "textformat" : "pencil.tip.crop.circle",
-                width: 340,
-                offset: annotatePanelOffset,
-                onMinimize: { isAnnotatePanelMinimized = true },
-                snapStep: 20
-            ) {
-                AnnotationControls(
-                    selectedTool: $annotationKind,
-                    color: $annotationColor,
-                    widthFraction: $annotationWidthFraction,
-                    textSizeFraction: $textSizeFraction,
-                    annotations: $annotations,
-                    selectedAnnotationID: $selectedAnnotationID,
-                    defaultKind: isText ? .text : .freehand,
-                    onCancel: {
-                        resetAnnotations()
-                        activeTool = nil
-                    },
-                    onApply: applyAnnotations
-                )
-                .darkPanelControl()
-                // Native controls (segmented picker, bordered buttons) should
-                // render their dark variants on the dark-glass chrome.
-                .environment(\.colorScheme, .dark)
-            }
+    /// iPad only: the colour sampler's swatches float as a "Colours" panel.
+    private var usesFloatingColourPanel: Bool {
+        usesPanelDock && activeTool == .colour
+    }
+
+    /// The Draw/Text and Colours panels are tool-driven: they appear on the
+    /// dock while their tool is active and leave it when the tool goes away
+    /// (their minimized state still persists, so a minimized panel comes back
+    /// as a highlighted rail chip).
+    private func syncDockToolPanels(_ tool: EditorTool?) {
+        setDockPanel(.annotate, presented: tool == .draw || tool == .text)
+        setDockPanel(.colours, presented: tool == .colour)
+    }
+
+    private func setDockPanel(_ panel: IPadDockPanel, presented: Bool) {
+        if presented {
+            panelDock.presented.insert(panel)
+        } else if panelDock.presented.contains(panel) {
+            // Hide without clearing the minimized flag (unlike toggle), so a
+            // minimized panel returns as a chip next time the tool comes up.
+            panelDock.stacks.detach(panelDock.stackKey(panel))
+            panelDock.presented.remove(panel)
         }
     }
 
-    /// The Layers panel floats on regular widths whenever an image is open;
-    /// compact widths get the same content as a sheet from the toolbar button.
-    private var usesFloatingLayersPanel: Bool {
-        isRegularWidth && isLayersPanelShown && model.workingImage != nil && model.videoURL == nil
-    }
-
-    private var layersPanelOffset: Binding<CGSize> {
-        Binding(
-            get: { CGSize(width: layersPanelX, height: layersPanelY) },
-            set: { newValue in
-                layersPanelX = newValue.width
-                layersPanelY = newValue.height
-            }
-        )
-    }
-
-    @ViewBuilder
-    private var layersFloatingPanel: some View {
-        if isLayersPanelMinimized {
-            MinimizedPanelChip(systemImage: "square.3.layers.3d", isActive: true) {
-                isLayersPanelMinimized = false
-            }
-        } else {
-            FloatingToolPanel(
-                title: "Layers",
-                systemImage: "square.3.layers.3d",
-                width: 300,
-                offset: layersPanelOffset,
-                onMinimize: { isLayersPanelMinimized = true },
-                snapStep: 20
-            ) {
-                LayersPanelContent(
-                    annotations: $annotations,
-                    selectedAnnotationID: $selectedAnnotationID,
-                    listMaxHeight: 280
-                )
-                .darkPanelControl()
-                .environment(\.colorScheme, .dark)
-            }
+    /// Rail chips for the tool-driven panels toggle their tool; the dock then
+    /// follows via `syncDockToolPanels`.
+    private func toggleDockTool(_ panel: IPadDockPanel) {
+        switch panel {
+        case .annotate:
+            activate(activeTool == .text ? .text : .draw)
+        case .colours:
+            activate(.colour)
+        case .layers, .history:
+            break
         }
     }
 
@@ -662,7 +647,7 @@ struct ContentView: View {
     private func applyAnnotations() {
         guard let base = model.workingImage?.normalizedCGImage(),
               let rendered = AnnotationRasterizer.render(annotations, onto: base) else { return }
-        model.applyEditedImage(rendered, status: "Annotated")
+        model.applyEditedImage(rendered, status: "Annotated", systemImage: "pencil.tip.crop.circle")
         resetAnnotations()
         activeTool = nil
     }
@@ -1047,8 +1032,8 @@ private struct AnnotationInspector: View {
 }
 
 /// The Draw/Text option controls, host-agnostic: the compact inline inspector
-/// and the iPad floating panel both wrap this.
-private struct AnnotationControls: View {
+/// and the iPad dock panel both wrap this.
+struct AnnotationControls: View {
     @Binding var selectedTool: Annotation.Kind
     @Binding var color: Color
     @Binding var widthFraction: CGFloat
@@ -1132,7 +1117,7 @@ private struct AnnotationControls: View {
 /// panel and the compact-width sheet; ports the macOS LayersPanel semantics
 /// to the iOS annotation model: tap to select, eye to hide, arrows to
 /// reorder, trash to delete.
-private struct LayersPanelContent: View {
+struct LayersPanelContent: View {
     @Binding var annotations: [Annotation]
     @Binding var selectedAnnotationID: UUID?
     var listMaxHeight: CGFloat?
@@ -1275,43 +1260,63 @@ private struct ColourInspector: View {
 
     var body: some View {
         InspectorPanel(title: "Colours", systemImage: "eyedropper", onClose: onClose) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 12) {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(current?.color ?? Color(.tertiarySystemFill))
-                        .frame(width: 52, height: 52)
-                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.quaternary))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(current?.hex ?? "Pick a pixel")
-                            .font(.headline.monospaced())
-                        Text(current?.rgb ?? "Drag on the image to sample a colour.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button(action: onSave) {
-                        Image(systemName: "plus.circle.fill")
-                    }
-                    .disabled(current == nil)
-                }
-                if model.sampledColors.isEmpty {
-                    Text("No saved colours yet.")
+            ColourSampleControls(model: model, current: current, onSave: onSave)
+        }
+    }
+}
+
+/// The colour sampler's readout and saved-swatch strip, host-agnostic: the
+/// compact inline inspector and the iPad "Colours" dock panel both wrap this.
+/// Swatches persist on the model, so the panel pairs with the sampling tool
+/// the way Fekthor's swatch palette does.
+struct ColourSampleControls: View {
+    @ObservedObject var model: InferenceModel
+    let current: SampledColor?
+    let onSave: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(current?.color ?? Color(.tertiarySystemFill))
+                    .frame(width: 52, height: 52)
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.quaternary))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(current?.hex ?? "Pick a pixel")
+                        .font(.headline.monospaced())
+                    Text(current?.rgb ?? "Drag on the image to sample a colour.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                } else {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(model.sampledColors) { swatch in
-                                Menu {
-                                    Button("Copy \(swatch.hex)") { UIPasteboard.general.string = swatch.hex }
-                                    Button("Copy \(swatch.rgb)") { UIPasteboard.general.string = swatch.rgb }
-                                    Button("Remove", role: .destructive) { model.removeSampledColor(swatch.id) }
-                                } label: {
-                                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                        .fill(swatch.color)
-                                        .frame(width: 44, height: 44)
-                                        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(.quaternary))
-                                }
+                }
+                Spacer()
+                Button(action: onSave) {
+                    Image(systemName: "plus.circle.fill")
+                        .imageScale(.large)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(current == nil)
+                .opacity(current == nil ? 0.4 : 1)
+                .accessibilityLabel("Save colour")
+            }
+            if model.sampledColors.isEmpty {
+                Text("No saved colours yet.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(model.sampledColors) { swatch in
+                            Menu {
+                                Button("Copy \(swatch.hex)") { UIPasteboard.general.string = swatch.hex }
+                                Button("Copy \(swatch.rgb)") { UIPasteboard.general.string = swatch.rgb }
+                                Button("Remove", role: .destructive) { model.removeSampledColor(swatch.id) }
+                            } label: {
+                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    .fill(swatch.color)
+                                    .frame(width: 44, height: 44)
+                                    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(.quaternary))
                             }
                         }
                     }
