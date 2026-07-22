@@ -98,7 +98,7 @@ targets:
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.graphics-design
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_STYLE: Automatic
-  FekthorTrace:
+  Fekthor:
     type: application
     platform: macOS
     sources:
@@ -108,7 +108,7 @@ targets:
       - package: ImageKidKit
       - package: ImageKidInference
     entitlements:
-      path: Sources/FekthorTrace/FekthorTrace.entitlements
+      path: Sources/FekthorTrace/Fekthor.entitlements
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.files.user-selected.read-write: true
@@ -117,10 +117,10 @@ targets:
         com.apple.security.network.client: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.hakobs.fekthor.trace
-        PRODUCT_NAME: Fekthor Trace
+        PRODUCT_BUNDLE_IDENTIFIER: com.hakobs.fekthor
+        PRODUCT_NAME: Fekthor
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: Fekthor Trace
+        INFOPLIST_KEY_CFBundleDisplayName: Fekthor
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.graphics-design
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_STYLE: Automatic
