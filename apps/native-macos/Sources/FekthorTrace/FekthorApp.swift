@@ -6,6 +6,12 @@ extension Notification.Name {
     static let fekthorSave = Notification.Name("fekthor.save")
     static let fekthorSaveAs = Notification.Name("fekthor.saveAs")
     static let fekthorTraceImage = Notification.Name("fekthor.traceImage")
+    static let fekthorGroup = Notification.Name("fekthor.group")
+    static let fekthorUngroup = Notification.Name("fekthor.ungroup")
+    static let fekthorBringForward = Notification.Name("fekthor.bringForward")
+    static let fekthorSendBackward = Notification.Name("fekthor.sendBackward")
+    static let fekthorBringToFront = Notification.Name("fekthor.bringToFront")
+    static let fekthorSendToBack = Notification.Name("fekthor.sendToBack")
 }
 
 @main
@@ -43,6 +49,33 @@ struct FekthorApp: App {
                     NotificationCenter.default.post(name: .fekthorTraceImage, object: nil)
                 }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
+            }
+            CommandMenu("Object") {
+                Button("Group") {
+                    NotificationCenter.default.post(name: .fekthorGroup, object: nil)
+                }
+                .keyboardShortcut("g", modifiers: .command)
+                Button("Ungroup") {
+                    NotificationCenter.default.post(name: .fekthorUngroup, object: nil)
+                }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+                Divider()
+                Button("Bring to Front") {
+                    NotificationCenter.default.post(name: .fekthorBringToFront, object: nil)
+                }
+                .keyboardShortcut("]", modifiers: [.command, .option])
+                Button("Bring Forward") {
+                    NotificationCenter.default.post(name: .fekthorBringForward, object: nil)
+                }
+                .keyboardShortcut("]", modifiers: .command)
+                Button("Send Backward") {
+                    NotificationCenter.default.post(name: .fekthorSendBackward, object: nil)
+                }
+                .keyboardShortcut("[", modifiers: .command)
+                Button("Send to Back") {
+                    NotificationCenter.default.post(name: .fekthorSendToBack, object: nil)
+                }
+                .keyboardShortcut("[", modifiers: [.command, .option])
             }
         }
     }

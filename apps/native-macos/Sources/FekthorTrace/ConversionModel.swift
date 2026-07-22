@@ -592,6 +592,26 @@ final class ConversionModel: ObservableObject {
         editGeneration += 1
     }
 
+    /// Insert an anchor on one element's outline at (path, segment, t) — as
+    /// reported by `Editing.closestPoint(of:to:)` (⌘-click on a selected
+    /// path). One undo step; the new anchor's index is `segment + 1`.
+    func insertAnchor(element: Int, path: Int, segment: Int, t: Double) {
+        guard var doc = document, element < doc.elements.count,
+            let inserted = Editing.insertAnchor(
+                doc.elements[element], path: path, segment: segment, t: t)
+        else {
+            status = "A point cannot be added here."
+            return
+        }
+        beginEditGesture()
+        doc.elements[element] = inserted
+        document = doc
+        documentEdited = true
+        nodes = doc.nodeCount
+        status = "Added point."
+        editGeneration += 1
+    }
+
     /// Move one cubic control handle of one element. `mirror` keeps the
     /// opposite handle collinear (smooth point).
     func moveHandle(

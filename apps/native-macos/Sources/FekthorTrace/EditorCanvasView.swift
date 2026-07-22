@@ -293,6 +293,15 @@ struct EditorCanvasView: View {
                 // Click: select.
                 let shift = NSEvent.modifierFlags.contains(.shift)
                 let cmd = NSEvent.modifierFlags.contains(.command)
+                // ⌘-click near a SELECTED shape's outline (not on an anchor
+                // or handle): add a point there and make it the active anchor.
+                if cmd, !shift, let ins = insertionCandidate(at: v.location, in: size) {
+                    session.insertAnchor(
+                        node: ins.node, path: ins.path, segment: ins.segment, t: ins.t)
+                    session.selection = [ins.node]
+                    activeAnchor = (ins.path, ins.anchorIndex)
+                    return
+                }
                 if let hit = hitNode(at: v.location, in: size) {
                     if shift || cmd {
                         if session.selection.contains(hit) {
@@ -311,6 +320,45 @@ struct EditorCanvasView: View {
                 }
                 session.generation += 1
             }
+    }
+
+    /// ⌘-click "add point" hit test: the closest outline point across the
+    /// SELECTED shapes, within ~6pt on screen, and not over an existing
+    /// anchor or handle (those clicks keep their select/drag meaning).
+    private func insertionCandidate(at point: CGPoint, in size: CGSize)
+        -> (node: Int, path: Int, segment: Int, t: Double, anchorIndex: Int)?
+    {
+        guard !session.selection.isEmpty else { return nil }
+        let doc = session.document
+        let t = transform(doc: doc, in: size)
+        for id in session.selection {
+            guard let shape = doc.firstShape(id: id) else { continue }
+            for a in Editing2.anchors(of: shape) {
+                let av = CGPoint(x: a.position.x * t.s + t.tx, y: a.position.y * t.s + t.ty)
+                if hypot(av.x - point.x, av.y - point.y) <= hitRadius { return nil }
+            }
+        }
+        if let sel = single, let shape = doc.firstShape(id: sel), let active = activeAnchor {
+            for h in Editing2.handles(of: shape, path: active.path, anchor: active.index) {
+                let hv = CGPoint(x: h.position.x * t.s + t.tx, y: h.position.y * t.s + t.ty)
+                if hypot(hv.x - point.x, hv.y - point.y) <= hitRadius { return nil }
+            }
+        }
+        let dp = docPoint(from: point, in: size)
+        let tol = 6.0 / Double(t.s)
+        var best: (node: Int, path: Int, segment: Int, t: Double, distance: Double)? = nil
+        for id in session.selection.sorted() {
+            guard let shape = doc.firstShape(id: id),
+                let hit = Editing2.closestPoint(of: shape, to: dp), hit.distance <= tol
+            else { continue }
+            if best == nil || hit.distance < best!.distance {
+                best = (id, hit.path, hit.segment, hit.t, hit.distance)
+            }
+        }
+        return best.map {
+            (node: $0.node, path: $0.path, segment: $0.segment, t: $0.t,
+                anchorIndex: $0.segment + 1)
+        }
     }
 
     /// Topmost shape under a view point (fills by containment, stroked

@@ -67,7 +67,33 @@ struct ContentView: View {
                 editorSession = nil
                 model.openPanel()
             }
+            .background(objectCommandListeners)
         }
+    }
+
+    /// Object-menu commands (group/ungroup, z-order) act on the editor
+    /// session; a hidden background view hosts the listeners so the main
+    /// body stays type-checkable.
+    private var objectCommandListeners: some View {
+        Color.clear
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorGroup)) { _ in
+                editorSession?.groupSelection()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorUngroup)) { _ in
+                editorSession?.ungroupSelection()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorBringForward)) { _ in
+                editorSession?.bringForward()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorSendBackward)) { _ in
+                editorSession?.sendBackward()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorBringToFront)) { _ in
+                editorSession?.bringToFront()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorSendToBack)) { _ in
+                editorSession?.sendToBack()
+            }
     }
 
     private func newFile() {

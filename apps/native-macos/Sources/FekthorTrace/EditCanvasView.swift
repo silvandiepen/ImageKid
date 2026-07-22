@@ -270,6 +270,17 @@ struct VectorEditLayer: View {
                 // A click: hit the topmost path under the cursor. Cmd toggles
                 // it in the selection; a plain click replaces the selection.
                 let cmd = NSEvent.modifierFlags.contains(.command)
+                // ⌘-click near a SELECTED path's outline (not on an anchor or
+                // handle): add a point there and make it the active anchor.
+                if cmd, let ins = insertionCandidate(at: v.location, doc: doc, t: t, in: size) {
+                    model.insertAnchor(
+                        element: ins.element, path: ins.path, segment: ins.segment, t: ins.t)
+                    model.selectedElements = [ins.element]
+                    activeAnchor = (ins.path, ins.anchorIndex)
+                    model.selectionChanged()
+                    model.editGeneration += 1
+                    return
+                }
                 let hit = elementHit(at: v.location, doc: doc, size: size)
                 if let hit {
                     if cmd {
@@ -298,6 +309,37 @@ struct VectorEditLayer: View {
                 model.selectionChanged()
                 model.editGeneration += 1
             }
+    }
+
+    /// ⌘-click "add point" hit test: the closest outline point across the
+    /// SELECTED paths, within ~6pt on screen, and not over an existing anchor
+    /// or handle (those clicks keep their select/drag meaning).
+    private func insertionCandidate(at point: CGPoint, doc: VectorDocument, t: T, in size: CGSize)
+        -> (element: Int, path: Int, segment: Int, t: Double, anchorIndex: Int)?
+    {
+        guard !model.selectedElements.isEmpty else { return nil }
+        if anchorHit(at: point, in: size, radius: hitRadius) != nil { return nil }
+        if let sel = selected, sel < doc.elements.count, let active = activeAnchor {
+            for h in Editing.handles(of: doc.elements[sel], path: active.path, anchor: active.index) {
+                let hv = CGPoint(x: h.position.x * t.s + t.tx, y: h.position.y * t.s + t.ty)
+                if hypot(hv.x - point.x, hv.y - point.y) <= hitRadius { return nil }
+            }
+        }
+        let dp = docPoint(from: point, doc: doc, in: size)
+        let tol = 6.0 / Double(t.s)
+        var best: (element: Int, path: Int, segment: Int, t: Double, distance: Double)? = nil
+        for i in model.selectedElements.sorted() where i < doc.elements.count {
+            guard let hit = Editing.closestPoint(of: doc.elements[i], to: dp),
+                hit.distance <= tol
+            else { continue }
+            if best == nil || hit.distance < best!.distance {
+                best = (i, hit.path, hit.segment, hit.t, hit.distance)
+            }
+        }
+        return best.map {
+            (element: $0.element, path: $0.path, segment: $0.segment, t: $0.t,
+                anchorIndex: $0.segment + 1)
+        }
     }
 
     /// Topmost element under a click: fills answer by containment (even-odd),

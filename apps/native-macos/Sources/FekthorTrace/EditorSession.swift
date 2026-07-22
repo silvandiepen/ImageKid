@@ -119,6 +119,69 @@ final class EditorSession: ObservableObject {
         status = "Removed point."
     }
 
+    /// Insert an anchor on a shape's outline at (path, segment, t) — as
+    /// reported by `Editing2.closestPoint(of:to:)`. One undo step.
+    func insertAnchor(node id: Int, path: Int, segment: Int, t: Double) {
+        guard let shape = document.firstShape(id: id) else { return }
+        beginGesture()
+        let inserted = Editing2.insertAnchor(shape, path: path, segment: segment, t: t)
+        mutate { $0.replaceShape(id: id, with: inserted) }
+        status = "Added point."
+    }
+
+    // MARK: - Z-order (selection, one undo step each)
+
+    func bringForward() { reorderSelection("Brought forward.") { $0.bringForward($1) } }
+    func sendBackward() { reorderSelection("Sent backward.") { $0.sendBackward($1) } }
+    func bringToFront() { reorderSelection("Brought to front.") { $0.bringToFront($1) } }
+    func sendToBack() { reorderSelection("Sent to back.") { $0.sendToBack($1) } }
+
+    private func reorderSelection(
+        _ message: String, _ op: (inout GraphicDocument, Set<Int>) -> Void
+    ) {
+        guard !selection.isEmpty else { return }
+        let ids = selection
+        beginGesture()
+        mutate { op(&$0, ids) }
+        status = message
+    }
+
+    // MARK: - Group / ungroup
+
+    /// Wrap the selected sibling nodes in a group (placed where the topmost
+    /// selected node was); the selection becomes the group.
+    func groupSelection() {
+        guard !selection.isEmpty else { return }
+        let ids = selection
+        var groupID: Int? = nil
+        beginGesture()
+        mutate { groupID = $0.groupNodes(ids) }
+        if let groupID {
+            selection = [groupID]
+            status = "Grouped \(ids.count) node(s)."
+        } else {
+            undo()
+            status = "Nothing to group."
+        }
+    }
+
+    /// Dissolve every selected group in place; children inherit the group's
+    /// transform/style (composed) and become the selection.
+    func ungroupSelection() {
+        guard !selection.isEmpty else { return }
+        let ids = selection
+        var freed: Set<Int> = []
+        beginGesture()
+        mutate { freed = $0.ungroupNodes(ids) }
+        if freed.isEmpty {
+            undo()
+            status = "The selection has no groups to ungroup."
+        } else {
+            selection = freed
+            status = "Ungrouped."
+        }
+    }
+
     func translateSelection(dx: Double, dy: Double) {
         for id in selection {
             guard let shape = document.firstShape(id: id) else { continue }
