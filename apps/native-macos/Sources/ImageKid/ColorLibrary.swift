@@ -79,6 +79,14 @@ final class ColorLibrary: ObservableObject {
         return set.id
     }
 
+    /// Create a new set from a list of colours (e.g. a multi-selection).
+    @discardableResult
+    func createSet(name: String = "New Set", colors: [NSColor]) -> UUID {
+        let set = SwatchSet(name: name, colors: colors.map { SwatchColor(color: $0) })
+        sets.append(set)
+        return set.id
+    }
+
     func removeSet(_ setID: UUID) {
         // Never delete the base set out from under the tools.
         guard let set = sets.first(where: { $0.id == setID }), !set.isBase else { return }

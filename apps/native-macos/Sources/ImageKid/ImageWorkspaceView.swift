@@ -430,7 +430,13 @@ struct ImageWorkspaceView: View {
             ViewportToolbar(
                 session: session,
                 displayedScale: displayedScale,
-                isCollapsed: $isViewportToolbarCollapsed
+                isCollapsed: $isViewportToolbarCollapsed,
+                onEditSize: {
+                    session.selectedLayerID = nil
+                    session.selectedLayerIDs = []
+                    session.selectedAnnotationID = nil
+                    appModel.activeTool = .resize
+                }
             )
             .padding(.top, 10)
             Spacer()

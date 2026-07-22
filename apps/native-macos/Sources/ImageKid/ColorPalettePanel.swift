@@ -103,6 +103,22 @@ struct ColorPalettePanel: View {
                     .menuStyle(.button)
                     .disabled(selectedSamples.isEmpty)
 
+                    Menu {
+                        Button("New swatch set") {
+                            library.createSet(name: "Palette", colors: selectedSamples.map(\.color))
+                        }
+                        ForEach(library.sets) { set in
+                            Button("Add to \(set.name)") {
+                                for sample in selectedSamples { library.addColor(sample.color, to: set.id) }
+                            }
+                        }
+                    } label: {
+                        Label("Selected to Swatches", systemImage: "swatchpalette")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .menuStyle(.button)
+                    .disabled(selectedSamples.isEmpty)
+
                     Button(role: .destructive) {
                         session.removeSamples(session.selectedColorIDs)
                     } label: {
