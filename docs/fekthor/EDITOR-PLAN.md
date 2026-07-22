@@ -114,8 +114,11 @@ geometry, adds transforms/groups/ids. Trace output maps losslessly.
 
 ## Phases
 
-- **P0 Foundation**: Model v2 + migration; launch = blank artboard editor
-  (home screen done); New/Open/Save single files (SVG round-trip). Rename done.
+- **P0 Foundation** — DONE 2026-07-22: Model v2 + bridge, full SVG
+  read/write (917/917 open-icon corpus round-trips, normalize-on-first-save,
+  idempotent writer), Editing2, Workfile v1, editor session/canvas, file
+  menu; P0 gate green (open real icon → move anchor → save → reopens intact,
+  second save byte-identical).
 - **P1 Workspace**: folder-backed collections, category grid, naming,
   search, move between categories, drop-PNG-to-trace into the workspace.
 - **P2 Export profiles**: outlineStrokes engine op + profile storage +
@@ -136,5 +139,9 @@ implementation; every step a verified conventional commit.
 
 ## Open items
 
-- Land the 2026-07-22 editing-toolkit batch (awaiting commit permission).
 - Undo architecture decision (snapshots vs commands) due at P3 exit.
+- Trace: transparent-PNG pipeline fix in flight (primitive-tolerance 8x bug
+  found; face-boundary corruption upstream under investigation).
+- Build-out 2026-07-22: P1–P3 engines + editor-core features being built in
+  parallel (workspace scan/meta/file-ops, export actions incl. outlineStrokes,
+  containers compose/matrix, colour-slot tokens, insert-anchor/z-order/group).
