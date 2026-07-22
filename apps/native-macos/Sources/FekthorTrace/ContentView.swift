@@ -136,6 +136,7 @@ struct ContentView: View {
             }
             .background(objectCommandListeners)
             .background(workspaceCommandListeners)
+            .background(editorCommandListeners)
         }
     }
 
@@ -230,6 +231,28 @@ struct ContentView: View {
             }
             .sheet(isPresented: $workspaceSettingsShown) {
                 WorkspaceSettingsSheet(session: workspaceSession)
+            }
+    }
+
+    /// Align/distribute (Object ▸ Align) and raster export (File ▸ Export)
+    /// act on the editor session; a third hidden host keeps the main body
+    /// type-checkable. Align and Distribute each ride ONE notification with
+    /// the edge/axis in userInfo.
+    private var editorCommandListeners: some View {
+        Color.clear
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorAlign)) { note in
+                guard let edge = note.userInfo?["edge"] as? AlignEdge else { return }
+                editorSession?.alignSelection(edge)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorDistribute)) { note in
+                guard let axis = note.userInfo?["axis"] as? DistributeAxis else { return }
+                editorSession?.distributeSelection(axis)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorExportPNG)) { _ in
+                editorSession?.exportPNG()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorExportPDF)) { _ in
+                editorSession?.exportPDF()
             }
     }
 
@@ -635,7 +658,7 @@ private struct HomeCard: View {
             VStack(spacing: 10) {
                 Image(systemName: icon)
                     .font(.system(size: 34))
-                    .foregroundStyle(enabled ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(enabled ? Color.primary : Color.secondary)
                 Text(title).font(.headline)
                 Text(subtitle)
                     .font(.caption)
@@ -652,17 +675,18 @@ private struct HomeCard: View {
             .frame(width: 190, height: 170)
             .background(
                 ZStack {
-                    // Lighter than the window in light mode, darker in dark
-                    // mode — reads as a card in both without a border.
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(Color(nsColor: .controlBackgroundColor))
+                    // Always a touch DARKER than the window background (Sil):
+                    // a black scrim reads as a sunken card in light mode and
+                    // deepens the dark background too; subtler in light.
+                    RoundedRectangle(cornerRadius: 18)
+                        .fill(Color.black.opacity(0.07))
                     if hovering && enabled {
-                        RoundedRectangle(cornerRadius: 14)
-                            .fill(Color.primary.opacity(0.05))
+                        RoundedRectangle(cornerRadius: 18)
+                            .fill(Color.black.opacity(0.06))
                     }
                 }
             )
-            .contentShape(RoundedRectangle(cornerRadius: 14))
+            .contentShape(RoundedRectangle(cornerRadius: 18))
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
@@ -1289,9 +1313,19 @@ struct EditorWorkspaceView: View {
                                 },
                                 onZoom: { m in zoom = min(64, max(0.2, zoom * (1 + m))) },
                                 onDoubleClick: { _ in
-                                    // Double-click leaves a drawing tool;
-                                    // in Select it keeps its zoom meaning.
-                                    if session.tool != .select {
+                                    // Double-click finishes a pen path OPEN
+                                    // (the second click landed as an anchor;
+                                    // the finish trims that duplicate) and
+                                    // leaves the other drawing tools; in
+                                    // Select it keeps its zoom meaning.
+                                    if session.tool == .pen {
+                                        if !session.penAnchors.isEmpty {
+                                            session.finishPenPath(
+                                                closed: false, trimDuplicate: true)
+                                        } else {
+                                            session.tool = .select
+                                        }
+                                    } else if session.tool != .select {
                                         session.tool = .select
                                     } else {
                                         zoom = min(64, zoom * 1.6)
@@ -1320,10 +1354,19 @@ struct EditorWorkspaceView: View {
         // The window/tab title tracks the open icon and its dirty state.
         .navigationTitle(session.fileURL?.lastPathComponent ?? "Untitled")
         .navigationSubtitle(session.dirty ? "Edited" : "")
-        .onAppear { MenuState.shared.canCombine = session.selection.count >= 2 }
-        .onDisappear { MenuState.shared.canCombine = false }
+        .onAppear {
+            MenuState.shared.canCombine = session.selection.count >= 2
+            MenuState.shared.canAlign = !session.selection.isEmpty
+            MenuState.shared.editorOpen = true
+        }
+        .onDisappear {
+            MenuState.shared.canCombine = false
+            MenuState.shared.canAlign = false
+            MenuState.shared.editorOpen = false
+        }
         .onChange(of: session.selection) { _, selection in
             MenuState.shared.canCombine = selection.count >= 2
+            MenuState.shared.canAlign = !selection.isEmpty
         }
         .confirmationDialog(
             "Save the changes to \(session.fileURL?.lastPathComponent ?? "this file")?",
@@ -1380,14 +1423,36 @@ struct EditorWorkspaceView: View {
             } label: {
                 Label("Style", systemImage: "sidebar.trailing")
             }
-            // Backspace deletes selected nodes.
-            Button { session.deleteSelection() } label: { EmptyView() }
+            // Backspace: while a pen path is in progress it removes the
+            // last placed anchor; otherwise it deletes the selected nodes.
+            Button {
+                if session.tool == .pen, !session.penAnchors.isEmpty {
+                    session.penRemoveLastAnchor()
+                } else {
+                    session.deleteSelection()
+                }
+            } label: { EmptyView() }
                 .keyboardShortcut(.delete, modifiers: [])
-                .disabled(session.selection.isEmpty)
+                .disabled(
+                    session.selection.isEmpty
+                        && !(session.tool == .pen && !session.penAnchors.isEmpty))
                 .frame(width: 0, height: 0)
                 .opacity(0)
-            // Esc returns to the Select tool.
-            Button { session.tool = .select } label: { EmptyView() }
+            // Return finishes the pen path OPEN.
+            Button { session.finishPenPath(closed: false) } label: { EmptyView() }
+                .keyboardShortcut(.return, modifiers: [])
+                .disabled(!(session.tool == .pen && !session.penAnchors.isEmpty))
+                .frame(width: 0, height: 0)
+                .opacity(0)
+            // Esc cancels an in-progress pen path first; a second Esc (or
+            // Esc in any other tool) returns to Select.
+            Button {
+                if session.tool == .pen, !session.penAnchors.isEmpty {
+                    session.cancelPenPath()
+                } else {
+                    session.tool = .select
+                }
+            } label: { EmptyView() }
                 .keyboardShortcut(.escape, modifiers: [])
                 .frame(width: 0, height: 0)
                 .opacity(0)
@@ -1396,9 +1461,9 @@ struct EditorWorkspaceView: View {
         .padding(.vertical, 8)
     }
 
-    /// Select / Rect / Ellipse / Line. ⌘1–⌘4 switch tools (plain letters
-    /// would steal keystrokes from the panel's text fields); Esc and
-    /// double-click return to Select.
+    /// Select / Rect / Ellipse / Line / Pen. ⌘1–⌘5 switch tools (plain
+    /// letters would steal keystrokes from the panel's text fields); Esc
+    /// and double-click return to Select.
     private var toolPicker: some View {
         Picker("", selection: $session.tool) {
             Image(systemName: "cursorarrow").tag(EditorSession.Tool.select)
@@ -1409,10 +1474,12 @@ struct EditorWorkspaceView: View {
                 .help("Ellipse (⌘3)")
             Image(systemName: "line.diagonal").tag(EditorSession.Tool.line)
                 .help("Line (⌘4)")
+            Image(systemName: "pencil.tip").tag(EditorSession.Tool.pen)
+                .help("Pen (⌘5)")
         }
         .pickerStyle(.segmented)
         .labelsHidden()
-        .frame(width: 150)
+        .frame(width: 185)
         .background(toolShortcuts)
     }
 
@@ -1426,6 +1493,8 @@ struct EditorWorkspaceView: View {
                 .keyboardShortcut("3", modifiers: .command)
             Button { session.tool = .line } label: { EmptyView() }
                 .keyboardShortcut("4", modifiers: .command)
+            Button { session.tool = .pen } label: { EmptyView() }
+                .keyboardShortcut("5", modifiers: .command)
         }
         .frame(width: 0, height: 0)
         .opacity(0)

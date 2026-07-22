@@ -148,6 +148,6 @@ struct RecentWorkspaceRow: View {
             }
         }
         .frame(width: 44, height: 44)
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.quaternary))
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.07)))
     }
 }
