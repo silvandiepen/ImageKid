@@ -23,6 +23,9 @@ struct ImageWorkspaceView: View {
     @State private var gridPanelOffset: CGSize = .zero
     @State private var lastMaskPoint: CGPoint?
     @State private var maskBrushCursor: CGPoint?
+    /// Live brush-stroke points (view space) accumulated during a drag; rasterised
+    /// into the mask once on release so painting stays fast.
+    @State private var maskStrokeViewPoints: [CGPoint] = []
     @State private var progressBarOffset: CGSize = .zero
     @State private var editingTextID: UUID?
     @FocusState private var inlineTextFocused: Bool
@@ -706,11 +709,10 @@ struct ImageWorkspaceView: View {
         }
     }
 
-    /// Live brush-size ring shown at the cursor while editing a mask.
+    /// Live brush ring at the cursor + a preview of the in-progress stroke.
     @ViewBuilder
     private func brushCursorOverlay(in imageRect: CGRect) -> some View {
         if session.isEditingMask, !session.maskWandMode,
-           let cursor = maskBrushCursor,
            let layer = session.maskEditLayer, let mask = layer.mask,
            let displayedFrame = displayedAnnotationFrame(layer.frame) {
             let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
@@ -718,18 +720,32 @@ struct ImageWorkspaceView: View {
             let w = max(session.maskBrushSize * scale, 4)
             let h = max(w * session.maskBrushRoundness, 4)
             let ringColor: Color = session.maskBrushReveal ? .green : .white
-            Ellipse()
-                .stroke(Color.black.opacity(0.7), lineWidth: 2.5)
-                .frame(width: w, height: h)
-                .rotationEffect(.degrees(session.maskBrushAngle))
-                .position(cursor)
+
+            // Preview of the stroke being drawn (rasterised into the mask on release).
+            if maskStrokeViewPoints.count > 1 {
+                Path { p in
+                    p.move(to: maskStrokeViewPoints[0])
+                    for pt in maskStrokeViewPoints.dropFirst() { p.addLine(to: pt) }
+                }
+                .stroke(ringColor.opacity(0.45 * session.maskBrushOpacity),
+                        style: StrokeStyle(lineWidth: w, lineCap: .round, lineJoin: .round))
                 .allowsHitTesting(false)
-            Ellipse()
-                .stroke(ringColor.opacity(0.9), lineWidth: 1)
-                .frame(width: w, height: h)
-                .rotationEffect(.degrees(session.maskBrushAngle))
-                .position(cursor)
-                .allowsHitTesting(false)
+            }
+
+            if let cursor = maskBrushCursor {
+                Ellipse()
+                    .stroke(Color.black.opacity(0.7), lineWidth: 2.5)
+                    .frame(width: w, height: h)
+                    .rotationEffect(.degrees(session.maskBrushAngle))
+                    .position(cursor)
+                    .allowsHitTesting(false)
+                Ellipse()
+                    .stroke(ringColor.opacity(0.9), lineWidth: 1)
+                    .frame(width: w, height: h)
+                    .rotationEffect(.degrees(session.maskBrushAngle))
+                    .position(cursor)
+                    .allowsHitTesting(false)
+            }
         }
     }
 
@@ -738,20 +754,13 @@ struct ImageWorkspaceView: View {
         if let layer = session.maskEditLayer, let mask = layer.mask,
            let displayedFrame = displayedAnnotationFrame(layer.frame) {
             let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
-            Group {
-                if session.maskViewMode == .blackWhite {
-                    Image(nsImage: mask)
-                        .resizable()
-                        .frame(width: rect.width, height: rect.height)
-                } else if let overlay = MaskCompositor.hiddenOverlay(from: mask) {
-                    Image(nsImage: overlay)
-                        .resizable()
-                        .opacity(0.6)
-                        .frame(width: rect.width, height: rect.height)
-                }
-            }
-            .position(x: rect.midX, y: rect.midY)
-            .allowsHitTesting(false)
+            // Show the black/white mask over the layer at the chosen opacity.
+            Image(nsImage: mask)
+                .resizable()
+                .frame(width: rect.width, height: rect.height)
+                .opacity(session.maskViewOpacity)
+                .position(x: rect.midX, y: rect.midY)
+                .allowsHitTesting(false)
         }
     }
 
@@ -1026,6 +1035,7 @@ struct ImageWorkspaceView: View {
                 draftAnnotation = nil
                 draftFreehandPoints = []
                 lastMaskPoint = nil
+                maskStrokeViewPoints = []
             }
     }
 
@@ -1166,9 +1176,10 @@ struct ImageWorkspaceView: View {
             updateDraftDrawing(value, imageRect: imageRect)
 
         case .maskEdit:
-            if !session.maskWandMode, let point = maskSourcePoint(value.location, imageRect: imageRect) {
-                session.paintMaskStroke(fromNormalized: lastMaskPoint, toNormalized: point)
-                lastMaskPoint = point
+            // Accumulate the stroke; it's rasterised into the mask on release so
+            // dragging stays smooth even on large masks.
+            if !session.maskWandMode {
+                maskStrokeViewPoints.append(value.location)
             }
 
         case .placeText:
@@ -1299,7 +1310,9 @@ struct ImageWorkspaceView: View {
             if session.maskWandMode, let point = maskSourcePoint(value.location, imageRect: imageRect) {
                 session.floodHideMask(atNormalized: point)
             } else {
-                session.recordMaskEdit()
+                let normalized = maskStrokeViewPoints.compactMap { maskSourcePoint($0, imageRect: imageRect) }
+                session.applyMaskStroke(normalizedPoints: normalized)
+                maskStrokeViewPoints = []
             }
 
         case .pan, .moveAnnotation, .resizeAnnotation, .cornerRadius, .moveLayer, .resizeLayer, .rotateLayer, .moveSelection, .resizeSelection, .crop, .resizeCanvas:

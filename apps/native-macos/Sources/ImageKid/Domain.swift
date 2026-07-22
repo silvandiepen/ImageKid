@@ -686,7 +686,10 @@ final class ImageSession: ObservableObject {
 
     // Mask editing (for the selected image layer's mask).
     @Published var maskEditLayerID: UUID?
-    @Published var maskViewMode: MaskViewMode = .overlay
+    @Published var maskViewMode: MaskViewMode = .blackWhite
+    /// How strongly the black/white mask is shown over the layer while editing
+    /// (1 = solid B/W, 0 = just the image).
+    @Published var maskViewOpacity: Double = 1
     @Published var maskBrushReveal = false
     @Published var maskBrushSize: CGFloat = 48
     @Published var maskBrushSoftness: CGFloat = 0.4
@@ -1321,36 +1324,38 @@ final class ImageSession: ObservableObject {
         isDirty = true
     }
 
-    /// Paint a continuous stroke between two normalised points, spacing dabs by
-    /// `maskBrushSpacing × diameter` so fast drags don't leave gaps.
-    func paintMaskStroke(fromNormalized a: CGPoint?, toNormalized b: CGPoint) {
-        guard let id = maskEditLayerID,
+    /// Rasterise a whole accumulated brush stroke into the mask in one pass
+    /// (called on release), spacing dabs by `maskBrushSpacing × diameter`.
+    /// Records a single undo step.
+    func applyMaskStroke(normalizedPoints path: [CGPoint]) {
+        guard !path.isEmpty,
+              let id = maskEditLayerID,
               let index = imageLayers.firstIndex(where: { $0.id == id }),
               let mask = imageLayers[index].mask else { return }
         let size = mask.size
-        // Convert spacing (fraction of diameter, in mask px) to a normalised step.
         let stepPx = max(maskBrushSpacing, 0.02) * max(maskBrushSize, 1)
-        var current = mask
-        func dab(_ p: CGPoint) {
-            current = MaskPainter.paint(
-                on: current, atNormalized: p,
-                diameter: maskBrushSize, softness: maskBrushSoftness,
-                reveal: maskBrushReveal, opacity: maskBrushOpacity,
-                roundness: maskBrushRoundness, angle: maskBrushAngle
-            )
+
+        // Interpolate dabs along every segment of the accumulated path.
+        var dabs: [CGPoint] = [path[0]]
+        for i in 1..<path.count {
+            let a = path[i - 1], b = path[i]
+            let dxPx = (b.x - a.x) * size.width
+            let dyPx = (b.y - a.y) * size.height
+            let distPx = (dxPx * dxPx + dyPx * dyPx).squareRoot()
+            let steps = max(1, Int((distPx / max(stepPx, 1)).rounded(.up)))
+            for s in 1...steps {
+                let t = CGFloat(s) / CGFloat(steps)
+                dabs.append(CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t))
+            }
         }
-        guard let a else { dab(b); imageLayers[index].mask = current; isDirty = true; return }
-        // Distance in mask pixels between the two points.
-        let dxPx = (b.x - a.x) * size.width
-        let dyPx = (b.y - a.y) * size.height
-        let distPx = (dxPx * dxPx + dyPx * dyPx).squareRoot()
-        let steps = max(1, Int((distPx / max(stepPx, 1)).rounded(.up)))
-        for i in 1...steps {
-            let t = CGFloat(i) / CGFloat(steps)
-            dab(CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t))
-        }
-        imageLayers[index].mask = current
-        isDirty = true
+
+        imageLayers[index].mask = MaskPainter.paintStroke(
+            on: mask, normalizedPoints: dabs,
+            diameter: maskBrushSize, softness: maskBrushSoftness,
+            reveal: maskBrushReveal, opacity: maskBrushOpacity,
+            roundness: maskBrushRoundness, angle: maskBrushAngle
+        )
+        record(maskBrushReveal ? "Reveal mask" : "Hide mask", systemImage: "paintbrush.pointed")
     }
 
     /// Flood-hide a connected region in the editing layer's mask (magic wand).

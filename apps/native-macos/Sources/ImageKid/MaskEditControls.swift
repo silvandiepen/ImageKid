@@ -17,12 +17,13 @@ struct MaskEditControls: View {
             onClose: onDone
         ) {
             VStack(alignment: .leading, spacing: 16) {
-                field("Show mask as") {
-                    Picker("View", selection: $session.maskViewMode) {
-                        ForEach(MaskViewMode.allCases) { Text($0.label).tag($0) }
+                field("Mask view") {
+                    HStack(spacing: 10) {
+                        Slider(value: $session.maskViewOpacity, in: 0...1, step: 0.01)
+                        Text("\(Int(session.maskViewOpacity * 100))%")
+                            .font(.system(.caption, design: .monospaced, weight: .semibold))
+                            .frame(width: 44, alignment: .trailing)
                     }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
                 }
 
                 field("Tool") {
