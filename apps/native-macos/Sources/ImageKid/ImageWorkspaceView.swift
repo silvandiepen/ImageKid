@@ -21,6 +21,8 @@ struct ImageWorkspaceView: View {
     @State private var isViewportToolbarCollapsed = false
     @State private var panelOffset: CGSize = .zero
     @State private var gridPanelOffset: CGSize = .zero
+    @State private var lastMaskPoint: CGPoint?
+    @State private var maskBrushCursor: CGPoint?
     @State private var progressBarOffset: CGSize = .zero
     @State private var editingTextID: UUID?
     @FocusState private var inlineTextFocused: Bool
@@ -93,6 +95,12 @@ struct ImageWorkspaceView: View {
                     .fill(.clear)
                     .contentShape(Rectangle())
                     .gesture(interactionGesture(in: imageRect))
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active(let location): maskBrushCursor = location
+                        case .ended: maskBrushCursor = nil
+                        }
+                    }
                     .simultaneousGesture(
                         SpatialTapGesture(count: 2).onEnded { value in
                             beginTextEditing(at: value.location, imageRect: imageRect)
@@ -114,6 +122,8 @@ struct ImageWorkspaceView: View {
                     }
 
                 inlineTextEditor(in: imageRect)
+
+                brushCursorOverlay(in: imageRect)
 
                 TrackpadGestureMonitor(
                     onPan: { delta in
@@ -696,6 +706,33 @@ struct ImageWorkspaceView: View {
         }
     }
 
+    /// Live brush-size ring shown at the cursor while editing a mask.
+    @ViewBuilder
+    private func brushCursorOverlay(in imageRect: CGRect) -> some View {
+        if session.isEditingMask, !session.maskWandMode,
+           let cursor = maskBrushCursor,
+           let layer = session.maskEditLayer, let mask = layer.mask,
+           let displayedFrame = displayedAnnotationFrame(layer.frame) {
+            let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
+            let scale = rect.width / max(mask.size.width, 1)
+            let w = max(session.maskBrushSize * scale, 4)
+            let h = max(w * session.maskBrushRoundness, 4)
+            let ringColor: Color = session.maskBrushReveal ? .green : .white
+            Ellipse()
+                .stroke(Color.black.opacity(0.7), lineWidth: 2.5)
+                .frame(width: w, height: h)
+                .rotationEffect(.degrees(session.maskBrushAngle))
+                .position(cursor)
+                .allowsHitTesting(false)
+            Ellipse()
+                .stroke(ringColor.opacity(0.9), lineWidth: 1)
+                .frame(width: w, height: h)
+                .rotationEffect(.degrees(session.maskBrushAngle))
+                .position(cursor)
+                .allowsHitTesting(false)
+        }
+    }
+
     @ViewBuilder
     private func maskEditOverlay(in imageRect: CGRect) -> some View {
         if let layer = session.maskEditLayer, let mask = layer.mask,
@@ -988,6 +1025,7 @@ struct ImageWorkspaceView: View {
                 dragMode = nil
                 draftAnnotation = nil
                 draftFreehandPoints = []
+                lastMaskPoint = nil
             }
     }
 
@@ -1129,7 +1167,8 @@ struct ImageWorkspaceView: View {
 
         case .maskEdit:
             if !session.maskWandMode, let point = maskSourcePoint(value.location, imageRect: imageRect) {
-                session.paintMaskDab(atNormalized: point)
+                session.paintMaskStroke(fromNormalized: lastMaskPoint, toNormalized: point)
+                lastMaskPoint = point
             }
 
         case .placeText:

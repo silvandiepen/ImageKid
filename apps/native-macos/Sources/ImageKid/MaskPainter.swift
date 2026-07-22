@@ -21,32 +21,43 @@ enum MaskPainter {
         atNormalized normalizedPoint: CGPoint,
         diameter: CGFloat,
         softness: CGFloat,
-        reveal: Bool
+        reveal: Bool,
+        opacity: Double = 1,
+        roundness: CGFloat = 1,
+        angle: Double = 0
     ) -> NSImage {
         let size = mask.size
         let result = NSImage(size: size)
         result.lockFocus()
+        defer { result.unlockFocus() }
         mask.draw(in: CGRect(origin: .zero, size: size))
 
         // NSImage is bottom-left origin; the mask is stored top-down.
         let center = CGPoint(x: normalizedPoint.x * size.width,
                              y: (1 - normalizedPoint.y) * size.height)
         let radius = max(diameter / 2, 1)
-        let color = reveal ? NSColor.white : NSColor.black
+        let ry = radius * max(min(roundness, 1), 0.05)
+        let alpha = CGFloat(min(max(opacity, 0), 1))
+        let color = (reveal ? NSColor.white : NSColor.black).withAlphaComponent(alpha)
         let inner = max(0, 1 - min(max(softness, 0), 1))
+
+        // Rotate/translate around the dab centre so the ellipse can be angled.
+        guard let context = NSGraphicsContext.current else { return result }
+        context.saveGraphicsState()
+        let transform = NSAffineTransform()
+        transform.translateX(by: center.x, yBy: center.y)
+        transform.rotate(byDegrees: -angle)
+        transform.concat()
+
+        let ovalRect = CGRect(x: -radius, y: -ry, width: radius * 2, height: ry * 2)
         if let gradient = NSGradient(colors: [color, color.withAlphaComponent(0)],
                                      atLocations: [inner, 1], colorSpace: .deviceGray) {
-            gradient.draw(
-                in: NSBezierPath(ovalIn: CGRect(x: center.x - radius, y: center.y - radius,
-                                                width: radius * 2, height: radius * 2)),
-                relativeCenterPosition: .zero
-            )
+            gradient.draw(in: NSBezierPath(ovalIn: ovalRect), relativeCenterPosition: .zero)
         } else {
             color.setFill()
-            NSBezierPath(ovalIn: CGRect(x: center.x - radius, y: center.y - radius,
-                                        width: radius * 2, height: radius * 2)).fill()
+            NSBezierPath(ovalIn: ovalRect).fill()
         }
-        result.unlockFocus()
+        context.restoreGraphicsState()
         return result
     }
 

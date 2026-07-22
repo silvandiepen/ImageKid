@@ -690,6 +690,14 @@ final class ImageSession: ObservableObject {
     @Published var maskBrushReveal = false
     @Published var maskBrushSize: CGFloat = 48
     @Published var maskBrushSoftness: CGFloat = 0.4
+    /// Distance between dabs along a stroke as a fraction of the brush diameter
+    /// (0.02 = dense/smooth, 1.0 = widely spaced dabs).
+    @Published var maskBrushSpacing: CGFloat = 0.15
+    @Published var maskBrushOpacity: Double = 1
+    /// Brush height as a fraction of its width (1 = circle, <1 = ellipse).
+    @Published var maskBrushRoundness: CGFloat = 1
+    /// Brush rotation in degrees (only visible when roundness < 1).
+    @Published var maskBrushAngle: Double = 0
     @Published var maskWandMode = false
     @Published var maskWandTolerance: CGFloat = 0.15
 
@@ -1306,8 +1314,42 @@ final class ImageSession: ObservableObject {
               let mask = imageLayers[index].mask else { return }
         imageLayers[index].mask = MaskPainter.paint(
             on: mask, atNormalized: point,
-            diameter: maskBrushSize, softness: maskBrushSoftness, reveal: maskBrushReveal
+            diameter: maskBrushSize, softness: maskBrushSoftness,
+            reveal: maskBrushReveal, opacity: maskBrushOpacity,
+            roundness: maskBrushRoundness, angle: maskBrushAngle
         )
+        isDirty = true
+    }
+
+    /// Paint a continuous stroke between two normalised points, spacing dabs by
+    /// `maskBrushSpacing × diameter` so fast drags don't leave gaps.
+    func paintMaskStroke(fromNormalized a: CGPoint?, toNormalized b: CGPoint) {
+        guard let id = maskEditLayerID,
+              let index = imageLayers.firstIndex(where: { $0.id == id }),
+              let mask = imageLayers[index].mask else { return }
+        let size = mask.size
+        // Convert spacing (fraction of diameter, in mask px) to a normalised step.
+        let stepPx = max(maskBrushSpacing, 0.02) * max(maskBrushSize, 1)
+        var current = mask
+        func dab(_ p: CGPoint) {
+            current = MaskPainter.paint(
+                on: current, atNormalized: p,
+                diameter: maskBrushSize, softness: maskBrushSoftness,
+                reveal: maskBrushReveal, opacity: maskBrushOpacity,
+                roundness: maskBrushRoundness, angle: maskBrushAngle
+            )
+        }
+        guard let a else { dab(b); imageLayers[index].mask = current; isDirty = true; return }
+        // Distance in mask pixels between the two points.
+        let dxPx = (b.x - a.x) * size.width
+        let dyPx = (b.y - a.y) * size.height
+        let distPx = (dxPx * dxPx + dyPx * dyPx).squareRoot()
+        let steps = max(1, Int((distPx / max(stepPx, 1)).rounded(.up)))
+        for i in 1...steps {
+            let t = CGFloat(i) / CGFloat(steps)
+            dab(CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t))
+        }
+        imageLayers[index].mask = current
         isDirty = true
     }
 
