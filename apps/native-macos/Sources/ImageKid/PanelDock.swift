@@ -35,7 +35,8 @@ extension PanelDockModel where ID == DockablePanel {
             gridStep: DockablePanel.gridStep,
             minSize: CGSize(width: 220, height: 200),
             maxSize: CGSize(width: 520, height: 900),
-            initiallyPresented: [.files]
+            initiallyPresented: [.files],
+            defaultsKey: "imagekid.paneldock"
         )
     }
 }

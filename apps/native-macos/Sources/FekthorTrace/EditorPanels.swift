@@ -6,9 +6,12 @@ import SwiftUI
 /// The editor's floating palettes — Fill, Stroke, Opacity and Combine — using
 /// the same ImageKid panel mechanic (`FloatingToolPanel` from ImageKidKit):
 /// dark translucent chrome, dragged by the title bar anywhere over the canvas
-/// (inside the window), closed from the chrome, toggled from the Panels menu
-/// or the editor top bar. Visibility and per-panel positions persist in
-/// UserDefaults.
+/// (inside the window), minimized from the chrome into an icon-only chip,
+/// toggled from the Panels menu or the editor top bar. Palettes stick
+/// magnetically when one is dropped onto another's bottom edge (shared
+/// `PanelStacks` model): the stack moves with its head, and dragging a lower
+/// member's header detaches it. Visibility, minimized chips, stacks and
+/// per-panel positions persist in UserDefaults.
 enum EditorPanel: String, CaseIterable, Identifiable {
     case fill
     case stroke
@@ -145,6 +148,24 @@ final class EditorPanelsState: ObservableObject {
         }
     }
 
+    /// Palettes collapsed to an icon-only chip (still in `visible` — the
+    /// chip strip over the canvas restores them, like ImageKid's dock rail).
+    @Published var minimized: Set<EditorPanel> {
+        didSet {
+            UserDefaults.standard.set(
+                minimized.map(\.rawValue).sorted(), forKey: Self.minimizedKey)
+        }
+    }
+
+    /// Which palettes are magnetically stuck together, ordered top → bottom
+    /// (shared stacking model from ImageKidKit, keyed by rawValue).
+    @Published var stacks: PanelStacks {
+        didSet {
+            guard let data = try? JSONEncoder().encode(stacks) else { return }
+            UserDefaults.standard.set(data, forKey: Self.stacksKey)
+        }
+    }
+
     /// Per-panel offsets from the canvas's top-leading corner.
     @Published private var positions: [EditorPanel: CGSize]
     /// Per-panel sizes for the resizable panels (Layers).
@@ -154,6 +175,8 @@ final class EditorPanelsState: ObservableObject {
     // scattered them over fixed offsets; v3 re-defaults everyone once into
     // the edge-docked layout without touching other preferences.
     private static let visibleKey = "fekthor.panels.visible.v3"
+    private static let minimizedKey = "fekthor.panels.minimized.v3"
+    private static let stacksKey = "fekthor.panels.stacks.v3"
     private static func positionKey(_ panel: EditorPanel) -> String {
         "fekthor.panel.\(panel.rawValue).position.v3"
     }
@@ -166,11 +189,36 @@ final class EditorPanelsState: ObservableObject {
     private static let defaultVisible: Set<EditorPanel> = [.fill, .stroke, .layers]
 
     private init() {
+        let loadedVisible: Set<EditorPanel>
         if let raw = UserDefaults.standard.array(forKey: Self.visibleKey) as? [String] {
-            visible = Set(raw.compactMap(EditorPanel.init(rawValue:)))
+            loadedVisible = Set(raw.compactMap(EditorPanel.init(rawValue:)))
         } else {
-            visible = Self.defaultVisible
+            loadedVisible = Self.defaultVisible
         }
+        visible = loadedVisible
+        let loadedMinimized: Set<EditorPanel>
+        if let raw = UserDefaults.standard.array(forKey: Self.minimizedKey) as? [String] {
+            loadedMinimized = Set(raw.compactMap(EditorPanel.init(rawValue:)))
+        } else {
+            loadedMinimized = []
+        }
+        minimized = loadedMinimized
+        var loadedStacks = PanelStacks()
+        if let data = UserDefaults.standard.data(forKey: Self.stacksKey),
+            let decoded = try? JSONDecoder().decode(PanelStacks.self, from: data)
+        {
+            loadedStacks = decoded
+            // A palette that is unknown, hidden or minimized cannot stay stuck.
+            for key in loadedStacks.stacks.flatMap({ $0 }) {
+                guard let panel = EditorPanel(rawValue: key),
+                    loadedVisible.contains(panel), !loadedMinimized.contains(panel)
+                else {
+                    loadedStacks.detach(key)
+                    continue
+                }
+            }
+        }
+        stacks = loadedStacks
         var loaded: [EditorPanel: CGSize] = [:]
         var loadedSizes: [EditorPanel: CGSize] = [:]
         for panel in EditorPanel.allCases {
@@ -224,16 +272,74 @@ final class EditorPanelsState: ObservableObject {
             set: { self.setSize(panel, to: $0) })
     }
 
+    /// Shown as a full palette (visible and not collapsed to a chip).
+    func isExpanded(_ panel: EditorPanel) -> Bool {
+        visible.contains(panel) && !minimized.contains(panel)
+    }
+
+    /// Chrome minimize: collapse the palette to an icon-only chip. A stacked
+    /// palette detaches first — its followers close up, and a chip can't be
+    /// a stick target. The chip strip (or the Panels menu) restores it.
+    func minimize(_ panel: EditorPanel) {
+        stacks.detach(panel.rawValue)
+        minimized.insert(panel)
+    }
+
+    func restore(_ panel: EditorPanel) {
+        visible.insert(panel)
+        minimized.remove(panel)
+    }
+
+    /// Menu hide: fully closes the palette (and forgets any stick).
+    func hide(_ panel: EditorPanel) {
+        stacks.detach(panel.rawValue)
+        minimized.remove(panel)
+        visible.remove(panel)
+    }
+
+    /// Menu semantics: checked = expanded on the canvas; toggling on
+    /// restores a minimized palette, toggling off hides it entirely.
     func toggleBinding(_ panel: EditorPanel) -> Binding<Bool> {
         Binding(
-            get: { self.visible.contains(panel) },
+            get: { self.isExpanded(panel) },
             set: { shown in
                 if shown {
-                    self.visible.insert(panel)
+                    self.restore(panel)
                 } else {
-                    self.visible.remove(panel)
+                    self.hide(panel)
                 }
             })
+    }
+
+    // MARK: Stacking
+
+    /// Flattened-corner edges for the palette chrome on its stick lines.
+    func stackEdges(_ panel: EditorPanel) -> (topFlat: Bool, bottomFlat: Bool) {
+        let key = panel.rawValue
+        return (stacks.isFollower(key), !stacks.followers(of: key).isEmpty)
+    }
+
+    /// Grabbing a follower's header detaches it: freeze it exactly where it
+    /// rests (so the drag continues without a jump) and pull it out of its
+    /// stack — the palettes below close up under whatever remains above.
+    func detachForDrag(_ panel: EditorPanel, frozenAt position: CGSize) {
+        setPosition(panel, to: position)
+        stacks.detach(panel.rawValue)
+    }
+
+    /// Stick a released palette (with its own followers) under the palette
+    /// identified by `targetKey`, locking the stack to the shared palette
+    /// width: the resizable Layers palette adopts the fixed width whenever
+    /// it is part of a stack.
+    func attach(_ panel: EditorPanel, belowStackKey targetKey: String) {
+        stacks.attach(panel.rawValue, below: targetKey)
+        if stacks.isStacked(EditorPanel.layers.rawValue) {
+            var layersSize = size(.layers)
+            if layersSize.width != EditorPanel.panelWidth {
+                layersSize.width = EditorPanel.panelWidth
+                setSize(.layers, to: layersSize)
+            }
+        }
     }
 }
 
@@ -254,7 +360,20 @@ struct EditorPanelsLayer: View {
     let workspace: WorkspaceSession
     @ObservedObject private var panels = EditorPanelsState.shared
 
+    /// Measured on-screen palette sizes (chrome included) — the stack layout
+    /// and stick detection need real heights, not the rough estimates the
+    /// default columns use. Sizes only change when content does, so this
+    /// never churns mid-drag.
+    @State private var measuredSizes: [EditorPanel: CGSize] = [:]
+    /// Live translation of a dragged stack head, so its followers move along
+    /// frame-by-frame. nil while no stack is being dragged — solo drags stay
+    /// entirely inside FloatingToolPanel's @GestureState.
+    @State private var stackDragHead: EditorPanel?
+    @State private var stackDragTranslation: CGSize = .zero
+
     private static let snapStep: CGFloat = 20
+    /// Fallback before the first size measurement lands.
+    private static let fallbackPanelSize = CGSize(width: EditorPanel.panelWidth, height: 200)
 
     var body: some View {
         // The GeometryReader only feeds the canvas size into the docked
@@ -265,47 +384,65 @@ struct EditorPanelsLayer: View {
                 width: max(0, geo.size.width - 24),
                 height: max(0, geo.size.height - 24))
             ZStack(alignment: .topLeading) {
-                if panels.visible.contains(.fill) {
+                minimizedStrip
+                if panels.isExpanded(.fill) {
                     palette(.fill, in: dock) { FillPanelContent(session: session) }
                 }
-                if panels.visible.contains(.stroke) {
+                if panels.isExpanded(.stroke) {
                     palette(.stroke, in: dock) { StrokePanelContent(session: session) }
                 }
-                if panels.visible.contains(.swatches) {
+                if panels.isExpanded(.swatches) {
                     palette(.swatches, in: dock) {
                         SwatchesPanelContent(session: session, workspace: workspace)
                     }
                 }
-                if panels.visible.contains(.opacity) {
+                if panels.isExpanded(.opacity) {
                     palette(.opacity, in: dock) { OpacityPanelContent(session: session) }
                 }
-                if panels.visible.contains(.corners) {
+                if panels.isExpanded(.corners) {
                     palette(.corners, in: dock) { CornersPanelContent(session: session) }
                 }
-                if panels.visible.contains(.combine) {
+                if panels.isExpanded(.combine) {
                     palette(.combine, in: dock) { CombinePanelContent(session: session) }
                 }
-                if panels.visible.contains(.align) {
+                if panels.isExpanded(.align) {
                     palette(.align, in: dock) { AlignPanelContent(session: session) }
                 }
-                if panels.visible.contains(.history) {
+                if panels.isExpanded(.history) {
                     palette(.history, in: dock) { HistoryPanelContent(session: session) }
                 }
                 Group {
-                    if panels.visible.contains(.styles) {
+                    if panels.isExpanded(.styles) {
                         palette(.styles, in: dock) {
                             StylesPanelContent(session: session, workspace: workspace)
                         }
                     }
-                    if panels.visible.contains(.layers) {
+                    if panels.isExpanded(.layers) {
                         resizablePalette(.layers, in: dock) {
                             LayersPanelContent(session: session)
                         }
                     }
                 }
             }
+            .onPreferenceChange(PaletteSizesKey.self) { measuredSizes = $0 }
             .padding(12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    /// Minimized palettes collapse into a vertical strip of icon-only chips
+    /// down the top-leading corner (ImageKid's rail look); a click restores
+    /// the palette where it was.
+    private var minimizedStrip: some View {
+        VStack(spacing: 8) {
+            ForEach(EditorPanel.allCases.filter {
+                panels.visible.contains($0) && panels.minimized.contains($0)
+            }) { panel in
+                MinimizedPanelChip(systemImage: panel.systemImage) {
+                    panels.restore(panel)
+                }
+                .help("Show \(panel.title)")
+            }
         }
     }
 
@@ -316,13 +453,18 @@ struct EditorPanelsLayer: View {
             title: panel.title,
             systemImage: panel.systemImage,
             width: EditorPanel.panelWidth,
-            offset: panels.positionBinding(panel, in: dock),
-            onClose: { panels.visible.remove(panel) },
+            offset: displayBinding(panel, in: dock),
+            onMinimize: { panels.minimize(panel) },
             snapStep: Self.snapStep,
-            cornerRadius: 18
+            cornerRadius: 18,
+            stackEdges: panels.stackEdges(panel),
+            isStackFollower: panels.stacks.isFollower(panel.rawValue),
+            onDragChanged: { paletteDragChanged(panel, translation: $0, in: dock) },
+            onDragEnded: { _ in paletteDragEnded(panel, in: dock) }
         ) {
             content()
         }
+        .background(sizeReporter(panel))
         // Explicit stable identity: the free drag lives in @GestureState,
         // which survives only as long as the panel view's identity does.
         .id(panel)
@@ -330,6 +472,7 @@ struct EditorPanelsLayer: View {
 
     /// A palette in FloatingToolPanel's resizable mode (Layers): the size
     /// persists next to the position, and the content fills the height.
+    /// While stacked the resize handle disappears (the stack owns the width).
     private func resizablePalette(
         _ panel: EditorPanel, in dock: CGSize, @ViewBuilder content: () -> some View
     ) -> some View {
@@ -337,18 +480,110 @@ struct EditorPanelsLayer: View {
             title: panel.title,
             systemImage: panel.systemImage,
             width: EditorPanel.panelWidth,
-            offset: panels.positionBinding(panel, in: dock),
-            onClose: { panels.visible.remove(panel) },
+            offset: displayBinding(panel, in: dock),
+            onMinimize: { panels.minimize(panel) },
             snapStep: Self.snapStep,
             resizable: true,
             size: panels.sizeBinding(panel),
             minSize: CGSize(width: 220, height: 240),
             maxSize: CGSize(width: 520, height: 900),
-            cornerRadius: 18
+            cornerRadius: 18,
+            stackEdges: panels.stackEdges(panel),
+            isStackFollower: panels.stacks.isFollower(panel.rawValue),
+            onDragChanged: { paletteDragChanged(panel, translation: $0, in: dock) },
+            onDragEnded: { _ in paletteDragEnded(panel, in: dock) }
         ) {
             content()
         }
+        .background(sizeReporter(panel))
         .id(panel)
+    }
+
+    // MARK: Stacking
+
+    private func sizeReporter(_ panel: EditorPanel) -> some View {
+        GeometryReader { proxy in
+            Color.clear.preference(key: PaletteSizesKey.self, value: [panel: proxy.size])
+        }
+    }
+
+    private func measuredSize(_ panel: EditorPanel) -> CGSize {
+        measuredSizes[panel] ?? Self.fallbackPanelSize
+    }
+
+    /// Where the palette rests right now: followers derive their spot from
+    /// the stack head (flush, head-aligned — plus the head's live drag
+    /// translation), everything else uses its stored/docked position.
+    private func displayPosition(_ panel: EditorPanel, in dock: CGSize) -> CGSize {
+        let key = panel.rawValue
+        guard let stack = panels.stacks.stack(containing: key), stack.first != key,
+            let headPanel = EditorPanel(rawValue: stack[0])
+        else { return panels.position(panel, in: dock) }
+        let head = panels.position(headPanel, in: dock)
+        var sizes: [String: CGSize] = [:]
+        for memberKey in stack {
+            guard let member = EditorPanel(rawValue: memberKey) else { continue }
+            sizes[memberKey] = measuredSize(member)
+        }
+        let origins = PanelStacks.layout(
+            stack: stack, headOrigin: CGPoint(x: head.width, y: head.height), sizes: sizes)
+        guard let origin = origins[key] else { return panels.position(panel, in: dock) }
+        var position = CGSize(width: origin.x, height: origin.y)
+        if stackDragHead?.rawValue == stack.first {
+            position.width += stackDragTranslation.width
+            position.height += stackDragTranslation.height
+        }
+        return position
+    }
+
+    private func displayBinding(_ panel: EditorPanel, in dock: CGSize) -> Binding<CGSize> {
+        Binding(
+            get: { self.displayPosition(panel, in: dock) },
+            set: { self.panels.setPosition(panel, to: $0) })
+    }
+
+    private func paletteDragChanged(
+        _ panel: EditorPanel, translation: CGSize, in dock: CGSize
+    ) {
+        let key = panel.rawValue
+        if panels.stacks.isFollower(key) {
+            // Taking a follower by the header detaches it — it moves alone.
+            panels.detachForDrag(panel, frozenAt: displayPosition(panel, in: dock))
+        } else if !panels.stacks.followers(of: key).isEmpty {
+            // Moving the top one moves the bottom one(s) along, live.
+            stackDragHead = panel
+            stackDragTranslation = translation
+        }
+    }
+
+    private func paletteDragEnded(_ panel: EditorPanel, in dock: CGSize) {
+        stackDragHead = nil
+        stackDragTranslation = .zero
+        // Stick detection against the settled positions (the panel's own
+        // offset — including its grid snap — is already committed).
+        var frames: [String: CGRect] = [:]
+        for candidate in EditorPanel.allCases where panels.isExpanded(candidate) {
+            let origin = displayPosition(candidate, in: dock)
+            frames[candidate.rawValue] = CGRect(
+                origin: CGPoint(x: origin.width, y: origin.height),
+                size: measuredSize(candidate))
+        }
+        guard let dragged = frames[panel.rawValue] else { return }
+        if let target = panels.stacks.snapCandidate(
+            for: panel.rawValue, frame: dragged, others: frames)
+        {
+            panels.attach(panel, belowStackKey: target)
+        }
+    }
+}
+
+/// Collects every open palette's rendered size (the panel chrome included).
+private struct PaletteSizesKey: PreferenceKey {
+    static var defaultValue: [EditorPanel: CGSize] = [:]
+    static func reduce(
+        value: inout [EditorPanel: CGSize], nextValue: () -> [EditorPanel: CGSize]
+    ) {
+        value.merge(nextValue()) { _, next in next }
     }
 }
 

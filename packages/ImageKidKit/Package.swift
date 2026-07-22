@@ -12,7 +12,11 @@ let package = Package(
         .library(name: "ImageKidKit", targets: ["ImageKidKit"])
     ],
     targets: [
-        .target(name: "ImageKidKit", path: "Sources/ImageKidKit")
+        .target(name: "ImageKidKit", path: "Sources/ImageKidKit"),
+        .testTarget(
+            name: "ImageKidKitTests",
+            dependencies: ["ImageKidKit"],
+            path: "Tests/ImageKidKitTests"),
     ],
     swiftLanguageVersions: [.v5]
 )

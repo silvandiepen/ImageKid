@@ -15,6 +15,10 @@ public struct FloatingToolPanel<Content: View>: View {
     let minSize: CGSize
     let maxSize: CGSize
     let cornerRadius: CGFloat
+    let stackEdges: (topFlat: Bool, bottomFlat: Bool)
+    let isStackFollower: Bool
+    let onDragChanged: ((CGSize) -> Void)?
+    let onDragEnded: ((CGSize) -> Void)?
     let content: Content
 
     @GestureState private var dragTranslation: CGSize = .zero
@@ -35,6 +39,10 @@ public struct FloatingToolPanel<Content: View>: View {
         minSize: CGSize = CGSize(width: 220, height: 200),
         maxSize: CGSize = CGSize(width: 520, height: 900),
         cornerRadius: CGFloat = 28,
+        stackEdges: (topFlat: Bool, bottomFlat: Bool) = (false, false),
+        isStackFollower: Bool = false,
+        onDragChanged: ((CGSize) -> Void)? = nil,
+        onDragEnded: ((CGSize) -> Void)? = nil,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
@@ -49,6 +57,10 @@ public struct FloatingToolPanel<Content: View>: View {
         self.minSize = minSize
         self.maxSize = maxSize
         self.cornerRadius = cornerRadius
+        self.stackEdges = stackEdges
+        self.isStackFollower = isStackFollower
+        self.onDragChanged = onDragChanged
+        self.onDragEnded = onDragEnded
         self.content = content()
     }
 
@@ -60,6 +72,23 @@ public struct FloatingToolPanel<Content: View>: View {
     private var resolvedHeight: CGFloat? {
         guard resizable else { return nil }
         return max(minSize.height, size.height + resizeTranslation.height)
+    }
+
+    /// True while the panel is stuck to another one (either edge on a stick
+    /// line). Resizing is disabled for the duration — the stack owns the
+    /// shared width, and a free-resized member would break the flush column.
+    private var isStacked: Bool { stackEdges.topFlat || stackEdges.bottomFlat }
+
+    /// The chrome shape: the normal corner radius, except on edges that sit
+    /// on a stick line between stacked panels, which flatten to 4pt so the
+    /// stack reads as one fused column.
+    private var chromeShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: stackEdges.topFlat ? 4 : cornerRadius,
+            bottomLeadingRadius: stackEdges.bottomFlat ? 4 : cornerRadius,
+            bottomTrailingRadius: stackEdges.bottomFlat ? 4 : cornerRadius,
+            topTrailingRadius: stackEdges.topFlat ? 4 : cornerRadius,
+            style: .continuous)
     }
 
     public var body: some View {
@@ -76,20 +105,22 @@ public struct FloatingToolPanel<Content: View>: View {
         }
         .frame(width: resolvedWidth, height: resolvedHeight, alignment: .top)
         .foregroundStyle(.white)
-        .background(
-            Color.black.opacity(0.80),
-            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        )
+        .background(Color.black.opacity(0.80), in: chromeShape)
         .overlay(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            chromeShape
                 .strokeBorder(.white.opacity(0.12))
         )
         .overlay(alignment: .bottomTrailing) {
-            if resizable { resizeHandle }
+            if resizable && !isStacked { resizeHandle }
         }
         // A large blurred shadow re-rasterises every frame while dragging, which
         // is the main source of drag stutter — shrink it hard during a drag.
-        .shadow(color: .black.opacity(isDragging ? 0.28 : 0.36), radius: isDragging ? 6 : 28, y: isDragging ? 3 : 12)
+        // Stack followers keep only a soft shadow so the seam onto the panel
+        // above doesn't read as a dark band across the fused column.
+        .shadow(
+            color: .black.opacity(isDragging ? 0.28 : (isStackFollower ? 0.16 : 0.36)),
+            radius: isDragging ? 6 : (isStackFollower ? 10 : 28),
+            y: isDragging ? 3 : (isStackFollower ? 4 : 12))
         .offset(
             x: offset.width + dragTranslation.width,
             y: offset.height + dragTranslation.height
@@ -175,6 +206,9 @@ public struct FloatingToolPanel<Content: View>: View {
                 .updating($isDragging) { _, state, _ in
                     state = true
                 }
+                .onChanged { value in
+                    onDragChanged?(value.translation)
+                }
                 .onEnded { value in
                     var next = CGSize(
                         width: offset.width + value.translation.width,
@@ -187,6 +221,9 @@ public struct FloatingToolPanel<Content: View>: View {
                         )
                     }
                     offset = next
+                    // After the resting offset settled (including grid snap),
+                    // so hosts run stick detection against final positions.
+                    onDragEnded?(value.translation)
                 }
         )
     }
