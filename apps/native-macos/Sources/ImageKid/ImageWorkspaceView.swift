@@ -221,7 +221,15 @@ struct ImageWorkspaceView: View {
 
     @ViewBuilder
     private var rightToolPanels: some View {
-        if appModel.activeTool == .pickColor {
+        if appModel.activeTool == .select, session.hasImageSelection, session.selectedAnnotationID == nil {
+            SelectionPanel(
+                session: session,
+                appModel: appModel,
+                offset: $panelOffset,
+                onClose: { session.selectionRect = nil }
+            )
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+        } else if appModel.activeTool == .pickColor {
             ColorPalettePanel(
                 session: session,
                 offset: $panelOffset,

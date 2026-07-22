@@ -4,6 +4,8 @@ struct FloatingToolbar: View {
     @EnvironmentObject private var appModel: AppModel
     let canExport: Bool
 
+    @State private var showMagic = false
+
     var body: some View {
         HStack(spacing: 7) {
             toolButton(.view)
@@ -28,30 +30,32 @@ struct FloatingToolbar: View {
             .help(appModel.hasRemovedBackground ? "Restore Background" : "Remove Background")
             .accessibilityLabel(appModel.hasRemovedBackground ? "Restore Background" : "Remove Background")
 
-            Menu {
-                Button {
-                    appModel.requestEnhance()
-                } label: {
-                    Label("Enhance Image", systemImage: "wand.and.stars")
-                }
-                Button {
-                    appModel.requestPromptEdit()
-                } label: {
-                    Label("AI Edit…", systemImage: "text.bubble")
-                }
+            Button {
+                showMagic.toggle()
             } label: {
                 toolbarIcon(
                     "wand.and.stars",
-                    selected: appModel.isShowingPromptEdit || appModel.isApplyingPromptEdit
+                    selected: showMagic || appModel.isShowingPromptEdit || appModel.isApplyingPromptEdit
                         || appModel.isShowingEnhance || appModel.isApplyingEnhance
                 )
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .frame(width: 42)
             .disabled(appModel.isApplyingPromptEdit || appModel.isApplyingEnhance)
             .help("Magic")
             .accessibilityLabel("Magic")
+            .popover(isPresented: $showMagic, arrowEdge: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    popoverButton("Enhance Image", "wand.and.stars", detail: "Improve detail · upscale") {
+                        showMagic = false
+                        appModel.requestEnhance()
+                    }
+                    popoverButton("AI Edit…", "text.bubble", detail: "Describe a change (your API key)") {
+                        showMagic = false
+                        appModel.requestPromptEdit()
+                    }
+                }
+                .padding(8)
+                .frame(width: 260)
+            }
 
             Menu {
                 Button("Copy Image") {
@@ -74,12 +78,14 @@ struct FloatingToolbar: View {
                     appModel.requestExport()
                 }
             } label: {
-                toolbarIcon("square.and.arrow.up", selected: false)
+                toolbarIcon("ellipsis", selected: false)
             }
             .disabled(!canExport)
             .menuStyle(.borderlessButton)
-            .help("Image Actions")
-            .accessibilityLabel("Image Actions")
+            .menuIndicator(.hidden)
+            .frame(width: 42)
+            .help("More")
+            .accessibilityLabel("More")
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 12)
@@ -90,6 +96,27 @@ struct FloatingToolbar: View {
                 .strokeBorder(.white.opacity(0.14))
         )
         .shadow(color: .black.opacity(0.26), radius: 24, y: 10)
+    }
+
+    private func popoverButton(_ title: String, _ symbol: String, detail: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 11) {
+                Image(systemName: symbol)
+                    .font(.system(size: 15, weight: .medium))
+                    .frame(width: 30, height: 30)
+                    .background(Color.accentColor.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.callout.weight(.semibold))
+                    Text(detail).font(.caption2).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
     }
 
     private func toolButton(_ tool: Tool) -> some View {
