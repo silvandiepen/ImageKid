@@ -10,10 +10,10 @@ struct ForegroundBackgroundChips: View {
     enum Slot { case foreground, background }
     @State private var editing: Slot?
 
-    /// The drawable shape currently selected, if any — the chips act on it.
+    /// The selected annotation (shape OR text) the chips act on, if any. For text
+    /// the "foreground" is the text colour.
     private var selectedShape: Annotation? {
-        guard let a = session.selectedAnnotation, a.isDrawable else { return nil }
-        return a
+        session.selectedAnnotation
     }
 
     private var currentForeground: NSColor {
@@ -21,7 +21,7 @@ struct ForegroundBackgroundChips: View {
     }
 
     private var currentBackground: NSColor {
-        if let shape = selectedShape { return shape.fillColor ?? .clear }
+        if let shape = selectedShape, shape.isFillable { return shape.fillColor ?? .clear }
         return library.background
     }
 

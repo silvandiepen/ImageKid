@@ -90,7 +90,7 @@ struct ImageWorkspaceView: View {
                         fullRect: imageRect,
                         imageRect: resizeDisplayRect(in: imageRect),
                         size: session.draftOutputSize ?? session.effectivePixelSize,
-                        previewImage: workingImage
+                        previewImage: session.baseUnlocked ? nil : workingImage
                     )
                 }
 
@@ -737,16 +737,16 @@ struct ImageWorkspaceView: View {
             let scale = rect.width / max(mask.size.width, 1)
             let w = max(session.maskBrushSize * scale, 4)
             let h = max(w * session.maskBrushRoundness, 4)
-            let ringColor: Color = session.maskBrushReveal ? .green : .white
+            // Blue = reveal, red = hide, so the two modes are easy to tell apart.
+            let ringColor: Color = session.maskBrushReveal ? .blue : .red
 
-            // Preview of the stroke being drawn, in blue. It's rasterised into the
-            // mask (as black/white) on release, so it doesn't stay blue.
+            // Live preview of the stroke; rasterised to black/white on release.
             if maskStrokeViewPoints.count > 1 {
                 Path { p in
                     p.move(to: maskStrokeViewPoints[0])
                     for pt in maskStrokeViewPoints.dropFirst() { p.addLine(to: pt) }
                 }
-                .stroke(Color.accentColor.opacity(0.55 * session.maskBrushOpacity),
+                .stroke(ringColor.opacity(0.55 * session.maskBrushOpacity),
                         style: StrokeStyle(lineWidth: w, lineCap: .round, lineJoin: .round))
                 .allowsHitTesting(false)
             }
