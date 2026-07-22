@@ -754,15 +754,14 @@ struct ImageWorkspaceView: View {
             // Blue = reveal, red = hide, so the two modes are easy to tell apart.
             let ringColor: Color = session.maskBrushReveal ? .blue : .red
 
-            // Live preview of the stroke; rasterised to black/white on release.
+            // Live preview of the stroke — smoothed and blurred by softness to
+            // match how it rasterises.
             if maskStrokeViewPoints.count > 1 {
-                Path { p in
-                    p.move(to: maskStrokeViewPoints[0])
-                    for pt in maskStrokeViewPoints.dropFirst() { p.addLine(to: pt) }
-                }
-                .stroke(ringColor.opacity(0.55 * session.maskBrushOpacity),
-                        style: StrokeStyle(lineWidth: w, lineCap: .round, lineJoin: .round))
-                .allowsHitTesting(false)
+                Self.smoothPath(maskStrokeViewPoints)
+                    .stroke(ringColor.opacity(0.55 * session.maskBrushOpacity),
+                            style: StrokeStyle(lineWidth: w, lineCap: .round, lineJoin: .round))
+                    .blur(radius: session.maskBrushSoftness * w / 2)
+                    .allowsHitTesting(false)
             }
 
             if let cursor = maskBrushCursor {
@@ -1210,9 +1209,14 @@ struct ImageWorkspaceView: View {
 
         case .maskEdit:
             // Accumulate the stroke; it's rasterised into the mask on release so
-            // dragging stays smooth even on large masks.
+            // dragging stays smooth even on large masks. Shift constrains to a
+            // straight line from the start point.
             if !session.maskWandMode {
-                maskStrokeViewPoints.append(value.location)
+                if NSEvent.modifierFlags.contains(.shift) {
+                    maskStrokeViewPoints = [value.startLocation, value.location]
+                } else {
+                    maskStrokeViewPoints.append(value.location)
+                }
                 maskBrushCursor = value.location
             }
 

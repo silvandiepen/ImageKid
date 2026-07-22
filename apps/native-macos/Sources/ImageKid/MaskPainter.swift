@@ -42,9 +42,10 @@ enum MaskPainter {
                     roundness: roundness, angle: angle)
     }
 
-    /// Paint many dabs (a whole stroke segment) in a SINGLE draw pass. Copying
-    /// the full mask image once per dab was the source of severe lag — this
-    /// draws the existing mask once and then stamps every dab onto it.
+    /// Paint a whole stroke as ONE solid shape (line of `diameter` width through
+    /// all the points), then blur it by `softness` and composite onto the mask.
+    /// Because the stroke is a single shape, overlapping dabs never build up, so
+    /// the soft edge (hardness) is uniform along the whole stroke.
     static func paintStroke(
         on mask: NSImage,
         normalizedPoints points: [CGPoint],
@@ -57,39 +58,59 @@ enum MaskPainter {
     ) -> NSImage {
         guard !points.isEmpty else { return mask }
         let size = mask.size
+        let radius = max(diameter / 2, 1)
+        let color = reveal ? NSColor.white : NSColor.black
+
+        // 1) Draw the whole stroke as one solid shape in a clear buffer.
+        let strokeImage = NSImage(size: size)
+        strokeImage.lockFocus()
+        let pts = points.map { CGPoint(x: $0.x * size.width, y: (1 - $0.y) * size.height) }
+        color.set()
+        if pts.count == 1 {
+            NSBezierPath(ovalIn: CGRect(x: pts[0].x - radius, y: pts[0].y - radius,
+                                        width: radius * 2, height: radius * 2)).fill()
+        } else {
+            let path = NSBezierPath()
+            path.move(to: pts[0])
+            if pts.count < 3 {
+                for p in pts.dropFirst() { path.line(to: p) }
+            } else {
+                for i in 1..<(pts.count - 1) {
+                    let cur = pts[i], next = pts[i + 1]
+                    let mid = CGPoint(x: (cur.x + next.x) / 2, y: (cur.y + next.y) / 2)
+                    path.curve(to: mid, controlPoint1: cur, controlPoint2: cur)
+                }
+                path.line(to: pts[pts.count - 1])
+            }
+            path.lineWidth = radius * 2
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
+            path.stroke()
+        }
+        strokeImage.unlockFocus()
+
+        // 2) Blur the whole stroke by softness (uniform soft edge, no buildup).
+        let blurRadius = CGFloat(min(max(softness, 0), 1)) * radius
+        let paint = blurRadius > 0.5 ? gaussianBlur(strokeImage, radius: blurRadius) : strokeImage
+
+        // 3) Composite the (blurred) stroke over the mask at brush opacity.
         let result = NSImage(size: size)
         result.lockFocus()
-        defer { result.unlockFocus() }
         mask.draw(in: CGRect(origin: .zero, size: size))
-
-        guard let context = NSGraphicsContext.current else { return result }
-        let radius = max(diameter / 2, 1)
-        let ry = radius * max(min(roundness, 1), 0.05)
-        let alpha = CGFloat(min(max(opacity, 0), 1))
-        let color = (reveal ? NSColor.white : NSColor.black).withAlphaComponent(alpha)
-        let inner = max(0, 1 - min(max(softness, 0), 1))
-        let gradient = NSGradient(colors: [color, color.withAlphaComponent(0)],
-                                  atLocations: [inner, 1], colorSpace: .deviceGray)
-        let ovalRect = CGRect(x: -radius, y: -ry, width: radius * 2, height: ry * 2)
-
-        for point in points {
-            // NSImage is bottom-left origin; the mask is stored top-down.
-            let center = CGPoint(x: point.x * size.width, y: (1 - point.y) * size.height)
-            context.saveGraphicsState()
-            let transform = NSAffineTransform()
-            transform.translateX(by: center.x, yBy: center.y)
-            transform.rotate(byDegrees: -angle)
-            transform.concat()
-            let path = NSBezierPath(ovalIn: ovalRect)
-            if let gradient {
-                gradient.draw(in: path, relativeCenterPosition: .zero)
-            } else {
-                color.setFill()
-                path.fill()
-            }
-            context.restoreGraphicsState()
-        }
+        paint.draw(in: CGRect(origin: .zero, size: size), from: .zero,
+                   operation: .sourceOver, fraction: CGFloat(min(max(opacity, 0), 1)))
+        result.unlockFocus()
         return result
+    }
+
+    private static func gaussianBlur(_ image: NSImage, radius: CGFloat) -> NSImage {
+        guard let tiff = image.tiffRepresentation, let ci = CIImage(data: tiff) else { return image }
+        let blurred = ci.clampedToExtent()
+            .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: radius])
+            .cropped(to: ci.extent)
+        let out = NSImage(size: image.size)
+        out.addRepresentation(NSCIImageRep(ciImage: blurred))
+        return out
     }
 
     /// Flood-fill from a point on `layerImage`, hiding the connected region of
