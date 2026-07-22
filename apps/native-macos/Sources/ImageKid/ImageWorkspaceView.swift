@@ -715,8 +715,9 @@ struct ImageWorkspaceView: View {
                 let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
 
                 if editingTextID != annotation.id {
+                    let m = drawableMargin(annotation)
                     annotationContent(annotation)
-                        .frame(width: rect.width, height: rect.height)
+                        .frame(width: rect.width + 2 * m, height: rect.height + 2 * m)
                         .position(x: rect.midX, y: rect.midY)
                         .opacity(annotation.opacity)
                 }
@@ -804,10 +805,22 @@ struct ImageWorkspaceView: View {
                 )
 
         case .rectangle, .ellipse, .line, .arrow, .freehand:
+            // The Canvas is enlarged by a margin on all sides so a wide, outset,
+            // or round-capped stroke isn't clipped at the shape's frame edge.
+            let margin = drawableMargin(annotation)
             Canvas { context, size in
-                drawAnnotation(annotation, context: &context, size: size)
+                context.translateBy(x: margin, y: margin)
+                let inner = CGSize(width: max(0, size.width - 2 * margin),
+                                   height: max(0, size.height - 2 * margin))
+                drawAnnotation(annotation, context: &context, size: inner)
             }
         }
+    }
+
+    /// Extra room around a shape's canvas so its stroke (up to ~1× line width
+    /// beyond the edge with outset alignment + round caps) is never clipped.
+    private func drawableMargin(_ annotation: Annotation) -> CGFloat {
+        annotation.isText ? 0 : annotation.lineWidth * 1.5 + 2
     }
 
     @ViewBuilder
@@ -815,8 +828,9 @@ struct ImageWorkspaceView: View {
         if let draftAnnotation,
            let displayedFrame = displayedAnnotationFrame(draftAnnotation.frame) {
             let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
+            let m = drawableMargin(draftAnnotation)
             annotationContent(draftAnnotation)
-                .frame(width: rect.width, height: rect.height)
+                .frame(width: rect.width + 2 * m, height: rect.height + 2 * m)
                 .position(x: rect.midX, y: rect.midY)
                 .opacity(0.82)
         }

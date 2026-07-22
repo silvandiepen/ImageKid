@@ -72,6 +72,21 @@ final class ColorLibrary: ObservableObject {
         sets[index].colors.removeAll { $0.id == colorID }
     }
 
+    /// Replace an existing swatch's colour in place (keeps its id/position).
+    func updateColor(_ colorID: UUID, in setID: UUID, to color: NSColor) {
+        guard let setIndex = sets.firstIndex(where: { $0.id == setID }),
+              let colorIndex = sets[setIndex].colors.firstIndex(where: { $0.id == colorID }) else { return }
+        sets[setIndex].colors[colorIndex].hex = ColorHex.string(from: color)
+    }
+
+    /// Update a swatch from a hex string; returns false if the hex is invalid.
+    @discardableResult
+    func updateColorHex(_ colorID: UUID, in setID: UUID, hex: String) -> Bool {
+        guard let color = ColorHex.color(from: hex) else { return false }
+        updateColor(colorID, in: setID, to: color)
+        return true
+    }
+
     @discardableResult
     func addSet(name: String = "New Set") -> UUID {
         let set = SwatchSet(name: name, colors: [])

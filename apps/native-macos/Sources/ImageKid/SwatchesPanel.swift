@@ -16,6 +16,9 @@ struct SwatchesPanel: View {
     @State private var targetSetID: UUID?
     @State private var editingSetID: UUID?
     @State private var editingName = ""
+    @State private var detailColorID: UUID?
+    @State private var detailSetID: UUID?
+    @State private var hexDraft = ""
 
     private let columns = [GridItem(.adaptive(minimum: 28, maximum: 34), spacing: 6)]
 
@@ -129,9 +132,14 @@ struct SwatchesPanel: View {
             .frame(height: 28)
             .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(.white.opacity(0.18)))
             .contentShape(RoundedRectangle(cornerRadius: 7))
+            .onTapGesture(count: 2) { openDetail(swatch, in: set) }
             .onTapGesture { onPick(swatch.nsColor) }
-            .help(swatch.hex)
+            .help("\(swatch.hex) · double-click to edit")
+            .popover(isPresented: detailBinding(for: swatch.id), arrowEdge: .bottom) {
+                swatchDetail(colorID: swatch.id, setID: set.id)
+            }
             .contextMenu {
+                Button("Edit…") { openDetail(swatch, in: set) }
                 Button("Use Colour") { onPick(swatch.nsColor) }
                 Button("Copy Hex") {
                     NSPasteboard.general.clearContents()
@@ -139,6 +147,105 @@ struct SwatchesPanel: View {
                 }
                 Button("Remove", role: .destructive) { library.removeColor(swatch.id, from: set.id) }
             }
+    }
+
+    private func openDetail(_ swatch: SwatchColor, in set: SwatchSet) {
+        detailColorID = swatch.id
+        detailSetID = set.id
+        hexDraft = swatch.hex
+    }
+
+    private func detailBinding(for colorID: UUID) -> Binding<Bool> {
+        Binding(
+            get: { detailColorID == colorID },
+            set: { if !$0 { detailColorID = nil; detailSetID = nil } }
+        )
+    }
+
+    /// Live-editing detail popover for a single swatch.
+    @ViewBuilder
+    private func swatchDetail(colorID: UUID, setID: UUID) -> some View {
+        if let set = library.sets.first(where: { $0.id == setID }),
+           let swatch = set.colors.first(where: { $0.id == colorID }) {
+            let ns = swatch.nsColor.usingColorSpace(.sRGB) ?? swatch.nsColor
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(swatch.color)
+                        .frame(width: 46, height: 46)
+                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.22)))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(set.name.uppercased())
+                            .font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                        Text(swatch.hex).font(.system(.body, design: .monospaced, weight: .semibold))
+                    }
+                    Spacer()
+                    ColorPicker("", selection: colorBinding(colorID: colorID, setID: setID), supportsOpacity: true)
+                        .labelsHidden()
+                }
+
+                HStack(spacing: 8) {
+                    Text("HEX").font(.caption2.weight(.bold)).foregroundStyle(.secondary).frame(width: 32, alignment: .leading)
+                    TextField("#RRGGBB", text: $hexDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.callout, design: .monospaced))
+                        .onSubmit { library.updateColorHex(colorID, in: setID, hex: hexDraft) }
+                }
+
+                detailRows(ns)
+
+                HStack {
+                    Button("Copy Hex") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(swatch.hex, forType: .string)
+                    }
+                    .buttonStyle(.bordered)
+                    Spacer()
+                    Button("Remove", role: .destructive) {
+                        library.removeColor(colorID, from: setID)
+                        detailColorID = nil
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding(16)
+            .frame(width: 256)
+        }
+    }
+
+    private func detailRows(_ ns: NSColor) -> some View {
+        let r = Int((ns.redComponent * 255).rounded())
+        let g = Int((ns.greenComponent * 255).rounded())
+        let b = Int((ns.blueComponent * 255).rounded())
+        let a = Int((ns.alphaComponent * 100).rounded())
+        return VStack(alignment: .leading, spacing: 4) {
+            detailRow("RGB", "\(r), \(g), \(b)")
+            detailRow("Alpha", "\(a)%")
+        }
+        .font(.system(.caption, design: .monospaced))
+    }
+
+    private func detailRow(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label).foregroundStyle(.secondary).frame(width: 48, alignment: .leading)
+            Text(value)
+            Spacer()
+        }
+    }
+
+    private func colorBinding(colorID: UUID, setID: UUID) -> Binding<Color> {
+        Binding(
+            get: {
+                let ns = library.sets.first(where: { $0.id == setID })?
+                    .colors.first(where: { $0.id == colorID })?.nsColor ?? .white
+                return Color(nsColor: ns)
+            },
+            set: { newValue in
+                let ns = NSColor(newValue)
+                library.updateColor(colorID, in: setID, to: ns)
+                hexDraft = ColorHex.string(from: ns)
+            }
+        )
     }
 
     private func copyHexList(_ set: SwatchSet) {
