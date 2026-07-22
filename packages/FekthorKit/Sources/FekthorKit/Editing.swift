@@ -207,16 +207,59 @@ public enum Editing {
 
     /// Move one cubic control point. The element's path is cubicized first, so
     /// segment indices line up with what `handles(of:path:anchor:)` reported.
+    /// With `mirror` (smooth point), the opposite handle across the shared
+    /// anchor rotates to stay collinear — its own length is preserved — so the
+    /// curve keeps a straight tangent through the anchor.
     public static func moveHandle(
-        _ element: Element, path: Int, segment: Int, kind: HandleKind, to: Pt
+        _ element: Element, path: Int, segment: Int, kind: HandleKind, to: Pt,
+        mirror: Bool = false
     ) -> Element {
         guard let rp = refinedPath(of: element, at: path) else { return element }
         var cubed = cubicized(rp)
-        guard segment < cubed.segments.count,
-            case .cubic(let c1, let c2, let end) = cubed.segments[segment]
+        let n = cubed.segments.count
+        guard segment < n, case .cubic(let c1, let c2, let end) = cubed.segments[segment]
         else { return element }
         cubed.segments[segment] =
             kind == .c1 ? .cubic(c1: to, c2: c2, to: end) : .cubic(c1: c1, c2: to, to: end)
+
+        if mirror {
+            // The dragged handle's anchor and the opposite segment around it.
+            let anchor: Pt
+            var oppIndex: Int? = nil
+            var oppKind: HandleKind = .c2
+            if kind == .c1 {
+                anchor = segment == 0 ? cubed.start : cubed.segments[segment - 1].endPoint
+                if segment > 0 {
+                    oppIndex = segment - 1
+                } else if cubed.closed {
+                    oppIndex = n - 1
+                }
+                oppKind = .c2
+            } else {
+                anchor = end
+                if segment + 1 < n {
+                    oppIndex = segment + 1
+                } else if cubed.closed {
+                    oppIndex = 0
+                }
+                oppKind = .c1
+            }
+            if let oi = oppIndex, oi < n, case .cubic(let oc1, let oc2, let oend) = cubed.segments[oi] {
+                let old = oppKind == .c1 ? oc1 : oc2
+                let len = ((old.x - anchor.x) * (old.x - anchor.x)
+                    + (old.y - anchor.y) * (old.y - anchor.y)).squareRoot()
+                let dx = anchor.x - to.x
+                let dy = anchor.y - to.y
+                let m = (dx * dx + dy * dy).squareRoot()
+                if m > 1e-9, len > 1e-9 {
+                    let mirrored = Pt(anchor.x + dx / m * len, anchor.y + dy / m * len)
+                    cubed.segments[oi] =
+                        oppKind == .c1
+                        ? .cubic(c1: mirrored, c2: oc2, to: oend)
+                        : .cubic(c1: oc1, c2: mirrored, to: oend)
+                }
+            }
+        }
         return replacingPath(element, at: path, with: cubed)
     }
 
@@ -286,5 +329,408 @@ public enum Editing {
         }
         _ = current
         return RefinedPath(start: rp.start, segments: segments, closed: rp.closed)
+    }
+}
+
+// MARK: - Break & merge (editor tools)
+
+extension Editing {
+    /// A reference to one anchor of one element in a document.
+    public struct AnchorRef: Hashable, Sendable {
+        public var element: Int
+        public var path: Int
+        public var anchor: Int
+        public init(element: Int, path: Int, anchor: Int) {
+            self.element = element
+            self.path = path
+            self.anchor = anchor
+        }
+    }
+
+    /// Reverse a refined path (cubicized first — arcs cannot be flipped in
+    /// place). Segment controls swap and the walk order inverts.
+    public static func reversed(_ rp: RefinedPath) -> RefinedPath {
+        let path = cubicized(rp)
+        var points: [Pt] = [path.start]
+        for seg in path.segments { points.append(seg.endPoint) }
+        var segments: [RefinedSegment] = []
+        for i in stride(from: path.segments.count - 1, through: 0, by: -1) {
+            let from = points[i]
+            switch path.segments[i] {
+            case .line:
+                segments.append(.line(to: from))
+            case .cubic(let c1, let c2, _):
+                segments.append(.cubic(c1: c2, c2: c1, to: from))
+            case .arc:
+                segments.append(.line(to: from))  // unreachable post-cubicize
+            }
+        }
+        return RefinedPath(start: points.last ?? path.start, segments: segments, closed: path.closed)
+    }
+
+    /// Break a stroke at an interior anchor into two strokes, or cut a closed
+    /// stroke open at any anchor. Returns nil when the anchor cannot break the
+    /// element (fills, primitives, terminal anchors of open strokes).
+    public static func breakAt(_ element: Element, path: Int, anchor: Int) -> [Element]? {
+        guard case .stroke(let s) = element, path == 0, let rp0 = s.refined else { return nil }
+        let rp = cubicized(rp0)
+        let n = rp.segments.count
+        guard n >= 2 else { return nil }
+
+        func stroke(_ suffix: String, _ p: RefinedPath, closed: Bool) -> Element {
+            var out = s
+            out.id = s.id + suffix
+            out.closed = closed
+            out.refined = p
+            out.points = PathRefine.flatten(p)
+            return .stroke(out)
+        }
+
+        if rp.closed {
+            // Cut the loop open at the anchor: same geometry, new start.
+            var pts: [Pt] = [rp.start]
+            for seg in rp.segments { pts.append(seg.endPoint) }
+            let cut = min(max(anchor, 0), n - 1)
+            let rotated = Array(rp.segments[cut...]) + Array(rp.segments[..<cut])
+            let start = cut == 0 ? rp.start : rp.segments[cut - 1].endPoint
+            let open = RefinedPath(start: start, segments: rotated, closed: false)
+            return [stroke("-cut", open, closed: false)]
+        }
+
+        guard anchor >= 1, anchor <= n - 1 else { return nil }
+        let firstPath = RefinedPath(
+            start: rp.start, segments: Array(rp.segments[..<anchor]), closed: false)
+        let secondStart = rp.segments[anchor - 1].endPoint
+        let secondPath = RefinedPath(
+            start: secondStart, segments: Array(rp.segments[anchor...]), closed: false)
+        return [stroke("-a", firstPath, closed: false), stroke("-b", secondPath, closed: false)]
+    }
+
+    /// True when the ref points at a terminal anchor of an OPEN stroke.
+    static func terminalInfo(_ doc: VectorDocument, _ ref: AnchorRef)
+        -> (isStart: Bool, stroke: StrokePath)?
+    {
+        guard ref.element < doc.elements.count,
+            case .stroke(let s) = doc.elements[ref.element], !s.closed, let rp = s.refined
+        else { return nil }
+        let count = pathAnchors(rp, path: 0).count
+        if ref.anchor == 0 { return (true, s) }
+        if ref.anchor == count - 1 { return (false, s) }
+        return nil
+    }
+
+    /// Merge the referenced anchors: every anchor moves to the shared centroid.
+    /// When exactly two refs are terminal anchors of open strokes, the strokes
+    /// are additionally JOINED into one (or the stroke closes into a loop when
+    /// both ends belong to the same stroke).
+    public static func merge(_ doc: VectorDocument, refs: [AnchorRef]) -> VectorDocument {
+        guard refs.count >= 2 else { return doc }
+        var document = doc
+
+        // Centroid of the current anchor positions.
+        var cx = 0.0
+        var cy = 0.0
+        var found = 0
+        for ref in refs where ref.element < document.elements.count {
+            let list = anchors(of: document.elements[ref.element])
+            if let a = list.first(where: { $0.path == ref.path && $0.index == ref.anchor }) {
+                cx += a.position.x
+                cy += a.position.y
+                found += 1
+            }
+        }
+        guard found >= 2 else { return doc }
+        let target = Pt(cx / Double(found), cy / Double(found))
+        for ref in refs where ref.element < document.elements.count {
+            document.elements[ref.element] = move(
+                document.elements[ref.element], path: ref.path, anchor: ref.anchor, to: target)
+        }
+
+        // Join two open stroke ends into one stroke.
+        guard refs.count == 2,
+            let a = terminalInfo(document, refs[0]),
+            let b = terminalInfo(document, refs[1])
+        else { return document }
+
+        if refs[0].element == refs[1].element {
+            // Both ends of the same stroke: close the loop.
+            guard refs[0].anchor != refs[1].anchor, case .stroke(var s) = document.elements[refs[0].element],
+                let rp = s.refined
+            else { return document }
+            var closedPath = cubicized(rp)
+            closedPath.closed = true
+            s.closed = true
+            s.refined = closedPath
+            s.points = PathRefine.flatten(closedPath)
+            document.elements[refs[0].element] = .stroke(s)
+            return document
+        }
+
+        // Different strokes: orient A to END at the weld and B to START there,
+        // then concatenate. B's element is removed.
+        guard let rpA = a.stroke.refined, let rpB = b.stroke.refined else { return document }
+        let partA = a.isStart ? reversed(rpA) : cubicized(rpA)
+        let partB = b.isStart ? cubicized(rpB) : reversed(rpB)
+        let joinedPath = RefinedPath(
+            start: partA.start, segments: partA.segments + partB.segments, closed: false)
+        var joined = a.stroke
+        joined.id = a.stroke.id + "+" + b.stroke.id
+        joined.refined = joinedPath
+        joined.points = PathRefine.flatten(joinedPath)
+        document.elements[refs[0].element] = .stroke(joined)
+        document.elements.remove(at: refs[1].element)
+        return document
+    }
+}
+
+// MARK: - Remove point
+
+extension Editing {
+    /// Merge two consecutive segments into one, keeping the outer tangents:
+    /// the incoming control of the first and the outgoing control of the
+    /// second survive; the shared anchor disappears. Two lines stay a line.
+    static func mergedSegment(from: Pt, _ a: RefinedSegment, _ b: RefinedSegment)
+        -> RefinedSegment
+    {
+        if case .line = a, case .line(let to) = b { return .line(to: to) }
+        let mid = a.endPoint
+        let end = b.endPoint
+        let c1: Pt
+        switch a {
+        case .cubic(let ac1, _, _): c1 = ac1
+        default:
+            c1 = Pt(from.x + (mid.x - from.x) / 3, from.y + (mid.y - from.y) / 3)
+        }
+        let c2: Pt
+        switch b {
+        case .cubic(_, let bc2, _): c2 = bc2
+        default:
+            c2 = Pt(end.x - (end.x - mid.x) / 3, end.y - (end.y - mid.y) / 3)
+        }
+        return .cubic(c1: c1, c2: c2, to: end)
+    }
+
+    static func removingAnchor(_ rp0: RefinedPath, anchor: Int) -> RefinedPath? {
+        let rp = cubicized(rp0)
+        let n = rp.segments.count
+        if !rp.closed {
+            guard n >= 2 else { return nil }
+            if anchor <= 0 {
+                return RefinedPath(
+                    start: rp.segments[0].endPoint,
+                    segments: Array(rp.segments.dropFirst()), closed: false)
+            }
+            if anchor >= n {
+                return RefinedPath(
+                    start: rp.start, segments: Array(rp.segments.dropLast()), closed: false)
+            }
+            var segs = rp.segments
+            let from = anchor >= 2 ? segs[anchor - 2].endPoint : rp.start
+            let merged = mergedSegment(from: from, segs[anchor - 1], segs[anchor])
+            segs.replaceSubrange((anchor - 1)...anchor, with: [merged])
+            return RefinedPath(start: rp.start, segments: segs, closed: false)
+        }
+        // Closed: every anchor is interior; keep at least a triangle.
+        guard n >= 4 else { return nil }
+        let k = ((anchor % n) + n) % n
+        if k == 0 {
+            // Remove the seam anchor: the last and first segments merge, and
+            // the path re-anchors at the old first segment's end.
+            let from = rp.segments[n - 2].endPoint
+            let merged = mergedSegment(from: from, rp.segments[n - 1], rp.segments[0])
+            var segs = Array(rp.segments[1..<(n - 1)])
+            segs.append(merged)
+            return RefinedPath(start: rp.segments[0].endPoint, segments: segs, closed: true)
+        }
+        var segs = rp.segments
+        let from = k >= 2 ? segs[k - 2].endPoint : rp.start
+        let merged = mergedSegment(from: from, segs[k - 1], segs[k])
+        segs.replaceSubrange((k - 1)...k, with: [merged])
+        return RefinedPath(start: rp.start, segments: segs, closed: true)
+    }
+
+    /// Remove one anchor. End anchors shorten an open stroke; interior anchors
+    /// simplify the path (adjacent segments merge, tangents preserved).
+    /// Returns nil when removal is impossible (primitives, paths already at
+    /// their minimum size).
+    public static func removeAnchor(_ element: Element, path: Int, anchor: Int) -> Element? {
+        switch element {
+        case .stroke(var s):
+            guard path == 0, let rp = s.refined,
+                let removed = removingAnchor(rp, anchor: anchor)
+            else { return nil }
+            s.refined = removed
+            s.points = PathRefine.flatten(removed)
+            return .stroke(s)
+        case .fill(var f):
+            switch f.geometry {
+            case .refined(var paths):
+                guard path < paths.count,
+                    let removed = removingAnchor(paths[path], anchor: anchor)
+                else { return nil }
+                paths[path] = removed
+                f.geometry = .refined(paths)
+                return .fill(f)
+            case .rings(var rings):
+                guard path < rings.count, rings[path].count > 3,
+                    anchor < rings[path].count
+                else { return nil }
+                rings[path].remove(at: anchor)
+                f.geometry = .rings(rings)
+                return .fill(f)
+            case .circle, .ellipse, .rect:
+                return nil
+            }
+        }
+    }
+}
+
+// MARK: - Colour
+
+extension Editing {
+    /// The element's current display colour (a gradient reports its first stop).
+    public static func color(of element: Element) -> RGB {
+        switch element {
+        case .stroke(let s):
+            return (s.color.count > 2 ? (s.color[0], s.color[1], s.color[2]) : (0, 0, 0))
+        case .fill(let f):
+            switch f.paint {
+            case .solid(let c):
+                return (c.count > 2 ? (c[0], c[1], c[2]) : (0, 0, 0))
+            case .linear(let g):
+                let c = g.stops.first?.color ?? [0, 0, 0]
+                return (c.count > 2 ? (c[0], c[1], c[2]) : (0, 0, 0))
+            case .radial(let g):
+                let c = g.stops.first?.color ?? [0, 0, 0]
+                return (c.count > 2 ? (c[0], c[1], c[2]) : (0, 0, 0))
+            }
+        }
+    }
+
+    /// Recolour an element. Strokes change their line colour; fills become a
+    /// solid of the given colour (a recoloured gradient collapses to solid —
+    /// predictable, and undo restores the gradient).
+    public static func setColor(_ element: Element, to c: RGB) -> Element {
+        switch element {
+        case .stroke(var s):
+            s.color = [c.r, c.g, c.b]
+            return .stroke(s)
+        case .fill(var f):
+            f.paint = .solid([c.r, c.g, c.b])
+            return .fill(f)
+        }
+    }
+}
+
+// MARK: - Selection export
+
+extension Editing {
+    static func translatedPath(_ rp: RefinedPath, _ dx: Double, _ dy: Double) -> RefinedPath {
+        func t(_ p: Pt) -> Pt { Pt(p.x + dx, p.y + dy) }
+        var segments: [RefinedSegment] = []
+        for seg in rp.segments {
+            switch seg {
+            case .line(let to): segments.append(.line(to: t(to)))
+            case .cubic(let c1, let c2, let to):
+                segments.append(.cubic(c1: t(c1), c2: t(c2), to: t(to)))
+            case .arc(let c, let r, let sa, let ea, let cw):
+                segments.append(
+                    .arc(center: t(c), radius: r, startAngle: sa, endAngle: ea, clockwise: cw))
+            }
+        }
+        return RefinedPath(start: t(rp.start), segments: segments, closed: rp.closed)
+    }
+
+    /// The element moved by (dx, dy) — all geometry forms supported.
+    public static func translated(_ element: Element, dx: Double, dy: Double) -> Element {
+        func t(_ p: Pt) -> Pt { Pt(p.x + dx, p.y + dy) }
+        switch element {
+        case .stroke(var s):
+            s.points = s.points.map(t)
+            if let rp = s.refined { s.refined = translatedPath(rp, dx, dy) }
+            return .stroke(s)
+        case .fill(var f):
+            switch f.geometry {
+            case .rings(let rings):
+                f.geometry = .rings(rings.map { $0.map(t) })
+            case .refined(let paths):
+                f.geometry = .refined(paths.map { translatedPath($0, dx, dy) })
+            case .circle(let c, let r):
+                f.geometry = .circle(center: t(c), radius: r)
+            case .ellipse(let c, let rx, let ry, let rot):
+                f.geometry = .ellipse(center: t(c), rx: rx, ry: ry, rotation: rot)
+            case .rect(let c, let w, let h, let rot, let cr):
+                f.geometry = .rect(center: t(c), w: w, h: h, rotation: rot, cornerRadius: cr)
+            }
+            // Gradient paints are positioned in user space — move them too.
+            switch f.paint {
+            case .solid: break
+            case .linear(var g):
+                g.p0 = t(g.p0)
+                g.p1 = t(g.p1)
+                f.paint = .linear(g)
+            case .radial(var g):
+                g.center = t(g.center)
+                f.paint = .radial(g)
+            }
+            return .fill(f)
+        }
+    }
+
+    /// Bounding box of an element's drawn geometry (stroke width included).
+    public static func bounds(of element: Element) -> (minX: Double, minY: Double, maxX: Double, maxY: Double)? {
+        var minX = Double.greatestFiniteMagnitude
+        var minY = Double.greatestFiniteMagnitude
+        var maxX = -Double.greatestFiniteMagnitude
+        var maxY = -Double.greatestFiniteMagnitude
+        func eat(_ p: Pt) {
+            minX = Swift.min(minX, p.x)
+            minY = Swift.min(minY, p.y)
+            maxX = Swift.max(maxX, p.x)
+            maxY = Swift.max(maxY, p.y)
+        }
+        switch element {
+        case .stroke(let s):
+            for p in s.points { eat(p) }
+            guard minX <= maxX else { return nil }
+            let half = s.width / 2 + 1
+            return (minX - half, minY - half, maxX + half, maxY + half)
+        case .fill(let f):
+            for ring in f.rings {
+                for p in ring { eat(p) }
+            }
+            guard minX <= maxX else { return nil }
+            return (minX - 1, minY - 1, maxX + 1, maxY + 1)
+        }
+    }
+
+    /// A standalone document containing only the given elements, translated to
+    /// a tight artboard (small padding). Suitable for copy/export of a selection.
+    public static func subDocument(_ doc: VectorDocument, elements indices: [Int])
+        -> VectorDocument?
+    {
+        var minX = Double.greatestFiniteMagnitude
+        var minY = Double.greatestFiniteMagnitude
+        var maxX = -Double.greatestFiniteMagnitude
+        var maxY = -Double.greatestFiniteMagnitude
+        var picked: [Element] = []
+        for i in indices.sorted() where i < doc.elements.count {
+            let el = doc.elements[i]
+            guard let b = bounds(of: el) else { continue }
+            minX = Swift.min(minX, b.minX)
+            minY = Swift.min(minY, b.minY)
+            maxX = Swift.max(maxX, b.maxX)
+            maxY = Swift.max(maxY, b.maxY)
+            picked.append(el)
+        }
+        guard !picked.isEmpty, minX <= maxX else { return nil }
+        let pad = 2.0
+        let ox = minX - pad
+        let oy = minY - pad
+        var out = VectorDocument(
+            width: Int((maxX - minX + 2 * pad).rounded(.up)),
+            height: Int((maxY - minY + 2 * pad).rounded(.up)))
+        out.elements = picked.map { translated($0, dx: -ox, dy: -oy) }
+        return out
     }
 }
