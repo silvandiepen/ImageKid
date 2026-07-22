@@ -585,6 +585,238 @@ extension Editing {
     }
 }
 
+// MARK: - Insert point
+
+extension Editing {
+    @inline(__always) static func lerp(_ a: Pt, _ b: Pt, _ t: Double) -> Pt {
+        Pt(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
+    }
+
+    /// Start point of segment `i` (the previous segment's end, or the path start).
+    @inline(__always) static func segmentStart(_ rp: RefinedPath, _ i: Int) -> Pt {
+        i == 0 ? rp.start : rp.segments[i - 1].endPoint
+    }
+
+    /// Point on segment `i` at parameter `t` in [0, 1].
+    static func segmentPoint(_ rp: RefinedPath, _ i: Int, _ t: Double) -> Pt {
+        let from = segmentStart(rp, i)
+        switch rp.segments[i] {
+        case .line(let to):
+            return lerp(from, to, t)
+        case .cubic(let c1, let c2, let to):
+            let u = 1 - t
+            let x =
+                u * u * u * from.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x
+                + t * t * t * to.x
+            let y =
+                u * u * u * from.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y
+                + t * t * t * to.y
+            return Pt(x, y)
+        case .arc(let c, let r, let sa, let ea, let cw):
+            var sweep = cw ? ea - sa : sa - ea
+            while sweep < 0 { sweep += 2 * .pi }
+            while sweep >= 2 * .pi { sweep -= 2 * .pi }
+            let a = sa + (cw ? 1 : -1) * sweep * t
+            return Pt(c.x + r * cos(a), c.y + r * sin(a))
+        }
+    }
+
+    /// Split segment `segment` at parameter `t` (clamped to 0…1), adding one
+    /// anchor WITHOUT changing the drawn geometry: cubics split exactly by
+    /// de Casteljau, lines split linearly, and arcs are cubicized first (the
+    /// same degrade rule every anchor-level edit applies).
+    public static func insertingAnchor(_ path: RefinedPath, segment: Int, t: Double)
+        -> RefinedPath
+    {
+        var rp = cubicized(path)
+        let n = rp.segments.count
+        guard n > 0 else { return rp }
+        let i = min(max(segment, 0), n - 1)
+        let u = min(max(t, 0), 1)
+        let from = segmentStart(rp, i)
+        let replacement: [RefinedSegment]
+        switch rp.segments[i] {
+        case .line(let to):
+            replacement = [.line(to: lerp(from, to, u)), .line(to: to)]
+        case .cubic(let c1, let c2, let to):
+            // de Casteljau: both halves reproduce the original curve exactly.
+            let q0 = lerp(from, c1, u)
+            let q1 = lerp(c1, c2, u)
+            let q2 = lerp(c2, to, u)
+            let r0 = lerp(q0, q1, u)
+            let r1 = lerp(q1, q2, u)
+            let s = lerp(r0, r1, u)
+            replacement = [.cubic(c1: q0, c2: r0, to: s), .cubic(c1: r1, c2: q2, to: to)]
+        case .arc:
+            replacement = [rp.segments[i]]  // unreachable post-cubicize
+        }
+        rp.segments.replaceSubrange(i...i, with: replacement)
+        return rp
+    }
+
+    /// The closest point on a path's outline to `p` — the hit test behind
+    /// ⌘-click "add point". Lines project exactly; cubics use coarse samples
+    /// with two local refinement rounds (plenty for a click). The reported
+    /// segment/t index into the CUBICIZED path, ready for `insertingAnchor`.
+    public static func closestPoint(on path: RefinedPath, to p: Pt)
+        -> (segment: Int, t: Double, point: Pt, distance: Double)
+    {
+        let rp = cubicized(path)
+        func dist2(_ a: Pt) -> Double {
+            (a.x - p.x) * (a.x - p.x) + (a.y - p.y) * (a.y - p.y)
+        }
+        guard !rp.segments.isEmpty else {
+            return (0, 0, rp.start, dist2(rp.start).squareRoot())
+        }
+        var best = (segment: 0, t: 0.0, point: rp.start, d2: dist2(rp.start))
+        for i in rp.segments.indices {
+            switch rp.segments[i] {
+            case .line(let to):
+                let from = segmentStart(rp, i)
+                let dx = to.x - from.x
+                let dy = to.y - from.y
+                let len2 = dx * dx + dy * dy
+                let t =
+                    len2 < 1e-12
+                    ? 0 : min(1, max(0, ((p.x - from.x) * dx + (p.y - from.y) * dy) / len2))
+                let q = lerp(from, to, t)
+                let d = dist2(q)
+                if d < best.d2 { best = (i, t, q, d) }
+            default:
+                // Coarse samples, then refine the window around the winner.
+                var lo = 0.0
+                var hi = 1.0
+                var steps = 16
+                for _ in 0..<3 {
+                    var winT = lo
+                    var winD = Double.greatestFiniteMagnitude
+                    for k in 0...steps {
+                        let t = lo + (hi - lo) * Double(k) / Double(steps)
+                        let d = dist2(segmentPoint(rp, i, t))
+                        if d < winD {
+                            winD = d
+                            winT = t
+                        }
+                    }
+                    if winD < best.d2 {
+                        best = (i, winT, segmentPoint(rp, i, winT), winD)
+                    }
+                    let w = (hi - lo) / Double(steps)
+                    lo = max(0, winT - w)
+                    hi = min(1, winT + w)
+                    steps = 8
+                }
+            }
+        }
+        return (best.segment, best.t, best.point, best.d2.squareRoot())
+    }
+
+    static func closestOnPolyline(_ pts: [Pt], closed: Bool, to p: Pt)
+        -> (segment: Int, t: Double, point: Pt, distance: Double)?
+    {
+        guard pts.count >= 2 else { return nil }
+        let edges = closed ? pts.count : pts.count - 1
+        var best: (segment: Int, t: Double, point: Pt, d2: Double)? = nil
+        for i in 0..<edges {
+            let a = pts[i]
+            let b = pts[(i + 1) % pts.count]
+            let dx = b.x - a.x
+            let dy = b.y - a.y
+            let len2 = dx * dx + dy * dy
+            let t =
+                len2 < 1e-12
+                ? 0 : min(1, max(0, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2))
+            let q = lerp(a, b, t)
+            let d2 = (q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y)
+            if best == nil || d2 < best!.d2 { best = (i, t, q, d2) }
+        }
+        return best.map { (segment: $0.segment, t: $0.t, point: $0.point, distance: $0.d2.squareRoot()) }
+    }
+
+    /// Closest outline point across an element's editable paths. Nil for
+    /// primitives (they carry no anchor-level outline until degraded).
+    public static func closestPoint(of element: Element, to p: Pt)
+        -> (path: Int, segment: Int, t: Double, point: Pt, distance: Double)?
+    {
+        switch element {
+        case .stroke(let s):
+            if let rp = s.refined {
+                let hit = closestPoint(on: rp, to: p)
+                return (0, hit.segment, hit.t, hit.point, hit.distance)
+            }
+            return closestOnPolyline(s.points, closed: s.closed, to: p).map {
+                (0, $0.segment, $0.t, $0.point, $0.distance)
+            }
+        case .fill(let f):
+            switch f.geometry {
+            case .refined(let paths):
+                var best: (path: Int, segment: Int, t: Double, point: Pt, distance: Double)? = nil
+                for (pi, rp) in paths.enumerated() {
+                    let hit = closestPoint(on: rp, to: p)
+                    if best == nil || hit.distance < best!.distance {
+                        best = (pi, hit.segment, hit.t, hit.point, hit.distance)
+                    }
+                }
+                return best
+            case .rings(let rings):
+                var best: (path: Int, segment: Int, t: Double, point: Pt, distance: Double)? = nil
+                for (ri, ring) in rings.enumerated() {
+                    guard let hit = closestOnPolyline(ring, closed: true, to: p) else { continue }
+                    if best == nil || hit.distance < best!.distance {
+                        best = (ri, hit.segment, hit.t, hit.point, hit.distance)
+                    }
+                }
+                return best
+            case .circle, .ellipse, .rect:
+                return nil
+            }
+        }
+    }
+
+    /// Insert an anchor on one element at (segment, t) — as reported by
+    /// `closestPoint(of:to:)`. The new anchor's index is `segment + 1`.
+    /// Returns nil when the geometry cannot take a point (fill primitives).
+    public static func insertAnchor(_ element: Element, path: Int, segment: Int, t: Double)
+        -> Element?
+    {
+        switch element {
+        case .stroke(var s):
+            guard path == 0 else { return nil }
+            if let rp = s.refined {
+                let split = insertingAnchor(rp, segment: segment, t: t)
+                s.refined = split
+                s.points = PathRefine.flatten(split)
+                return .stroke(s)
+            }
+            guard s.points.count >= 2, segment >= 0, segment < s.points.count - 1 else {
+                return nil
+            }
+            s.points.insert(
+                lerp(s.points[segment], s.points[segment + 1], min(max(t, 0), 1)),
+                at: segment + 1)
+            return .stroke(s)
+        case .fill(var f):
+            switch f.geometry {
+            case .refined(var paths):
+                guard path < paths.count else { return nil }
+                paths[path] = insertingAnchor(paths[path], segment: segment, t: t)
+                f.geometry = .refined(paths)
+                return .fill(f)
+            case .rings(var rings):
+                guard path < rings.count, rings[path].count >= 2 else { return nil }
+                let ring = rings[path]
+                let i = min(max(segment, 0), ring.count - 1)
+                let next = ring[(i + 1) % ring.count]
+                rings[path].insert(lerp(ring[i], next, min(max(t, 0), 1)), at: i + 1)
+                f.geometry = .rings(rings)
+                return .fill(f)
+            case .circle, .ellipse, .rect:
+                return nil
+            }
+        }
+    }
+}
+
 // MARK: - Colour
 
 extension Editing {

@@ -221,6 +221,35 @@ public enum Editing2 {
         return out
     }
 
+    /// Split a subpath segment at `t`, adding one anchor without changing the
+    /// drawn geometry. Primitives degrade to `.path` (via `editable`) like
+    /// every other anchor-level edit. The new anchor's index is `segment + 1`.
+    public static func insertAnchor(_ node: ShapeNode, path: Int, segment: Int, t: Double)
+        -> ShapeNode
+    {
+        var out = editable(node)
+        guard case .path(var paths) = out.kind, path < paths.count else { return node }
+        paths[path] = Editing.insertingAnchor(paths[path], segment: segment, t: t)
+        out.kind = .path(paths)
+        return out
+    }
+
+    /// Closest outline point across the node's (baked) subpaths — the hit
+    /// test behind ⌘-click "add point". Segment/t index into the cubicized
+    /// subpath, matching `insertAnchor`.
+    public static func closestPoint(of node: ShapeNode, to p: Pt)
+        -> (path: Int, segment: Int, t: Double, point: Pt, distance: Double)?
+    {
+        var best: (path: Int, segment: Int, t: Double, point: Pt, distance: Double)? = nil
+        for (pi, rp) in bakedPaths(of: node).enumerated() {
+            let hit = Editing.closestPoint(on: rp, to: p)
+            if best == nil || hit.distance < best!.distance {
+                best = (pi, hit.segment, hit.t, hit.point, hit.distance)
+            }
+        }
+        return best
+    }
+
     // MARK: - Whole-node ops
 
     /// Translate WITHOUT degrading: primitives shift their parameters, paths
