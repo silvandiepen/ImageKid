@@ -513,11 +513,14 @@ enum ImageRenderer {
                 width: relativeFrame.width * targetSize.width,
                 height: relativeFrame.height * targetSize.height
             )
-            if layer.rotation != 0 {
+            if layer.rotation != 0 || layer.flipH || layer.flipV {
                 NSGraphicsContext.current?.saveGraphicsState()
                 let transform = NSAffineTransform()
                 transform.translateX(by: rect.midX, yBy: rect.midY)
-                transform.rotate(byDegrees: -layer.rotation) // AppKit is CCW-positive; match SwiftUI CW.
+                if layer.rotation != 0 {
+                    transform.rotate(byDegrees: -layer.rotation) // AppKit is CCW-positive; match SwiftUI CW.
+                }
+                transform.scaleX(by: layer.flipH ? -1 : 1, yBy: layer.flipV ? -1 : 1)
                 transform.concat()
                 layer.renderedImage.draw(
                     in: CGRect(x: -rect.width / 2, y: -rect.height / 2, width: rect.width, height: rect.height),

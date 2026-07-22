@@ -139,7 +139,7 @@ final class AppModel: ObservableObject {
 
     var canDeleteSelection: Bool {
         if case .image(let session) = media {
-            return session.selectedAnnotationID != nil || session.hasImageSelection
+            return session.selectedLayerID != nil || session.selectedAnnotationID != nil || session.hasImageSelection
         }
         return false
     }
@@ -452,6 +452,13 @@ final class AppModel: ObservableObject {
 
     func deleteSelection() {
         guard case .image(let session) = media else {
+            return
+        }
+
+        if session.isEditingMask { return }
+
+        if let layerID = session.selectedLayerID {
+            session.removeImageLayer(id: layerID)
             return
         }
 

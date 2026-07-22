@@ -529,6 +529,7 @@ struct ImageWorkspaceView: View {
                     .interpolation(.high)
                     .frame(width: rect.width, height: rect.height)
                     .opacity(layer.opacity)
+                    .scaleEffect(x: layer.flipH ? -1 : 1, y: layer.flipV ? -1 : 1)
                     .rotationEffect(.degrees(layer.rotation))
                     .position(x: rect.midX, y: rect.midY)
                     .allowsHitTesting(false)

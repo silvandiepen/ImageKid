@@ -435,6 +435,8 @@ struct ImageLayer: Identifiable {
     var isVisible: Bool
     /// Rotation in degrees, clockwise, about the layer's centre.
     var rotation: Double
+    var flipH: Bool
+    var flipV: Bool
     /// Non-destructive alpha mask (white = keep, black = hide). Applied to the
     /// layer image when `isMaskEnabled` is true; the original pixels are kept.
     var mask: NSImage?
@@ -448,6 +450,8 @@ struct ImageLayer: Identifiable {
         opacity: Double = 1,
         isVisible: Bool = true,
         rotation: Double = 0,
+        flipH: Bool = false,
+        flipV: Bool = false,
         mask: NSImage? = nil,
         isMaskEnabled: Bool = true
     ) {
@@ -458,6 +462,8 @@ struct ImageLayer: Identifiable {
         self.opacity = opacity
         self.isVisible = isVisible
         self.rotation = rotation
+        self.flipH = flipH
+        self.flipV = flipV
         self.mask = mask
         self.isMaskEnabled = isMaskEnabled
     }
@@ -1053,6 +1059,52 @@ final class ImageSession: ObservableObject {
         guard target >= 0, target < imageLayers.count else { return }
         imageLayers.swapAt(index, target)
         record(forward ? "Bring layer forward" : "Send layer backward", systemImage: "square.3.layers.3d")
+    }
+
+    // MARK: - Layer transform
+
+    func rotateLayer90(id: UUID, clockwise: Bool) {
+        guard let i = imageLayers.firstIndex(where: { $0.id == id }) else { return }
+        imageLayers[i].rotation += clockwise ? 90 : -90
+        record("Rotate layer", systemImage: "rotate.right")
+    }
+
+    func flipLayer(id: UUID, horizontal: Bool) {
+        guard let i = imageLayers.firstIndex(where: { $0.id == id }) else { return }
+        if horizontal { imageLayers[i].flipH.toggle() } else { imageLayers[i].flipV.toggle() }
+        record(horizontal ? "Flip layer horizontally" : "Flip layer vertically",
+               systemImage: horizontal ? "arrow.left.and.right.righttriangle.left.righttriangle.right" : "arrow.up.and.down.righttriangle.up.righttriangle.down")
+    }
+
+    func setLayerRotation(id: UUID, degrees: Double) {
+        guard let i = imageLayers.firstIndex(where: { $0.id == id }) else { return }
+        imageLayers[i].rotation = degrees
+        isDirty = true
+    }
+
+    func resetLayerTransform(id: UUID) {
+        guard let i = imageLayers.firstIndex(where: { $0.id == id }) else { return }
+        imageLayers[i].rotation = 0
+        imageLayers[i].flipH = false
+        imageLayers[i].flipV = false
+        record("Reset transform", systemImage: "arrow.counterclockwise")
+    }
+
+    func scaleLayer(id: UUID, factor: CGFloat) {
+        guard let i = imageLayers.firstIndex(where: { $0.id == id }) else { return }
+        var f = imageLayers[i].frame
+        let cx = f.midX, cy = f.midY
+        let w = min(max(f.width * factor, 0.02), 1)
+        let h = min(max(f.height * factor, 0.02), 1)
+        f = CGRect(x: cx - w / 2, y: cy - h / 2, width: w, height: h)
+        imageLayers[i].frame = GeometryMapper.clampedNormalizedRect(f)
+        record("Resize layer", systemImage: "arrow.up.left.and.arrow.down.right")
+    }
+
+    func fitLayerToCanvas(id: UUID) {
+        guard let i = imageLayers.firstIndex(where: { $0.id == id }) else { return }
+        imageLayers[i].frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+        record("Fit layer to canvas", systemImage: "arrow.up.left.and.arrow.down.right")
     }
 
     func applyDraftCrop() {

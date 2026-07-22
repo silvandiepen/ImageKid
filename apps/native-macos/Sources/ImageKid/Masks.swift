@@ -63,8 +63,9 @@ enum MaskCompositor {
         filter.aVector = CIVector(x: 0, y: 0, z: 0, w: 0)
         filter.biasVector = CIVector(x: 0, y: 0, z: 0, w: 1)
 
+        let bounds = CGRect(x: 0, y: 0, width: cutout.width, height: cutout.height)
         guard let output = filter.outputImage,
-              let result = context.createCGImage(output, from: output.extent) else {
+              let result = context.createCGImage(output, from: bounds) else {
             return nil
         }
         return NSImage(cgImage: result, size: CGSize(width: cutout.width, height: cutout.height))
