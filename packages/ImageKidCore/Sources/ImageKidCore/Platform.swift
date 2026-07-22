@@ -6,6 +6,7 @@
 //
 
 import CoreGraphics
+import CoreImage
 import Foundation
 
 #if canImport(AppKit)
@@ -17,6 +18,72 @@ import UIKit
 public typealias PlatformImage = UIImage
 public typealias PlatformColor = UIColor
 #endif
+
+// MARK: - Rendering bridges
+
+public extension PlatformImage {
+    /// The backing CGImage, resolved on both platforms.
+    var cgImageForRendering: CGImage? {
+        #if canImport(AppKit)
+        return cgImage(forProposedRect: nil, context: nil, hints: nil)
+        #elseif canImport(UIKit)
+        return cgImage
+        #else
+        return nil
+        #endif
+    }
+
+    /// Wrap a CGImage in a platform image at the given point size.
+    static func fromCGImage(_ cgImage: CGImage, size: CGSize) -> PlatformImage {
+        #if canImport(AppKit)
+        return NSImage(cgImage: cgImage, size: size)
+        #elseif canImport(UIKit)
+        return UIImage(cgImage: cgImage)
+        #else
+        return PlatformImage()
+        #endif
+    }
+}
+
+/// Shared CoreImage/CoreGraphics rendering utilities used by the mask engine.
+public enum PlatformRender {
+    /// Shared GPU-backed CoreImage context.
+    public static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
+
+    /// Render a CIImage into a platform image at the given point size.
+    public static func image(from ciImage: CIImage, size: CGSize, cropTo extent: CGRect? = nil) -> PlatformImage? {
+        let bounds = extent ?? ciImage.extent
+        guard let cg = ciContext.createCGImage(ciImage, from: bounds) else { return nil }
+        return .fromCGImage(cg, size: size)
+    }
+
+    /// Draw into an image with a bottom-left origin, y-up CoreGraphics context —
+    /// matching AppKit's `NSImage.lockFocus` convention on both platforms.
+    public static func image(size: CGSize, _ draw: (CGContext) -> Void) -> PlatformImage {
+        #if canImport(AppKit)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        if let ctx = NSGraphicsContext.current?.cgContext {
+            draw(ctx)
+        }
+        image.unlockFocus()
+        return image
+        #elseif canImport(UIKit)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.image { rendererContext in
+            let ctx = rendererContext.cgContext
+            // Flip UIKit's top-left origin to bottom-left y-up to match AppKit.
+            ctx.translateBy(x: 0, y: size.height)
+            ctx.scaleBy(x: 1, y: -1)
+            draw(ctx)
+        }
+        #else
+        return PlatformImage()
+        #endif
+    }
+}
 
 public extension PlatformColor {
     /// Construct a color in the sRGB space on both platforms.

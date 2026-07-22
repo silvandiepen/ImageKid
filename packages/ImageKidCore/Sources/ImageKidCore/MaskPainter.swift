@@ -1,34 +1,30 @@
-import AppKit
 import CoreGraphics
 import CoreImage
+import Foundation
 
 /// Edits a grayscale layer mask (white = keep, black = hide) with soft brushes
-/// and a flood-fill "magic wand".
-enum MaskPainter {
+/// and a flood-fill "magic wand". Shared by both apps; all drawing goes through
+/// portable CoreGraphics via `PlatformRender` (bottom-left, y-up context).
+public enum MaskPainter {
     /// Invert a grayscale mask (white ⇄ black), i.e. swap shown and hidden.
-    static func invert(_ mask: NSImage) -> NSImage {
-        guard let tiff = mask.tiffRepresentation, let ci = CIImage(data: tiff) else { return mask }
-        let inverted = ci.applyingFilter("CIColorInvert")
-        let rep = NSCIImageRep(ciImage: inverted)
-        let out = NSImage(size: mask.size)
-        out.addRepresentation(rep)
-        return out
+    public static func invert(_ mask: PlatformImage) -> PlatformImage {
+        guard let cg = mask.cgImageForRendering else { return mask }
+        let inverted = CIImage(cgImage: cg).applyingFilter("CIColorInvert")
+        return PlatformRender.image(from: inverted, size: mask.size) ?? mask
     }
 
     /// A fully-opaque (white) mask sized to the layer image — nothing hidden yet.
-    static func fullMask(size: CGSize) -> NSImage {
-        let image = NSImage(size: size)
-        image.lockFocus()
-        NSColor.white.setFill()
-        NSBezierPath(rect: CGRect(origin: .zero, size: size)).fill()
-        image.unlockFocus()
-        return image
+    public static func fullMask(size: CGSize) -> PlatformImage {
+        PlatformRender.image(size: size) { ctx in
+            ctx.setFillColor(PlatformColor.white.cgColor)
+            ctx.fill(CGRect(origin: .zero, size: size))
+        }
     }
 
     /// Paint a soft circular dab into the mask. `reveal` paints white (keep),
     /// otherwise black (hide). `normalizedPoint` is top-left origin (0…1).
-    static func paint(
-        on mask: NSImage,
+    public static func paint(
+        on mask: PlatformImage,
         atNormalized normalizedPoint: CGPoint,
         diameter: CGFloat,
         softness: CGFloat,
@@ -36,7 +32,7 @@ enum MaskPainter {
         opacity: Double = 1,
         roundness: CGFloat = 1,
         angle: Double = 0
-    ) -> NSImage {
+    ) -> PlatformImage {
         paintStroke(on: mask, normalizedPoints: [normalizedPoint], diameter: diameter,
                     softness: softness, reveal: reveal, opacity: opacity,
                     roundness: roundness, angle: angle)
@@ -46,8 +42,8 @@ enum MaskPainter {
     /// all the points), then blur it by `softness` and composite onto the mask.
     /// Because the stroke is a single shape, overlapping dabs never build up, so
     /// the soft edge (hardness) is uniform along the whole stroke.
-    static func paintStroke(
-        on mask: NSImage,
+    public static func paintStroke(
+        on mask: PlatformImage,
         normalizedPoints points: [CGPoint],
         diameter: CGFloat,
         softness: CGFloat,
@@ -55,73 +51,72 @@ enum MaskPainter {
         opacity: Double = 1,
         roundness: CGFloat = 1,
         angle: Double = 0
-    ) -> NSImage {
+    ) -> PlatformImage {
         guard !points.isEmpty else { return mask }
         let size = mask.size
         let radius = max(diameter / 2, 1)
-        let color = reveal ? NSColor.white : NSColor.black
+        let color = (reveal ? PlatformColor.white : PlatformColor.black).cgColor
 
         // 1) Draw the whole stroke as one solid shape in a clear buffer.
-        let strokeImage = NSImage(size: size)
-        strokeImage.lockFocus()
-        let pts = points.map { CGPoint(x: $0.x * size.width, y: (1 - $0.y) * size.height) }
-        color.set()
-        if pts.count == 1 {
-            NSBezierPath(ovalIn: CGRect(x: pts[0].x - radius, y: pts[0].y - radius,
-                                        width: radius * 2, height: radius * 2)).fill()
-        } else {
-            let path = NSBezierPath()
-            path.move(to: pts[0])
-            if pts.count < 3 {
-                for p in pts.dropFirst() { path.line(to: p) }
+        let strokeImage = PlatformRender.image(size: size) { ctx in
+            let pts = points.map { CGPoint(x: $0.x * size.width, y: (1 - $0.y) * size.height) }
+            if pts.count == 1 {
+                ctx.setFillColor(color)
+                ctx.fillEllipse(in: CGRect(x: pts[0].x - radius, y: pts[0].y - radius,
+                                           width: radius * 2, height: radius * 2))
             } else {
-                for i in 1..<(pts.count - 1) {
-                    let cur = pts[i], next = pts[i + 1]
-                    let mid = CGPoint(x: (cur.x + next.x) / 2, y: (cur.y + next.y) / 2)
-                    path.curve(to: mid, controlPoint1: cur, controlPoint2: cur)
+                let path = CGMutablePath()
+                path.move(to: pts[0])
+                if pts.count < 3 {
+                    for p in pts.dropFirst() { path.addLine(to: p) }
+                } else {
+                    for i in 1..<(pts.count - 1) {
+                        let cur = pts[i], next = pts[i + 1]
+                        let mid = CGPoint(x: (cur.x + next.x) / 2, y: (cur.y + next.y) / 2)
+                        path.addCurve(to: mid, control1: cur, control2: cur)
+                    }
+                    path.addLine(to: pts[pts.count - 1])
                 }
-                path.line(to: pts[pts.count - 1])
+                ctx.addPath(path)
+                ctx.setStrokeColor(color)
+                ctx.setLineWidth(radius * 2)
+                ctx.setLineCap(.round)
+                ctx.setLineJoin(.round)
+                ctx.strokePath()
             }
-            path.lineWidth = radius * 2
-            path.lineCapStyle = .round
-            path.lineJoinStyle = .round
-            path.stroke()
         }
-        strokeImage.unlockFocus()
 
         // 2) Blur the whole stroke by softness (uniform soft edge, no buildup).
         let blurRadius = CGFloat(min(max(softness, 0), 1)) * radius
         let paint = blurRadius > 0.5 ? gaussianBlur(strokeImage, radius: blurRadius) : strokeImage
 
         // 3) Composite the (blurred) stroke over the mask at brush opacity.
-        let result = NSImage(size: size)
-        result.lockFocus()
-        mask.draw(in: CGRect(origin: .zero, size: size))
-        paint.draw(in: CGRect(origin: .zero, size: size), from: .zero,
-                   operation: .sourceOver, fraction: CGFloat(min(max(opacity, 0), 1)))
-        result.unlockFocus()
-        return result
+        let rect = CGRect(origin: .zero, size: size)
+        return PlatformRender.image(size: size) { ctx in
+            if let maskCG = mask.cgImageForRendering { ctx.draw(maskCG, in: rect) }
+            ctx.setAlpha(CGFloat(min(max(opacity, 0), 1)))
+            if let paintCG = paint.cgImageForRendering { ctx.draw(paintCG, in: rect) }
+        }
     }
 
-    private static func gaussianBlur(_ image: NSImage, radius: CGFloat) -> NSImage {
-        guard let tiff = image.tiffRepresentation, let ci = CIImage(data: tiff) else { return image }
+    private static func gaussianBlur(_ image: PlatformImage, radius: CGFloat) -> PlatformImage {
+        guard let cg = image.cgImageForRendering else { return image }
+        let ci = CIImage(cgImage: cg)
         let blurred = ci.clampedToExtent()
             .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: radius])
             .cropped(to: ci.extent)
-        let out = NSImage(size: image.size)
-        out.addRepresentation(NSCIImageRep(ciImage: blurred))
-        return out
+        return PlatformRender.image(from: blurred, size: image.size, cropTo: ci.extent) ?? image
     }
 
     /// Flood-fill from a point on `layerImage`, hiding the connected region of
     /// similar colour in `mask` (sets it black). Returns the updated mask.
-    static func floodHide(
-        mask: NSImage,
-        layerImage: NSImage,
+    public static func floodHide(
+        mask: PlatformImage,
+        layerImage: PlatformImage,
         atNormalized normalizedPoint: CGPoint,
         tolerance: CGFloat
-    ) -> NSImage? {
-        guard let cg = layerImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+    ) -> PlatformImage? {
+        guard let cg = layerImage.cgImageForRendering else { return nil }
         let width = cg.width, height = cg.height
         guard width > 0, height > 0 else { return nil }
 
@@ -167,7 +162,7 @@ enum MaskPainter {
 
         // Rasterise the current mask to the same grid and paint the region black.
         var maskData = [UInt8](repeating: 255, count: bytesPerRow * height)
-        if let maskCG = mask.cgImage(forProposedRect: nil, context: nil, hints: nil),
+        if let maskCG = mask.cgImageForRendering,
            let mctx = CGContext(data: &maskData, width: width, height: height, bitsPerComponent: 8,
                                 bytesPerRow: bytesPerRow, space: CGColorSpaceCreateDeviceRGB(),
                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
@@ -183,6 +178,6 @@ enum MaskPainter {
                                    bytesPerRow: bytesPerRow, space: CGColorSpaceCreateDeviceRGB(),
                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
               let out = mctx.makeImage() else { return nil }
-        return NSImage(cgImage: out, size: mask.size)
+        return .fromCGImage(out, size: mask.size)
     }
 }
