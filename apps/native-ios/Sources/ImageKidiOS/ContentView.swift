@@ -1,5 +1,6 @@
 import AVKit
 import ImageKidInference
+import ImageKidKit
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
@@ -31,6 +32,13 @@ struct ContentView: View {
     @State private var currentSample: SampledColor?
     @State private var sampleLocation: CGPoint?
 
+    // The iPad Draw/Text options float over the canvas as a shared-kit panel
+    // (same mechanic and chrome as the Mac apps); its resting spot and
+    // minimized state survive relaunches.
+    @AppStorage("ipad.annotatePanel.offset.x") private var annotatePanelX: Double = 0
+    @AppStorage("ipad.annotatePanel.offset.y") private var annotatePanelY: Double = 0
+    @AppStorage("ipad.annotatePanel.minimized") private var isAnnotatePanelMinimized = false
+
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: $preferredColumn) {
             gallerySidebar
@@ -57,11 +65,19 @@ struct ContentView: View {
                         .padding(.vertical, 8)
                         .background(.regularMaterial, in: Capsule())
                 } else if model.workingImage != nil {
-                    toolInspector
+                    if !usesFloatingAnnotatePanel {
+                        toolInspector
+                    }
                     bottomToolbar
                 }
             }
             .padding(.bottom, 6)
+        }
+        .overlay(alignment: .topLeading) {
+            if usesFloatingAnnotatePanel {
+                annotateFloatingPanel
+                    .padding(16)
+            }
         }
         .navigationTitle("ImageKid")
         .navigationBarTitleDisplayMode(.inline)
@@ -143,6 +159,66 @@ struct ContentView: View {
     }
 
     private var isRegularWidth: Bool { horizontalSizeClass == .regular }
+
+    /// iPad only: Draw/Text options leave the bottom stack and float over the
+    /// canvas. Compact widths keep the existing inline inspector.
+    private var usesFloatingAnnotatePanel: Bool {
+        isRegularWidth && model.workingImage != nil && model.videoURL == nil
+            && (activeTool == .draw || activeTool == .text)
+    }
+
+    private var annotatePanelOffset: Binding<CGSize> {
+        Binding(
+            get: { CGSize(width: annotatePanelX, height: annotatePanelY) },
+            set: { newValue in
+                annotatePanelX = newValue.width
+                annotatePanelY = newValue.height
+            }
+        )
+    }
+
+    /// The shared-kit floating panel hosting the Draw/Text options — draggable
+    /// from its header, snapping to the same 20pt grid as the Mac apps, and
+    /// minimizable to the shared chip.
+    @ViewBuilder
+    private var annotateFloatingPanel: some View {
+        let isText = activeTool == .text
+        if isAnnotatePanelMinimized {
+            MinimizedPanelChip(
+                systemImage: isText ? "textformat" : "pencil.tip.crop.circle",
+                isActive: true
+            ) {
+                isAnnotatePanelMinimized = false
+            }
+        } else {
+            FloatingToolPanel(
+                title: isText ? "Text" : "Draw",
+                systemImage: isText ? "textformat" : "pencil.tip.crop.circle",
+                width: 340,
+                offset: annotatePanelOffset,
+                onMinimize: { isAnnotatePanelMinimized = true },
+                snapStep: 20
+            ) {
+                AnnotationControls(
+                    selectedTool: $annotationKind,
+                    color: $annotationColor,
+                    widthFraction: $annotationWidthFraction,
+                    textSizeFraction: $textSizeFraction,
+                    annotations: $annotations,
+                    defaultKind: isText ? .text : .freehand,
+                    onCancel: {
+                        resetAnnotations()
+                        activeTool = nil
+                    },
+                    onApply: applyAnnotations
+                )
+                .darkPanelControl()
+                // Native controls (segmented picker, bordered buttons) should
+                // render their dark variants on the dark-glass chrome.
+                .environment(\.colorScheme, .dark)
+            }
+        }
+    }
 
     /// The canvas fills the whole editor area; the image sits on top with a border
     /// that marks its exact bounds (like the macOS viewport).
@@ -838,53 +914,79 @@ private struct AnnotationInspector: View {
 
     var body: some View {
         InspectorPanel(title: defaultKind == .text ? "Text" : "Draw", systemImage: defaultKind == .text ? "textformat" : "pencil.tip.crop.circle", onClose: onCancel) {
-            VStack(spacing: 12) {
-                if defaultKind != .text {
-                    Picker("Tool", selection: $selectedTool) {
-                        ForEach(Annotation.Kind.allCases.filter { $0 != .text }) { kind in
-                            Image(systemName: kind.systemImage).tag(kind)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                }
+            AnnotationControls(
+                selectedTool: $selectedTool,
+                color: $color,
+                widthFraction: $widthFraction,
+                textSizeFraction: $textSizeFraction,
+                annotations: $annotations,
+                defaultKind: defaultKind,
+                onCancel: onCancel,
+                onApply: onApply
+            )
+        }
+    }
+}
 
-                HStack(spacing: 14) {
-                    ColorPicker("Colour", selection: $color, supportsOpacity: false)
-                        .labelsHidden()
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(defaultKind == .text ? "Text size" : "Thickness")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Slider(
-                            value: defaultKind == .text ? $textSizeFraction : $widthFraction,
-                            in: defaultKind == .text ? 0.02...0.15 : 0.002...0.02
-                        )
-                    }
-                    Button {
-                        if !annotations.isEmpty { annotations.removeLast() }
-                    } label: {
-                        Image(systemName: "arrow.uturn.backward")
-                    }
-                    .disabled(annotations.isEmpty)
-                }
+/// The Draw/Text option controls, host-agnostic: the compact inline inspector
+/// and the iPad floating panel both wrap this.
+private struct AnnotationControls: View {
+    @Binding var selectedTool: Annotation.Kind
+    @Binding var color: Color
+    @Binding var widthFraction: CGFloat
+    @Binding var textSizeFraction: CGFloat
+    @Binding var annotations: [Annotation]
+    let defaultKind: Annotation.Kind
+    let onCancel: () -> Void
+    let onApply: () -> Void
 
-                HStack {
-                    Button("Cancel", role: .cancel, action: onCancel)
-                        .buttonStyle(.bordered)
-                    Button(role: .destructive) {
-                        annotations.removeAll()
-                    } label: {
-                        Image(systemName: "trash")
+    var body: some View {
+        VStack(spacing: 12) {
+            if defaultKind != .text {
+                Picker("Tool", selection: $selectedTool) {
+                    ForEach(Annotation.Kind.allCases.filter { $0 != .text }) { kind in
+                        Image(systemName: kind.systemImage).tag(kind)
                     }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            HStack(spacing: 14) {
+                ColorPicker("Colour", selection: $color, supportsOpacity: false)
+                    .labelsHidden()
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(defaultKind == .text ? "Text size" : "Thickness")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Slider(
+                        value: defaultKind == .text ? $textSizeFraction : $widthFraction,
+                        in: defaultKind == .text ? 0.02...0.15 : 0.002...0.02
+                    )
+                }
+                Button {
+                    if !annotations.isEmpty { annotations.removeLast() }
+                } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                }
+                .disabled(annotations.isEmpty)
+            }
+
+            HStack {
+                Button("Cancel", role: .cancel, action: onCancel)
                     .buttonStyle(.bordered)
-                    .disabled(annotations.isEmpty)
-                    Button(action: onApply) {
-                        Label("Apply", systemImage: "checkmark")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(annotations.isEmpty)
+                Button(role: .destructive) {
+                    annotations.removeAll()
+                } label: {
+                    Image(systemName: "trash")
                 }
+                .buttonStyle(.bordered)
+                .disabled(annotations.isEmpty)
+                Button(action: onApply) {
+                    Label("Apply", systemImage: "checkmark")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(annotations.isEmpty)
             }
         }
     }

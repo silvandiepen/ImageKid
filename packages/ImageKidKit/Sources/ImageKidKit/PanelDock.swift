@@ -289,11 +289,20 @@ public struct MinimizedPanelChip: View {
         self.action = action
     }
 
+    /// 38pt reads right next to macOS chrome; touch needs the full 44pt.
+    private var chipSize: CGFloat {
+        #if os(iOS)
+        44
+        #else
+        38
+        #endif
+    }
+
     public var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 15, weight: .semibold))
-                .frame(width: 38, height: 38)
+                .frame(width: chipSize, height: chipSize)
                 .background(
                     isActive ? Color.accentColor.opacity(0.9) : Color.black.opacity(0.80),
                     in: RoundedRectangle(cornerRadius: 11, style: .continuous)

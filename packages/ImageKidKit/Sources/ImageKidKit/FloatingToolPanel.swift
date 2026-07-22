@@ -64,6 +64,31 @@ public struct FloatingToolPanel<Content: View>: View {
         self.content = content()
     }
 
+    /// Header control diameters: tight on macOS pointers, at least 44pt on touch.
+    private var minimizeButtonSize: CGFloat {
+        #if os(iOS)
+        44
+        #else
+        24
+        #endif
+    }
+
+    private var closeButtonSize: CGFloat {
+        #if os(iOS)
+        44
+        #else
+        28
+        #endif
+    }
+
+    private var resizeHandleSize: CGFloat {
+        #if os(iOS)
+        44
+        #else
+        42
+        #endif
+    }
+
     private var resolvedWidth: CGFloat {
         guard resizable else { return width }
         return max(minSize.width, size.width + resizeTranslation.width)
@@ -133,7 +158,7 @@ public struct FloatingToolPanel<Content: View>: View {
                 Color.white.opacity(resizeHovering ? 0.65 : 0.22),
                 style: StrokeStyle(lineWidth: 2.5, lineCap: .round)
             )
-            .frame(width: 42, height: 42)
+            .frame(width: resizeHandleSize, height: resizeHandleSize)
             .contentShape(Rectangle())
             .onHover { hovering in
                 withAnimation(.easeOut(duration: 0.12)) { resizeHovering = hovering }
@@ -178,6 +203,8 @@ public struct FloatingToolPanel<Content: View>: View {
                         .font(.system(size: 12, weight: .bold))
                         .frame(width: 24, height: 24)
                         .background(.white.opacity(0.10), in: Circle())
+                        .frame(width: minimizeButtonSize, height: minimizeButtonSize)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .help("Minimise \(title)")
@@ -188,6 +215,8 @@ public struct FloatingToolPanel<Content: View>: View {
                         .font(.system(size: 12, weight: .bold))
                         .frame(width: 28, height: 28)
                         .background(.white.opacity(0.10), in: Circle())
+                        .frame(width: closeButtonSize, height: closeButtonSize)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .help("Close \(title)")
