@@ -63,6 +63,7 @@ struct ImageWorkspaceView: View {
 
                 imageLayers(in: imageRect)
                 maskEditOverlay(in: imageRect)
+                gridOverlay(in: imageRect)
                 annotations(in: imageRect)
                 imageSelection(in: imageRect)
                 draftDrawing(in: imageRect)
@@ -600,6 +601,33 @@ struct ImageWorkspaceView: View {
     }
 
     @ViewBuilder
+    private func gridOverlay(in imageRect: CGRect) -> some View {
+        if session.showGrid {
+            let workingSize = session.effectivePixelSize
+            let step = session.gridSizePx * imageRect.width / max(workingSize.width, 1)
+            if step > 3 {
+                Canvas { context, _ in
+                    var path = Path()
+                    var x = imageRect.minX
+                    while x <= imageRect.maxX {
+                        path.move(to: CGPoint(x: x, y: imageRect.minY))
+                        path.addLine(to: CGPoint(x: x, y: imageRect.maxY))
+                        x += step
+                    }
+                    var y = imageRect.minY
+                    while y <= imageRect.maxY {
+                        path.move(to: CGPoint(x: imageRect.minX, y: y))
+                        path.addLine(to: CGPoint(x: imageRect.maxX, y: y))
+                        y += step
+                    }
+                    context.stroke(path, with: .color(.white.opacity(0.16)), lineWidth: 0.5)
+                }
+                .allowsHitTesting(false)
+            }
+        }
+    }
+
+    @ViewBuilder
     private func maskEditOverlay(in imageRect: CGRect) -> some View {
         if let layer = session.maskEditLayer, let mask = layer.mask,
            let displayedFrame = displayedAnnotationFrame(layer.frame) {
@@ -1017,7 +1045,7 @@ struct ImageWorkspaceView: View {
         case .moveLayer(let id, let start):
             let delta = sourceTranslation(value.translation, imageRect: imageRect)
             session.updateImageLayer(id: id) { layer in
-                layer.frame = movedRect(start, by: delta)
+                layer.frame = session.gridSnapped(movedRect(start, by: delta))
             }
 
         case .resizeLayer(let id, let corner, let start):

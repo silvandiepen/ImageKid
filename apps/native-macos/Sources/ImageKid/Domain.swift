@@ -557,6 +557,24 @@ final class ImageSession: ObservableObject {
 
     @Published var isDirty = false
 
+    // Grid overlay + snapping.
+    @Published var showGrid = false
+    @Published var snapToGrid = false
+    @Published var gridSizePx: CGFloat = 64
+
+    /// Snap a normalised frame's origin to the grid (in source pixels).
+    func gridSnapped(_ frame: CGRect) -> CGRect {
+        guard snapToGrid, gridSizePx > 0 else { return frame }
+        let px = pixelSize
+        let gx = gridSizePx / max(px.width, 1)
+        let gy = gridSizePx / max(px.height, 1)
+        return CGRect(
+            x: (frame.minX / gx).rounded() * gx,
+            y: (frame.minY / gy).rounded() * gy,
+            width: frame.width, height: frame.height
+        )
+    }
+
     // MARK: - Undo / Redo
 
     /// Snapshot of the reversible edit intent. View state (zoom/pan/viewport) and

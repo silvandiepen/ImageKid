@@ -1390,6 +1390,27 @@ struct AppCommands: Commands {
             .disabled(currentAppModel?.imageSession == nil)
 
             Divider()
+
+            Button((currentAppModel?.imageSession?.showGrid == true ? "Hide" : "Show") + " Grid") {
+                currentAppModel?.imageSession?.showGrid.toggle()
+            }
+            .keyboardShortcut("'", modifiers: .command)
+            .disabled(currentAppModel?.imageSession == nil)
+
+            Button((currentAppModel?.imageSession?.snapToGrid == true ? "Disable" : "Enable") + " Snap to Grid") {
+                currentAppModel?.imageSession?.snapToGrid.toggle()
+            }
+            .keyboardShortcut("'", modifiers: [.command, .shift])
+            .disabled(currentAppModel?.imageSession == nil)
+
+            Menu("Grid Size") {
+                ForEach([16, 32, 64, 128, 256], id: \.self) { size in
+                    Button("\(size) px") { currentAppModel?.imageSession?.gridSizePx = CGFloat(size) }
+                }
+            }
+            .disabled(currentAppModel?.imageSession == nil)
+
+            Divider()
         }
 
         // Interactive tools only.
