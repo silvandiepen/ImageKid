@@ -1038,12 +1038,10 @@ let textColorPalette: [Color] = [
 private struct TextToolbar: View {
     @Binding var annotation: Annotation
     let onDone: () -> Void
-    @EnvironmentObject private var fonts: GoogleFontsManager
 
     @State private var showColor = false
     @State private var showSize = false
     @State private var showFont = false
-    @State private var showFontBrowser = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -1078,12 +1076,7 @@ private struct TextToolbar: View {
             }
             .buttonStyle(.plain)
             .popover(isPresented: $showFont) {
-                FontPopover(fontName: $annotation.fontName, onBrowse: {
-                    showFont = false
-                    showFontBrowser = true
-                })
-                .environmentObject(fonts)
-                .presentationCompactAdaptation(.popover)
+                FontPopover(fontName: $annotation.fontName).presentationCompactAdaptation(.popover)
             }
 
             Spacer(minLength: 4)
@@ -1108,9 +1101,6 @@ private struct TextToolbar: View {
         .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).strokeBorder(.white.opacity(0.10)))
         .shadow(color: .black.opacity(0.30), radius: 20, y: 8)
         .environment(\.colorScheme, .dark)
-        .sheet(isPresented: $showFontBrowser) {
-            GoogleFontsBrowser().environmentObject(fonts)
-        }
     }
 
     private func chip<C: View>(@ViewBuilder _ content: () -> C) -> some View {
@@ -1175,21 +1165,14 @@ private struct SizePopover: View {
     }
 }
 
-/// Scrollable font list (built-in + installed Google Fonts), each name shown in
-/// its own typeface, plus a way to get more from Google Fonts.
+/// Scrollable font list, each name shown in its own typeface.
 private struct FontPopover: View {
     @Binding var fontName: String?
-    let onBrowse: () -> Void
-    @EnvironmentObject private var fonts: GoogleFontsManager
-
-    private var choices: [(name: String, psName: String?)] {
-        textFontChoices + fonts.installedChoices
-    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(choices, id: \.name) { choice in
+                ForEach(textFontChoices, id: \.name) { choice in
                     Button { fontName = choice.psName } label: {
                         HStack {
                             Text(choice.name)
@@ -1206,78 +1189,10 @@ private struct FontPopover: View {
                     .buttonStyle(.plain)
                     Divider()
                 }
-                Button(action: onBrowse) {
-                    Label("Get more from Google Fonts", systemImage: "plus.circle")
-                        .font(.callout.weight(.semibold))
-                        .padding(.vertical, 11)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, 12)
         }
         .frame(width: 270, height: 380)
-    }
-}
-
-/// Browse and install popular Google Fonts on demand (downloaded + registered
-/// on device — nothing bundled). Each install is user-initiated.
-struct GoogleFontsBrowser: View {
-    @EnvironmentObject private var fonts: GoogleFontsManager
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            List {
-                if !fonts.installed.isEmpty {
-                    Section("Installed") {
-                        ForEach(fonts.installed) { font in
-                            HStack {
-                                Text(font.family).font(.custom(font.postScriptName, size: 20))
-                                Spacer()
-                                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                            }
-                            .swipeActions {
-                                Button("Remove", role: .destructive) { fonts.remove(font) }
-                            }
-                        }
-                    }
-                }
-                Section("Google Fonts") {
-                    ForEach(fonts.curated.filter { !fonts.isInstalled($0) }, id: \.self) { family in
-                        HStack {
-                            Text(family)
-                            Spacer()
-                            if fonts.isInstalling(family) {
-                                ProgressView()
-                            } else {
-                                Button {
-                                    Task { await fonts.install(family) }
-                                } label: {
-                                    Image(systemName: "arrow.down.circle")
-                                        .font(.title3)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                }
-            }
-            .navigationTitle("Fonts")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
-            }
-            .alert("Font install failed", isPresented: Binding(
-                get: { fonts.errorMessage != nil },
-                set: { if !$0 { fonts.errorMessage = nil } }
-            )) {
-                Button("OK", role: .cancel) { fonts.errorMessage = nil }
-            } message: {
-                Text(fonts.errorMessage ?? "")
-            }
-        }
     }
 }
 
