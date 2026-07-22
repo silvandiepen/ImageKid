@@ -64,8 +64,16 @@ struct ContentView: View {
                         .padding(.vertical, 8)
                         .background(.regularMaterial, in: Capsule())
                 } else if model.workingImage != nil {
-                    toolInspector
-                    bottomToolbar
+                    if isEditingTextInline {
+                        // Typing: controls live in the keyboard accessory bar.
+                        EmptyView()
+                    } else if activeTextID != nil {
+                        // A text is active → the text bar replaces the toolbar.
+                        textBar
+                    } else {
+                        toolInspector
+                        bottomToolbar
+                    }
                 }
             }
             .padding(.bottom, 6)
@@ -357,6 +365,87 @@ struct ContentView: View {
         .disabled(model.isBusy)
     }
 
+    /// Compact bar shown in place of the toolbar while a text is active: current
+    /// colour, size, and font (each adjustable), plus a check to dismiss.
+    @ViewBuilder
+    private var textBar: some View {
+        if let id = activeTextID {
+            let binding = textBinding(id: id)
+            HStack(spacing: 12) {
+                ColorPicker("", selection: binding.color, supportsOpacity: false)
+                    .labelsHidden()
+                    .frame(width: 34)
+
+                Menu {
+                    ForEach(textSizeChoices, id: \.label) { choice in
+                        Button(choice.label) { binding.fontFraction.wrappedValue = choice.value }
+                    }
+                } label: {
+                    textBarChip(icon: "textformat.size", text: sizeLabel(binding.fontFraction.wrappedValue))
+                }
+
+                Menu {
+                    ForEach(textFontChoices, id: \.name) { choice in
+                        Button(choice.name) { binding.fontName.wrappedValue = choice.psName }
+                    }
+                } label: {
+                    textBarChip(icon: "character.cursor.ibeam", text: textFontLabel(binding.fontName.wrappedValue))
+                }
+
+                Spacer(minLength: 4)
+
+                Button { dismissText() } label: {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(width: 40, height: 40)
+                        .background(Color.accentColor, in: Circle())
+                        .foregroundStyle(.white)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(
+                ZStack {
+                    RoundedRectangle(cornerRadius: 30, style: .continuous).fill(.ultraThinMaterial)
+                    RoundedRectangle(cornerRadius: 30, style: .continuous).fill(Color.black.opacity(0.34))
+                }
+            )
+            .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).strokeBorder(.white.opacity(0.10)))
+            .shadow(color: .black.opacity(0.30), radius: 20, y: 8)
+            .environment(\.colorScheme, .dark)
+        }
+    }
+
+    private func textBarChip(icon: String, text: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon).font(.system(size: 13, weight: .semibold))
+            Text(text).font(.footnote.weight(.semibold)).lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(Color.white.opacity(0.12), in: Capsule())
+        .foregroundStyle(.white)
+    }
+
+    private func sizeLabel(_ fraction: CGFloat) -> String {
+        textSizeChoices.min(by: { abs($0.value - fraction) < abs($1.value - fraction) })?.label ?? "Size"
+    }
+
+    /// Finish with a text: drop it if empty, then clear selection/editing so the
+    /// normal toolbar returns.
+    private func dismissText() {
+        if let id = editingTextID ?? selectedAnnotationID,
+           let i = model.annotations.firstIndex(where: { $0.id == id }),
+           model.annotations[i].isText,
+           model.annotations[i].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            model.annotations.remove(at: i)
+        }
+        editingTextID = nil
+        isEditingTextInline = false
+        selectedAnnotationID = nil
+    }
+
     @ViewBuilder
     private var toolInspector: some View {
         if let currentTool = activeTool {
@@ -389,16 +478,9 @@ struct ContentView: View {
                     activeTool = nil
                 })
             case .select, .draw, .text:
-                if isEditingTextInline {
-                    // Typing: controls live in the keyboard accessory bar so they
-                    // don't cover the text on the canvas.
-                    EmptyView()
-                } else if let id = activeTextID {
-                    // A text is selected → show its live properties (colour/font/size).
-                    TextPropertiesPanel(annotation: textBinding(id: id)) {
-                        selectedAnnotationID = nil
-                    }
-                } else {
+                // Text is handled by the dedicated text bar; here only the
+                // draw/shape controls appear.
+                if activeTextID == nil, !isEditingTextInline {
                     AnnotationInspector(
                         selectedTool: $annotationKind,
                         color: $annotationColor,
@@ -975,6 +1057,11 @@ let textFontChoices: [(name: String, psName: String?)] = [
 func textFontLabel(_ psName: String?) -> String {
     textFontChoices.first(where: { $0.psName == psName })?.name ?? "Font"
 }
+
+/// Preset text sizes (label, fraction of image height).
+let textSizeChoices: [(label: String, value: CGFloat)] = [
+    ("XS", 0.03), ("S", 0.045), ("M", 0.06), ("L", 0.09), ("XL", 0.13), ("XXL", 0.18)
+]
 
 /// Live properties (colour, font, size) for the selected / editing text.
 private struct TextPropertiesPanel: View {
