@@ -157,6 +157,17 @@ struct LayersPanel: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.white.opacity(0.8))
                 .help(layer.isMaskEnabled ? "Disable mask" : "Enable mask")
+            } else if isSelected {
+                Button {
+                    session.addLayerMask(id: layer.id)
+                } label: {
+                    Image(systemName: "theatermask.and.paintbrush")
+                        .font(.system(size: 11))
+                        .opacity(0.5)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white.opacity(0.7))
+                .help("Add mask")
             }
             visibilityButton(isOn: layer.isVisible) {
                 session.toggleImageLayerVisibility(id: layer.id)
@@ -188,8 +199,10 @@ struct LayersPanel: View {
             Button("Duplicate") { session.duplicateImageLayer(id: layer.id) }
             Button(layer.isVisible ? "Hide" : "Show") { session.toggleImageLayerVisibility(id: layer.id) }
             Divider()
-            Button(layer.hasMask ? "Edit Mask" : "Add Mask") {
-                session.beginMaskEdit(layerID: layer.id)
+            if layer.hasMask {
+                Button("Edit Mask") { session.beginMaskEdit(layerID: layer.id) }
+            } else {
+                Button("Add Mask") { session.addLayerMask(id: layer.id) }
             }
             Button("Invert Mask") { session.invertLayerMask(id: layer.id) }
             if layer.hasMask {

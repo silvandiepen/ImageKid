@@ -525,6 +525,14 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Show the image at 100% (1 image pixel = 1 point).
+    func actualSize() {
+        guard case .image(let session) = media else { return }
+        session.viewportMode = .original
+        session.zoom = 1
+        session.pan = .zero
+    }
+
     func zoomIn() {
         switch media {
         case .image(let session):
@@ -1581,8 +1589,12 @@ struct AppCommands: Commands {
                 .keyboardShortcut("-")
                 .disabled(currentAppModel == nil)
 
+            Button("Actual Size (100%)") { currentAppModel?.actualSize() }
+                .keyboardShortcut("0", modifiers: .command)
+                .disabled(currentAppModel == nil)
+
             Button("Fit to Window") { currentAppModel?.resetView() }
-                .keyboardShortcut("0", modifiers: [])
+                .keyboardShortcut("0", modifiers: [.command, .shift])
                 .disabled(currentAppModel == nil)
 
             Divider()
