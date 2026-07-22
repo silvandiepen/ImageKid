@@ -730,7 +730,7 @@ struct ImageWorkspaceView: View {
                 }
 
                 if session.selectedAnnotationID == annotation.id {
-                    selectionOverlay(for: rect)
+                    selectionOverlay(for: rect, annotation: annotation)
                 }
             }
         }
@@ -861,7 +861,7 @@ struct ImageWorkspaceView: View {
     }
 
     @ViewBuilder
-    private func selectionOverlay(for rect: CGRect) -> some View {
+    private func selectionOverlay(for rect: CGRect, annotation: Annotation? = nil) -> some View {
         Rectangle()
             .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
             .frame(width: rect.width, height: rect.height)
@@ -873,6 +873,17 @@ struct ImageWorkspaceView: View {
                 .frame(width: 12, height: 12)
                 .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.accentColor, lineWidth: 2))
                 .position(point)
+        }
+
+        // Corner-radius handle for rectangles: a small dot inset from the corner.
+        if let annotation, annotation.isRectangle {
+            let dot = cornerRadiusHandlePoint(rect: rect, radius: annotation.cornerRadius)
+            Circle()
+                .fill(Color.white)
+                .frame(width: 11, height: 11)
+                .overlay(Circle().stroke(Color.accentColor, lineWidth: 2))
+                .position(dot)
+                .help("Drag to round the corners")
         }
     }
 
@@ -959,6 +970,8 @@ struct ImageWorkspaceView: View {
                     session.record("Move", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
                 case .resizeAnnotation:
                     session.record("Resize annotation", systemImage: "arrow.up.left.and.arrow.down.right")
+                case .cornerRadius:
+                    session.record("Corner radius", systemImage: "square.dashed")
                 case .moveLayer:
                     session.record("Move layer", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
                 case .resizeLayer:
@@ -989,6 +1002,10 @@ struct ImageWorkspaceView: View {
                     }
                     return .resizeSelection(handle: handle, start: selectionRect)
                 }
+            }
+
+            if let mode = selectedShapeCornerRadiusMode(at: point, imageRect: imageRect) {
+                return mode
             }
 
             if let selectedID = session.selectedAnnotationID,
@@ -1058,6 +1075,10 @@ struct ImageWorkspaceView: View {
     }
 
     private func resolveViewDragMode(at point: CGPoint, imageRect: CGRect) -> DragMode {
+            if let mode = selectedShapeCornerRadiusMode(at: point, imageRect: imageRect) {
+                return mode
+            }
+
             if let selectedID = session.selectedAnnotationID,
                let selected = session.annotations.first(where: { $0.id == selectedID }),
                let displayed = displayedAnnotationFrame(selected.frame) {
@@ -1121,6 +1142,12 @@ struct ImageWorkspaceView: View {
             session.updateAnnotation(id: id) { annotation in
                 annotation.frame = session.gridSnapped(resizedRect(start, handle: corner.boxHandle, delta: delta), keepSize: false)
             }
+
+        case .cornerRadius(let id, let rect):
+            // Drag diagonally inward from the top-left corner to grow the radius.
+            let maxD = min(rect.width, rect.height) / 2
+            let newRadius = min(max(min(value.location.x - rect.minX, value.location.y - rect.minY), 0), maxD)
+            session.updateAnnotation(id: id) { $0.cornerRadius = newRadius }
 
         case .moveLayer(let id, let start):
             let delta = sourceTranslation(value.translation, imageRect: imageRect)
@@ -1232,7 +1259,7 @@ struct ImageWorkspaceView: View {
                 session.recordMaskEdit()
             }
 
-        case .pan, .moveAnnotation, .resizeAnnotation, .moveLayer, .resizeLayer, .rotateLayer, .moveSelection, .resizeSelection, .crop, .resizeCanvas:
+        case .pan, .moveAnnotation, .resizeAnnotation, .cornerRadius, .moveLayer, .resizeLayer, .rotateLayer, .moveSelection, .resizeSelection, .crop, .resizeCanvas:
             break
         }
     }
@@ -1508,6 +1535,27 @@ struct ImageWorkspaceView: View {
         if nearest > 11, nearest < 36 {
             let startAngle = atan2(point.y - center.y, point.x - center.x)
             return .rotateLayer(id: selectedID, center: center, startAngle: startAngle, startRotation: selected.rotation)
+        }
+        return nil
+    }
+
+    /// The on-canvas radius handle for a selected rectangle: a dot inset from the
+    /// top-left corner that drags the corner radius.
+    private func cornerRadiusHandlePoint(rect: CGRect, radius: CGFloat) -> CGPoint {
+        let maxD = min(rect.width, rect.height) / 2
+        let d = min(max(radius, 16), max(maxD, 16))
+        return CGPoint(x: rect.minX + d, y: rect.minY + d)
+    }
+
+    private func selectedShapeCornerRadiusMode(at point: CGPoint, imageRect: CGRect) -> DragMode? {
+        guard let id = session.selectedAnnotationID,
+              let annotation = session.annotations.first(where: { $0.id == id }),
+              annotation.isRectangle,
+              let displayed = displayedAnnotationFrame(annotation.frame) else { return nil }
+        let rect = GeometryMapper.viewRect(from: displayed, in: imageRect)
+        let dot = cornerRadiusHandlePoint(rect: rect, radius: annotation.cornerRadius)
+        if hypot(dot.x - point.x, dot.y - point.y) <= 11 {
+            return .cornerRadius(id: id, rect: rect)
         }
         return nil
     }
@@ -1940,6 +1988,7 @@ struct ImageWorkspaceView: View {
         case placeText
         case moveAnnotation(id: UUID, start: CGRect)
         case resizeAnnotation(id: UUID, corner: AnnotationCorner, start: CGRect)
+        case cornerRadius(id: UUID, rect: CGRect)
         case moveLayer(id: UUID, start: CGRect)
         case resizeLayer(id: UUID, corner: AnnotationCorner, start: CGRect)
         case rotateLayer(id: UUID, center: CGPoint, startAngle: CGFloat, startRotation: Double)
