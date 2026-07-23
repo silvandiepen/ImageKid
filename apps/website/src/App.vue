@@ -33,7 +33,9 @@ const bemm = useBemm("app-shell", { includeBaseClass: true });
 const route = useRoute();
 const { mode, theme, cycleMode } = useColorMode();
 const navItems: PillHeaderNavItem[] = [
-  { label: "Features", to: "/features" },
+  { label: "Apps", to: "/#apps" },
+  { label: "ImageKid", to: "/imagekid" },
+  { label: "Fekthor", to: "/fekthor" },
   { label: "Docs", to: "/docs" },
   { label: "Support", to: "/support" }
 ];
