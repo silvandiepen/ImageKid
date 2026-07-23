@@ -375,22 +375,58 @@ final class EditorPanelsState: ObservableObject {
     /// palette detaches first — its followers close up, and a collapsed
     /// palette can't be a stick target. Its (still highlighted) rail button
     /// or the Panels menu restores it where it was.
+    /// Remembers which palette a hidden/minimized one was stacked under, so
+    /// showing it again re-attaches to that stack instead of floating free.
+    private var stackMemory: [EditorPanel: String] = [:]
+
+    private func rememberStack(_ panel: EditorPanel) {
+        let key = panel.rawValue
+        if let stack = stacks.stack(containing: key),
+            let index = stack.firstIndex(of: key), index > 0 {
+            stackMemory[panel] = stack[index - 1]
+        } else {
+            stackMemory[panel] = nil
+        }
+    }
+
+    private func hasPlacement(_ panel: EditorPanel) -> Bool {
+        anchors[panel] != nil || legacyPositions[panel] != nil
+    }
+
+    /// Reveal a now-visible palette where it belongs: re-attached under the
+    /// stack neighbour it left (if that's still open), otherwise back at its
+    /// last spot. Only a palette that has *never* been placed queues for a
+    /// fresh opening slot — a returning palette keeps exactly where it was.
+    private func revealPlacement(_ panel: EditorPanel) {
+        if let targetKey = stackMemory[panel], let target = EditorPanel(rawValue: targetKey),
+            isExpanded(target) {
+            stackMemory[panel] = nil
+            attach(panel, belowStackKey: targetKey)
+            return
+        }
+        stackMemory[panel] = nil
+        if !hasPlacement(panel) { needsPlacement.insert(panel) }
+    }
+
     func minimize(_ panel: EditorPanel) {
+        rememberStack(panel)
         stacks.detach(panel.rawValue)
         minimized.insert(panel)
     }
 
-    /// Un-minimizing restores the palette where it was; opening it fresh
-    /// (hidden → shown) queues it for a free slot in the dock columns
-    /// instead of whatever stale spot is stored (the layer places it).
+    /// Un-minimizing (or re-opening) restores the palette where it was — the
+    /// same spot, or re-attached to the stack it left. Only a never-placed
+    /// palette gets a fresh dock slot.
     func restore(_ panel: EditorPanel) {
-        if !visible.contains(panel) { needsPlacement.insert(panel) }
         visible.insert(panel)
         minimized.remove(panel)
+        revealPlacement(panel)
     }
 
-    /// Menu hide: fully closes the palette (and forgets any stick).
+    /// Menu hide: closes the palette but remembers its stack so re-opening
+    /// re-attaches it.
     func hide(_ panel: EditorPanel) {
+        rememberStack(panel)
         stacks.detach(panel.rawValue)
         minimized.remove(panel)
         visible.remove(panel)
@@ -404,6 +440,7 @@ final class EditorPanelsState: ObservableObject {
             restore(panel)
         } else if minimized.contains(panel) {
             minimized.remove(panel)
+            revealPlacement(panel)
         } else {
             hide(panel)
         }

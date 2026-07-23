@@ -183,29 +183,65 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
         presented.contains(id) && !minimized.contains(id)
     }
 
+    /// Remembers which panel a hidden/minimized panel was stacked directly
+    /// under, so showing it again re-attaches to that stack instead of
+    /// floating free. Session-only.
+    private var stackMemory: [ID: String] = [:]
+
+    /// Record the stack neighbour above `id` before it leaves a stack, so it
+    /// can slot back into the same place when shown again.
+    private func rememberStack(_ id: ID) {
+        let key = stackKey(id)
+        if let stack = stacks.stack(containing: key),
+            let index = stack.firstIndex(of: key), index > 0 {
+            stackMemory[id] = stack[index - 1]
+        } else {
+            stackMemory[id] = nil
+        }
+    }
+
+    /// Reveal a now-presented panel where it belongs: re-attached under the
+    /// stack neighbour it left (if that's still open), otherwise back at its
+    /// last spot. Only a panel that has *never* been placed gets a fresh
+    /// opening slot — a returning panel keeps exactly where it was.
+    private func revealPlacement(_ id: ID) {
+        if let targetKey = stackMemory[id], let target = panel(forStackKey: targetKey),
+            isExpanded(target) {
+            stackMemory[id] = nil
+            stacks.attach(stackKey(id), below: targetKey)
+            syncStackWidths(containing: targetKey)
+            return
+        }
+        stackMemory[id] = nil
+        if !hasPlacement(id) { needsPlacement.insert(id) }
+    }
+
     public func toggle(_ id: ID) {
         if presented.contains(id) {
+            rememberStack(id)
             stacks.detach(stackKey(id))
             presented.remove(id)
             minimized.remove(id)
         } else {
-            needsPlacement.insert(id)
             presented.insert(id)
             minimized.remove(id)
+            revealPlacement(id)
         }
     }
 
     /// Collapse to the rail's icon-only button. A stacked panel detaches
-    /// first — its followers close up, and an icon can't be a stick target.
+    /// first — its followers close up, and an icon can't be a stick target —
+    /// but we remember the stack so restoring re-attaches it.
     public func minimize(_ id: ID) {
+        rememberStack(id)
         stacks.detach(stackKey(id))
         minimized.insert(id)
     }
 
     public func restore(_ id: ID) {
-        if !presented.contains(id) { needsPlacement.insert(id) }
         presented.insert(id)
         minimized.remove(id)
+        revealPlacement(id)
     }
 
     public func position(_ id: ID) -> CGSize {
@@ -251,12 +287,14 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
     /// Rail button behaviour: show if hidden, restore if minimized, hide if open.
     public func railToggle(_ id: ID) {
         if !presented.contains(id) {
-            needsPlacement.insert(id)
             presented.insert(id)
             minimized.remove(id)
+            revealPlacement(id)
         } else if minimized.contains(id) {
             minimized.remove(id)
+            revealPlacement(id)
         } else {
+            rememberStack(id)
             stacks.detach(stackKey(id))
             presented.remove(id)
             minimized.remove(id)
