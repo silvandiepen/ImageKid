@@ -141,8 +141,17 @@ struct EditorCanvasView: View {
     }
 
     /// Window keyDown while the canvas is on screen. Returns true to consume.
-    /// Arrow keys nudge the selected point (⇧ = 10×); Z arms scrubby zoom.
+    /// ⌘Z undoes; arrow keys nudge the selected point (⇧ = 10×); Z arms
+    /// scrubby zoom. Text-field keystrokes are already excluded by the monitor.
     private func handleCanvasKeyDown(_ e: NSEvent) -> Bool {
+        // ⌘Z → undo. Fekthor's undo is its own stack, so the standard Edit-menu
+        // Undo is inert and just swallows the shortcut; intercept it here.
+        if e.modifierFlags.intersection([.command, .option, .control, .shift]) == .command,
+            e.keyCode == 6 {  // ⌘Z
+            guard session.canUndo else { return false }
+            session.undo()
+            return true
+        }
         guard e.modifierFlags.intersection([.command, .option, .control]).isEmpty
         else { return false }
         switch e.keyCode {
