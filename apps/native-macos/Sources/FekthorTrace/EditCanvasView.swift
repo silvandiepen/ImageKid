@@ -482,6 +482,24 @@ struct VectorEditLayer: View {
                 }
             ))
         }
+        // "Add Crossing Points" on the clicked path, only when its outline
+        // actually crosses another element's (checked lazily on menu build,
+        // for the clicked element only).
+        if let doc = model.document,
+            let hit = elementHit(at: point, doc: doc, size: size),
+            model.crossingCount(element: hit) > 0
+        {
+            items.append((
+                "Add Crossing Points",
+                {
+                    model.selectedElements = [hit]
+                    activeAnchor = nil
+                    multiSel = []
+                    model.selectionChanged()
+                    model.addCrossingPoints(element: hit)
+                }
+            ))
+        }
         if !model.selectedElements.isEmpty {
             let n = model.selectedElements.count
             items.append(("Copy \(n) Path(s) as SVG", { model.copySelectionSVG() }))

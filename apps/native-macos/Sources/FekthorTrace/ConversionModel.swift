@@ -591,6 +591,109 @@ final class ConversionModel: ObservableObject {
         editGeneration += 1
     }
 
+    /// Every other element's outline as doc-space paths — the obstacle set
+    /// for crossing detection. Refined geometry is exact; legacy points,
+    /// rings and fill primitives fall back to their polygonal form (the
+    /// same sampling the hit tests and metrics use).
+    private func obstaclePaths(excluding index: Int) -> [RefinedPath] {
+        guard let doc = document else { return [] }
+        var out: [RefinedPath] = []
+        for (i, el) in doc.elements.enumerated() where i != index {
+            switch el {
+            case .stroke(let s):
+                if let rp = s.refined {
+                    out.append(rp)
+                } else if s.points.count >= 2 {
+                    out.append(
+                        RefinedPath(
+                            start: s.points[0],
+                            segments: s.points.dropFirst().map { .line(to: $0) },
+                            closed: s.closed))
+                }
+            case .fill(let f):
+                if case .refined(let paths) = f.geometry {
+                    out.append(contentsOf: paths)
+                } else {
+                    for ring in f.rings where ring.count >= 3 {
+                        out.append(
+                            RefinedPath(
+                                start: ring[0],
+                                segments: ring.dropFirst().map { .line(to: $0) },
+                                closed: true))
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    /// The element's own refined paths — the geometry "Add Crossing Points"
+    /// edits. nil when the element has no refined form (legacy polylines,
+    /// rings and fill primitives render smoothed/exact, so inserting into
+    /// their raw points would not land on the drawn outline).
+    private func refinedSubject(_ element: Element) -> [RefinedPath]? {
+        switch element {
+        case .stroke(let s):
+            return s.refined.map { [$0] }
+        case .fill(let f):
+            if case .refined(let paths) = f.geometry { return paths }
+            return nil
+        }
+    }
+
+    /// How many points "Add Crossing Points" would insert on this element —
+    /// the context menu's cheap pre-check (computed lazily on menu build,
+    /// for the clicked element only).
+    func crossingCount(element: Int) -> Int {
+        guard let doc = document, element < doc.elements.count,
+            let subject = refinedSubject(doc.elements[element])
+        else { return 0 }
+        let obstacles = obstaclePaths(excluding: element)
+        guard !obstacles.isEmpty else { return 0 }
+        return subject.reduce(0) {
+            $0 + PathCrossings.crossings(of: $1, with: obstacles).count
+        }
+    }
+
+    /// Insert anchors on one element exactly where its outline crosses any
+    /// other element's ("Add Crossing Points"). One undo step; the status
+    /// reports how many points were added.
+    func addCrossingPoints(element: Int) {
+        guard var doc = document, element < doc.elements.count,
+            let subject = refinedSubject(doc.elements[element])
+        else {
+            status = "Crossing points need a refined path."
+            return
+        }
+        let obstacles = obstaclePaths(excluding: element)
+        var added = 0
+        let next = subject.map { rp -> RefinedPath in
+            let hits = PathCrossings.crossings(of: rp, with: obstacles)
+            guard !hits.isEmpty else { return rp }
+            added += hits.count
+            return PathCrossings.insertingCrossings(rp, with: obstacles)
+        }
+        guard added > 0 else {
+            status = "No crossings found."
+            return
+        }
+        beginEditGesture()
+        switch doc.elements[element] {
+        case .stroke(var s):
+            s.refined = next[0]
+            s.points = PathRefine.flatten(next[0])
+            doc.elements[element] = .stroke(s)
+        case .fill(var f):
+            f.geometry = .refined(next)
+            doc.elements[element] = .fill(f)
+        }
+        document = doc
+        documentEdited = true
+        nodes = doc.nodeCount
+        status = added == 1 ? "Added 1 point." : "Added \(added) points."
+        editGeneration += 1
+    }
+
     /// Move one cubic control handle of one element. `mirror` keeps the
     /// opposite handle collinear (smooth point).
     func moveHandle(
