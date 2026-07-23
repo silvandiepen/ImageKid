@@ -60,15 +60,51 @@ enum ImageKidBridge {
 
     static func load(_ data: Data) -> (base: UIImage, annotations: [Annotation], layers: [EditorLayer])? {
         guard let document = try? ImageKidDocument.decoded(from: data),
-              let base = IKImageCoder.decode(document.baseImage) else { return nil }
+              let rawBase = IKImageCoder.decode(document.baseImage) else { return nil }
+
+        // Honour a removed background (same dimensions as the source) and the crop
+        // — otherwise the original uncropped/unprocessed image would be shown.
+        let working = IKImageCoder.decode(document.backgroundRemovedImage) ?? rawBase
+        let crop = document.cropRect.cg
+        let isFullCrop = crop.minX <= 0.0001 && crop.minY <= 0.0001 && crop.width >= 0.9999 && crop.height >= 0.9999
+
+        let base: UIImage
+        if isFullCrop {
+            base = working
+        } else if let workingCG = working.normalizedCGImage() {
+            let pixelRect = CGRect(
+                x: crop.minX * CGFloat(workingCG.width), y: crop.minY * CGFloat(workingCG.height),
+                width: crop.width * CGFloat(workingCG.width), height: crop.height * CGFloat(workingCG.height)
+            ).integral
+            base = (workingCG.cropping(to: pixelRect)).map { UIImage(cgImage: $0) } ?? working
+        } else {
+            base = working
+        }
+
         let baseCG = base.normalizedCGImage()
         let baseSize = CGSize(width: baseCG?.width ?? Int(base.size.width), height: baseCG?.height ?? Int(base.size.height))
 
-        let annotations = document.annotations.map { iosAnnotation(from: $0.annotation, baseSize: baseSize) }
+        // Rebase content from full-source space into the cropped space.
+        func remapPoint(_ p: CGPoint) -> CGPoint {
+            guard !isFullCrop, crop.width > 0, crop.height > 0 else { return p }
+            return CGPoint(x: (p.x - crop.minX) / crop.width, y: (p.y - crop.minY) / crop.height)
+        }
+        func remapRect(_ r: CGRect) -> CGRect {
+            guard !isFullCrop, crop.width > 0, crop.height > 0 else { return r }
+            return CGRect(x: (r.minX - crop.minX) / crop.width, y: (r.minY - crop.minY) / crop.height,
+                          width: r.width / crop.width, height: r.height / crop.height)
+        }
+
+        let annotations = document.annotations.map { dto -> Annotation in
+            var a = iosAnnotation(from: dto.annotation, baseSize: baseSize)
+            a.start = remapPoint(a.start); a.end = remapPoint(a.end)
+            a.points = a.points.map(remapPoint)
+            return a
+        }
         let layers: [EditorLayer] = document.imageLayers.compactMap { dto in
             guard let core = dto.layer else { return nil }
-            var layer = EditorLayer(name: core.name, image: core.image, originalImage: core.image, frame: core.frame,
-                                    opacity: core.opacity, isVisible: core.isVisible)
+            var layer = EditorLayer(name: core.name, image: core.image, originalImage: core.image,
+                                    frame: remapRect(core.frame), opacity: core.opacity, isVisible: core.isVisible)
             layer.z = core.z
             return layer
         }

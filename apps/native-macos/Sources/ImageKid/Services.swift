@@ -491,18 +491,38 @@ enum ImageRenderer {
             )
         }
 
-        drawImageLayers(session: session, targetSize: targetSize)
-
-        if includesAnnotations {
-            drawAnnotations(session: session, targetSize: targetSize)
-        }
+        // Interleave image layers and annotations by their shared z-order so a
+        // layer moved above an annotation exports above it (matching the canvas).
+        drawStack(session: session, targetSize: targetSize, includesAnnotations: includesAnnotations)
 
         return result
     }
 
-    private static func drawImageLayers(session: ImageSession, targetSize: CGSize) {
+    private static func drawStack(session: ImageSession, targetSize: CGSize, includesAnnotations: Bool) {
         let crop = session.cropRect
+        enum StackItem { case layer(ImageLayer); case annotation(Annotation) }
+        var items: [(z: Double, item: StackItem)] = []
         for layer in session.imageLayers where session.isLayerEffectivelyVisible(layer) {
+            items.append((layer.z, .layer(layer)))
+        }
+        if includesAnnotations {
+            for annotation in session.annotations where annotation.isVisible {
+                items.append((annotation.z, .annotation(annotation)))
+            }
+        }
+        items.sort { $0.z < $1.z }
+        for entry in items {
+            switch entry.item {
+            case .layer(let layer):
+                drawLayer(layer, crop: crop, targetSize: targetSize)
+            case .annotation(let annotation):
+                draw(annotation, cropRect: crop, sourceSize: session.pixelSize, targetSize: targetSize)
+            }
+        }
+    }
+
+    private static func drawLayer(_ layer: ImageLayer, crop: CGRect, targetSize: CGSize) {
+        do {
             let relativeFrame = CGRect(
                 x: (layer.frame.minX - crop.minX) / crop.width,
                 y: (layer.frame.minY - crop.minY) / crop.height,
@@ -510,7 +530,7 @@ enum ImageRenderer {
                 height: layer.frame.height / crop.height
             )
             guard relativeFrame.maxX > 0, relativeFrame.maxY > 0,
-                  relativeFrame.minX < 1, relativeFrame.minY < 1 else { continue }
+                  relativeFrame.minX < 1, relativeFrame.minY < 1 else { return }
             // Normalised frame uses a top-left origin; AppKit draws bottom-up.
             let rect = CGRect(
                 x: relativeFrame.minX * targetSize.width,

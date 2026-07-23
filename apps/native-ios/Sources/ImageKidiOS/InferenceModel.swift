@@ -383,7 +383,37 @@ final class InferenceModel: ObservableObject {
             height: normalizedRect.height * CGFloat(source.height)
         ).integral
         guard let cropped = source.cropping(to: pixelRect) else { return }
+        // The crop replaces the base with only the cropped pixels; annotation and
+        // layer frames are normalised to the OLD image, so rebase them into the
+        // cropped space or they'd be re-interpreted against the smaller image.
+        rebaseContent(intoCrop: normalizedRect)
         commit(cropped, status: "Cropped")
+    }
+
+    /// Re-normalise all annotations/layers of the active item from full-image
+    /// space into the given crop's space.
+    private func rebaseContent(intoCrop crop: CGRect) {
+        guard crop.width > 0, crop.height > 0, let index = activeIndex else { return }
+        func remap(_ p: CGPoint) -> CGPoint {
+            CGPoint(x: (p.x - crop.minX) / crop.width, y: (p.y - crop.minY) / crop.height)
+        }
+        items[index].annotations = items[index].annotations.map { annotation in
+            var copy = annotation
+            copy.start = remap(annotation.start)
+            copy.end = remap(annotation.end)
+            copy.points = annotation.points.map(remap)
+            return copy
+        }
+        items[index].layers = items[index].layers.map { layer in
+            var copy = layer
+            copy.frame = CGRect(
+                x: (layer.frame.minX - crop.minX) / crop.width,
+                y: (layer.frame.minY - crop.minY) / crop.height,
+                width: layer.frame.width / crop.width,
+                height: layer.frame.height / crop.height
+            )
+            return copy
+        }
     }
 
     /// Resizes the working image to an exact pixel size.
