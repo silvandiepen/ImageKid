@@ -73,15 +73,7 @@ struct AnnotateView: View {
                             context.draw(resolved, at: annotation.textOrigin(in: imageRect), anchor: .topLeading)
                             continue
                         }
-                        context.stroke(
-                            Path(annotation.path(in: imageRect)),
-                            with: .color(annotation.color),
-                            style: StrokeStyle(
-                                lineWidth: annotation.strokeWidth(in: imageRect),
-                                lineCap: .round,
-                                lineJoin: .round
-                            )
-                        )
+                        context.drawStroke(annotation, in: imageRect)
                     }
                 }
             }

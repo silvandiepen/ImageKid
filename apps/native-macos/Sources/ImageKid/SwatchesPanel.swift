@@ -12,6 +12,10 @@ struct SwatchesPanel: View {
     @Binding var size: CGSize
     let onMinimize: () -> Void
     let onPick: (NSColor) -> Void
+    var stackEdges: (topFlat: Bool, bottomFlat: Bool) = (false, false)
+    var isStackFollower: Bool = false
+    var onDragChanged: ((CGSize) -> Void)? = nil
+    var onDragEnded: ((CGSize) -> Void)? = nil
 
     @State private var newColor = Color.white
     @State private var targetSetID: UUID?
@@ -31,6 +35,10 @@ struct SwatchesPanel: View {
             onMinimize: onMinimize,
             resizable: true,
             size: $size,
+            stackEdges: stackEdges,
+            isStackFollower: isStackFollower,
+            onDragChanged: onDragChanged,
+            onDragEnded: onDragEnded,
             contentPadding: 0
         ) {
             VStack(alignment: .leading, spacing: 10) {

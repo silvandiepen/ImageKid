@@ -380,73 +380,12 @@ struct ImageWorkspaceView: View {
 
     @ViewBuilder
     private var dockablePanelsLayer: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Button {
-                    appModel.isShowingNewFile = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 16, weight: .bold))
-                        .frame(width: 38, height: 38)
-                        .background(Color.accentColor.opacity(0.9), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                        .foregroundStyle(.white)
-                }
-                .buttonStyle(.plain)
-                .help("New File")
-
-                PanelDockRail(model: panelDock, axis: .horizontal)
-
-                ForegroundBackgroundChips(library: library, session: session)
-                    .padding(.leading, 4)
-            }
-
-            ZStack(alignment: .topLeading) {
-                if panelDock.isExpanded(.files) {
-                    FilesPanel(
-                        appModel: appModel,
-                        offset: panelDock.positionBinding(.files),
-                        size: panelDock.sizeBinding(.files),
-                        onMinimize: { panelDock.minimize(.files) }
-                    )
-                    .transition(panelCollapse)
-                }
-                if panelDock.isExpanded(.layers) {
-                    LayersPanel(
-                        session: session,
-                        appModel: appModel,
-                        offset: panelDock.positionBinding(.layers),
-                        size: panelDock.sizeBinding(.layers),
-                        onMinimize: { panelDock.minimize(.layers) }
-                    )
-                    .transition(panelCollapse)
-                }
-                if panelDock.isExpanded(.history) {
-                    HistoryPanel(
-                        session: session,
-                        offset: panelDock.positionBinding(.history),
-                        size: panelDock.sizeBinding(.history),
-                        onMinimize: { panelDock.minimize(.history) }
-                    )
-                    .transition(panelCollapse)
-                }
-                if panelDock.isExpanded(.swatches) {
-                    SwatchesPanel(
-                        offset: panelDock.positionBinding(.swatches),
-                        size: panelDock.sizeBinding(.swatches),
-                        onMinimize: { panelDock.minimize(.swatches) },
-                        onPick: { applySwatchColor($0) }
-                    )
-                    .transition(panelCollapse)
-                }
-            }
-            .animation(.spring(response: 0.34, dampingFraction: 0.82), value: panelDock.presented)
-            .animation(.spring(response: 0.34, dampingFraction: 0.82), value: panelDock.minimized)
-        }
-    }
-
-    /// Panels collapse toward their top-left corner (where the rail buttons sit).
-    private var panelCollapse: AnyTransition {
-        .scale(scale: 0.06, anchor: .topLeading).combined(with: .opacity)
+        DockablePanelsLayer(
+            appModel: appModel,
+            session: session,
+            panelDock: panelDock,
+            onPickSwatch: { applySwatchColor($0) }
+        )
     }
 
     /// Finder files → open as new images; an internal Files-row drag → add as a layer.
@@ -2229,6 +2168,149 @@ struct ImageWorkspaceView: View {
         case bottomRight
         case inside
         case new
+    }
+}
+
+/// The movable dockable panels plus their rail, in its own view so the live
+/// stack-drag state re-renders only this layer, never the whole workspace.
+/// Panels stick magnetically when one is dropped onto another's bottom edge
+/// (shared `PanelStacks` model in the dock model): the stack moves with its
+/// head, and dragging a lower panel's header detaches it.
+private struct DockablePanelsLayer: View {
+    // Plain references — the panels observe these themselves.
+    let appModel: AppModel
+    let session: ImageSession
+    @ObservedObject var panelDock: PanelDockModel<DockablePanel>
+    let onPickSwatch: (NSColor) -> Void
+
+    @EnvironmentObject private var library: ColorLibrary
+
+    /// Live translation of a dragged stack head, so its followers move
+    /// along frame-by-frame. Solo drags never touch this state.
+    @State private var stackDragHead: DockablePanel?
+    @State private var stackDragTranslation: CGSize = .zero
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Button {
+                    appModel.isShowingNewFile = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 16, weight: .bold))
+                        .frame(width: 38, height: 38)
+                        .background(Color.accentColor.opacity(0.9), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                        .foregroundStyle(.white)
+                }
+                .buttonStyle(.plain)
+                .help("New File")
+
+                PanelDockRail(model: panelDock, axis: .horizontal)
+
+                ForegroundBackgroundChips(library: library, session: session)
+                    .padding(.leading, 4)
+            }
+
+            ZStack(alignment: .topLeading) {
+                if panelDock.isExpanded(.files) {
+                    FilesPanel(
+                        appModel: appModel,
+                        offset: offsetBinding(.files),
+                        size: panelDock.sizeBinding(.files),
+                        onMinimize: { panelDock.minimize(.files) },
+                        stackEdges: panelDock.stackEdges(of: .files),
+                        isStackFollower: panelDock.isStackFollower(.files),
+                        onDragChanged: { dragChanged(.files, translation: $0) },
+                        onDragEnded: { _ in dragEnded(.files) }
+                    )
+                    .transition(panelCollapse)
+                }
+                if panelDock.isExpanded(.layers) {
+                    LayersPanel(
+                        session: session,
+                        appModel: appModel,
+                        offset: offsetBinding(.layers),
+                        size: panelDock.sizeBinding(.layers),
+                        onMinimize: { panelDock.minimize(.layers) },
+                        stackEdges: panelDock.stackEdges(of: .layers),
+                        isStackFollower: panelDock.isStackFollower(.layers),
+                        onDragChanged: { dragChanged(.layers, translation: $0) },
+                        onDragEnded: { _ in dragEnded(.layers) }
+                    )
+                    .transition(panelCollapse)
+                }
+                if panelDock.isExpanded(.history) {
+                    HistoryPanel(
+                        session: session,
+                        offset: offsetBinding(.history),
+                        size: panelDock.sizeBinding(.history),
+                        onMinimize: { panelDock.minimize(.history) },
+                        stackEdges: panelDock.stackEdges(of: .history),
+                        isStackFollower: panelDock.isStackFollower(.history),
+                        onDragChanged: { dragChanged(.history, translation: $0) },
+                        onDragEnded: { _ in dragEnded(.history) }
+                    )
+                    .transition(panelCollapse)
+                }
+                if panelDock.isExpanded(.swatches) {
+                    SwatchesPanel(
+                        offset: offsetBinding(.swatches),
+                        size: panelDock.sizeBinding(.swatches),
+                        onMinimize: { panelDock.minimize(.swatches) },
+                        onPick: onPickSwatch,
+                        stackEdges: panelDock.stackEdges(of: .swatches),
+                        isStackFollower: panelDock.isStackFollower(.swatches),
+                        onDragChanged: { dragChanged(.swatches, translation: $0) },
+                        onDragEnded: { _ in dragEnded(.swatches) }
+                    )
+                    .transition(panelCollapse)
+                }
+            }
+            .animation(.spring(response: 0.34, dampingFraction: 0.82), value: panelDock.presented)
+            .animation(.spring(response: 0.34, dampingFraction: 0.82), value: panelDock.minimized)
+        }
+    }
+
+    /// Panels collapse toward their top-left corner (where the rail buttons sit).
+    private var panelCollapse: AnyTransition {
+        .scale(scale: 0.06, anchor: .topLeading).combined(with: .opacity)
+    }
+
+    /// Followers rest flush under their stack head (plus the head's live
+    /// drag translation); heads and unstacked panels use their stored spot.
+    private func offsetBinding(_ id: DockablePanel) -> Binding<CGSize> {
+        Binding(
+            get: {
+                var origin = panelDock.displayPosition(id)
+                if let head = stackDragHead, id != head,
+                    panelDock.stacks.head(of: panelDock.stackKey(id))
+                        == panelDock.stackKey(head)
+                {
+                    origin.width += stackDragTranslation.width
+                    origin.height += stackDragTranslation.height
+                }
+                return origin
+            },
+            set: { panelDock.setPosition(id, to: $0) })
+    }
+
+    private func dragChanged(_ id: DockablePanel, translation: CGSize) {
+        if panelDock.isStackFollower(id) {
+            // Taking a follower by the header detaches it — it moves alone
+            // and the panels below close up.
+            panelDock.detachForDrag(id)
+        } else if !panelDock.stacks.followers(of: panelDock.stackKey(id)).isEmpty {
+            // Moving the top one moves the bottom one(s) along, live.
+            stackDragHead = id
+            stackDragTranslation = translation
+        }
+    }
+
+    private func dragEnded(_ id: DockablePanel) {
+        stackDragHead = nil
+        stackDragTranslation = .zero
+        // Stick detection against the settled, grid-snapped positions.
+        panelDock.snapReleased(id)
     }
 }
 

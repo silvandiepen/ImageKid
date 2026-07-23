@@ -12,7 +12,6 @@ const data: ProductPageData = {
   id: meta.id,
   name: meta.name,
   icon: meta.icon,
-  accent: meta.accent,
   eyebrow: "Batch background remover for Mac",
   tagline: "Transparent cut-outs, a folder at a time.",
   lead:

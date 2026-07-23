@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="alarm-bell-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72">
+  <path d="M36,13.5c-8.95,0-13.67,6.75-16.2,18l-3.5,15.56c-.28,1.25.67,2.44,1.95,2.44h17.75s17.75,0,17.75,0c1.28,0,2.23-1.19,1.95-2.44l-3.5-15.56c-2.53-11.25-7.25-18-16.2-18h0Z" style="fill: #ed2024; opacity: .5; stroke-width: 0px;"/>
+  <path d="M45,49.5c0,4.97-4.03,9-9,9s-9-4.03-9-9" style="fill: none; stroke: #ed2024; stroke-miterlimit: 10; stroke-width: 4px;"/>
+  <path d="M36,13.5c-8.95,0-13.67,6.75-16.2,18l-3.5,15.56c-.28,1.25.67,2.44,1.95,2.44h17.75s17.75,0,17.75,0c1.28,0,2.23-1.19,1.95-2.44l-3.5-15.56c-2.53-11.25-7.25-18-16.2-18h0Z" style="fill: none; stroke: #010101; stroke-miterlimit: 10; stroke-width: 4px;"/>
+  <path d="M9.75,31.5c-2.28-9.32,1.41-19.39,8.25-22.5" style="fill: none; stroke: #010101; stroke-miterlimit: 10; stroke-width: 4px;"/>
+  <path d="M62.25,31.5c2.28-9.32-1.41-19.39-8.25-22.5" style="fill: none; stroke: #010101; stroke-miterlimit: 10; stroke-width: 4px;"/>
+</svg>

@@ -25,9 +25,8 @@
         <RouterLink
           v-for="app in apps"
           :key="app.id"
-          :class="bemm('app-card', app.flagship ? 'flagship' : '')"
+          :class="bemm('app-card', [app.flagship ? 'flagship' : '', app.id])"
           :to="app.to"
-          :style="{ '--app-accent': app.accent }"
         >
           <img :class="bemm('app-icon')" :src="app.icon" :alt="`${app.name} app icon`" width="56" height="56" />
           <div :class="bemm('app-copy')">
@@ -40,7 +39,7 @@
       </div>
     </section>
 
-    <section :class="bemm('showcase', 'imagekid')" :style="{ '--app-accent': imagekid.accent }">
+    <section :class="bemm('showcase', 'imagekid')">
       <figure :class="bemm('showcase-media')">
         <img :class="bemm('showcase-image')" src="/media/app/workspace.jpg" alt="The ImageKid editor with an image open" />
       </figure>
@@ -58,7 +57,7 @@
       </div>
     </section>
 
-    <section :class="bemm('showcase', 'fekthor')" :style="{ '--app-accent': fekthor.accent }">
+    <section :class="bemm('showcase', 'fekthor')">
       <div :class="bemm('showcase-copy')">
         <div :class="bemm('showcase-brand')">
           <img :src="fekthor.icon" :alt="''" width="40" height="40" />

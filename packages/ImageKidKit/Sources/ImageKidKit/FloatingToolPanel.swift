@@ -15,6 +15,11 @@ public struct FloatingToolPanel<Content: View>: View {
     let minSize: CGSize
     let maxSize: CGSize
     let cornerRadius: CGFloat
+    let stackEdges: (topFlat: Bool, bottomFlat: Bool)
+    let dockEdges: (leadingFlat: Bool, trailingFlat: Bool)
+    let isStackFollower: Bool
+    let onDragChanged: ((CGSize) -> Void)?
+    let onDragEnded: ((CGSize) -> Void)?
     let contentPadding: CGFloat
     let content: Content
 
@@ -36,6 +41,11 @@ public struct FloatingToolPanel<Content: View>: View {
         minSize: CGSize = CGSize(width: 220, height: 200),
         maxSize: CGSize = CGSize(width: 520, height: 900),
         cornerRadius: CGFloat = 28,
+        stackEdges: (topFlat: Bool, bottomFlat: Bool) = (false, false),
+        dockEdges: (leadingFlat: Bool, trailingFlat: Bool) = (false, false),
+        isStackFollower: Bool = false,
+        onDragChanged: ((CGSize) -> Void)? = nil,
+        onDragEnded: ((CGSize) -> Void)? = nil,
         contentPadding: CGFloat = 16,
         @ViewBuilder content: () -> Content
     ) {
@@ -51,8 +61,38 @@ public struct FloatingToolPanel<Content: View>: View {
         self.minSize = minSize
         self.maxSize = maxSize
         self.cornerRadius = cornerRadius
+        self.stackEdges = stackEdges
+        self.dockEdges = dockEdges
+        self.isStackFollower = isStackFollower
+        self.onDragChanged = onDragChanged
+        self.onDragEnded = onDragEnded
         self.contentPadding = contentPadding
         self.content = content()
+    }
+
+    /// Header control diameters: tight on macOS pointers, at least 44pt on touch.
+    private var minimizeButtonSize: CGFloat {
+        #if os(iOS)
+        44
+        #else
+        24
+        #endif
+    }
+
+    private var closeButtonSize: CGFloat {
+        #if os(iOS)
+        44
+        #else
+        28
+        #endif
+    }
+
+    private var resizeHandleSize: CGFloat {
+        #if os(iOS)
+        44
+        #else
+        42
+        #endif
     }
 
     private var resolvedWidth: CGFloat {
@@ -63,6 +103,25 @@ public struct FloatingToolPanel<Content: View>: View {
     private var resolvedHeight: CGFloat? {
         guard resizable else { return nil }
         return max(minSize.height, size.height + resizeTranslation.height)
+    }
+
+    /// True while the panel is stuck to another one (either edge on a stick
+    /// line). Resizing is disabled for the duration — the stack owns the
+    /// shared width, and a free-resized member would break the flush column.
+    private var isStacked: Bool { stackEdges.topFlat || stackEdges.bottomFlat }
+
+    /// The chrome shape: the normal corner radius, except on edges that sit
+    /// on a stick line — between stacked panels (top/bottom) or flush against
+    /// a dock edge (leading/trailing) — which flatten to 4pt so the stack
+    /// reads as one fused column and an edge-stuck panel reads as docked.
+    private var chromeShape: UnevenRoundedRectangle {
+        func radius(_ flat: Bool) -> CGFloat { flat ? 4 : cornerRadius }
+        return UnevenRoundedRectangle(
+            topLeadingRadius: radius(stackEdges.topFlat || dockEdges.leadingFlat),
+            bottomLeadingRadius: radius(stackEdges.bottomFlat || dockEdges.leadingFlat),
+            bottomTrailingRadius: radius(stackEdges.bottomFlat || dockEdges.trailingFlat),
+            topTrailingRadius: radius(stackEdges.topFlat || dockEdges.trailingFlat),
+            style: .continuous)
     }
 
     public var body: some View {
@@ -79,20 +138,22 @@ public struct FloatingToolPanel<Content: View>: View {
         }
         .frame(width: resolvedWidth, height: resolvedHeight, alignment: .top)
         .foregroundStyle(.white)
-        .background(
-            Color.black.opacity(0.80),
-            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        )
+        .background(Color.black.opacity(0.80), in: chromeShape)
         .overlay(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            chromeShape
                 .strokeBorder(.white.opacity(0.12))
         )
         .overlay(alignment: .bottomTrailing) {
-            if resizable { resizeHandle }
+            if resizable && !isStacked { resizeHandle }
         }
         // A large blurred shadow re-rasterises every frame while dragging, which
         // is the main source of drag stutter — shrink it hard during a drag.
-        .shadow(color: .black.opacity(isDragging ? 0.28 : 0.36), radius: isDragging ? 6 : 28, y: isDragging ? 3 : 12)
+        // Stack followers keep only a soft shadow so the seam onto the panel
+        // above doesn't read as a dark band across the fused column.
+        .shadow(
+            color: .black.opacity(isDragging ? 0.28 : (isStackFollower ? 0.16 : 0.36)),
+            radius: isDragging ? 6 : (isStackFollower ? 10 : 28),
+            y: isDragging ? 3 : (isStackFollower ? 4 : 12))
         .offset(
             x: offset.width + dragTranslation.width,
             y: offset.height + dragTranslation.height
@@ -105,7 +166,7 @@ public struct FloatingToolPanel<Content: View>: View {
                 Color.white.opacity(resizeHovering ? 0.65 : 0.22),
                 style: StrokeStyle(lineWidth: 2.5, lineCap: .round)
             )
-            .frame(width: 42, height: 42)
+            .frame(width: resizeHandleSize, height: resizeHandleSize)
             .contentShape(Rectangle())
             .onHover { hovering in
                 withAnimation(.easeOut(duration: 0.12)) { resizeHovering = hovering }
@@ -150,6 +211,8 @@ public struct FloatingToolPanel<Content: View>: View {
                         .font(.system(size: 12, weight: .bold))
                         .frame(width: 24, height: 24)
                         .background(.white.opacity(0.10), in: Circle())
+                        .frame(width: minimizeButtonSize, height: minimizeButtonSize)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .help("Minimise \(title)")
@@ -160,6 +223,8 @@ public struct FloatingToolPanel<Content: View>: View {
                         .font(.system(size: 12, weight: .bold))
                         .frame(width: 28, height: 28)
                         .background(.white.opacity(0.10), in: Circle())
+                        .frame(width: closeButtonSize, height: closeButtonSize)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .help("Close \(title)")
@@ -179,6 +244,9 @@ public struct FloatingToolPanel<Content: View>: View {
                 .updating($isDragging) { _, state, _ in
                     state = true
                 }
+                .onChanged { value in
+                    onDragChanged?(value.translation)
+                }
                 .onEnded { value in
                     var next = CGSize(
                         width: offset.width + value.translation.width,
@@ -191,6 +259,9 @@ public struct FloatingToolPanel<Content: View>: View {
                         )
                     }
                     offset = next
+                    // After the resting offset settled (including grid snap),
+                    // so hosts run stick detection against final positions.
+                    onDragEnded?(value.translation)
                 }
         )
     }

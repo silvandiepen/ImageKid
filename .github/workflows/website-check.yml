@@ -50,15 +50,24 @@ jobs:
             echo "website=false" >> "$GITHUB_OUTPUT"
           fi
 
+  # Always runs: "check" is a required status on main, and a path-skipped
+  # job counts as missing, blocking merges of PRs that never touched the
+  # website. No website changes → succeed immediately.
   check:
     needs: changes
-    if: needs.changes.outputs.website == 'true'
     runs-on: ubuntu-latest
     steps:
+      - name: No website changes
+        if: needs.changes.outputs.website != 'true'
+        run: echo "No website changes — nothing to check."
       - uses: actions/checkout@v6
+        if: needs.changes.outputs.website == 'true'
       - uses: actions/setup-node@v6
+        if: needs.changes.outputs.website == 'true'
         with:
           node-version: 22
           cache: npm
       - run: npm ci
+        if: needs.changes.outputs.website == 'true'
       - run: npm run check
+        if: needs.changes.outputs.website == 'true'

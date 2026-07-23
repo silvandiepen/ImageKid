@@ -11,6 +11,8 @@ settings:
 packages:
   ImageKidInference:
     path: ../../packages/ImageKidInference
+  ImageKidKit:
+    path: ../../packages/ImageKidKit
   ImageKidCore:
     path: ../../packages/ImageKidCore
 targets:
@@ -25,6 +27,7 @@ targets:
         buildPhase: sources
     dependencies:
       - package: ImageKidInference
+      - package: ImageKidKit
       - package: ImageKidCore
     info:
       path: Sources/ImageKidiOS/Info.plist

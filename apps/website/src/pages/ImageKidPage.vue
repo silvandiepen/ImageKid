@@ -12,7 +12,6 @@ const data: ProductPageData = {
   id: meta.id,
   name: meta.name,
   icon: meta.icon,
-  accent: meta.accent,
   eyebrow: "Native image editor for Mac, iPad & iPhone",
   tagline: "Everyday image editing, done on your device.",
   lead:

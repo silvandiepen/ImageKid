@@ -13,6 +13,10 @@ packages:
     path: ../../packages/ImageKidInference
   ImageKidKit:
     path: ../../packages/ImageKidKit
+  ImageKidCore:
+    path: ../../packages/ImageKidCore
+  FekthorKit:
+    path: ../../packages/FekthorKit
 targets:
   ImageKid:
     type: application
@@ -25,6 +29,7 @@ targets:
     dependencies:
       - package: ImageKidInference
       - package: ImageKidKit
+      - package: ImageKidCore
     entitlements:
       path: Sources/ImageKid/ImageKid.entitlements
       properties:
@@ -93,6 +98,34 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: CutoutAppIcon
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: ImageKid Cutout
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.graphics-design
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_STYLE: Automatic
+  Fekthor:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/FekthorTrace
+    resources:
+      - path: Sources/FekthorTrace/Resources/Assets.xcassets
+    dependencies:
+      - package: FekthorKit
+      - package: ImageKidKit
+      - package: ImageKidInference
+    entitlements:
+      path: Sources/FekthorTrace/Fekthor.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-write: true
+        # No network entitlement: Fekthor is local-first and never downloads
+        # at runtime (models are installed locally; see ModelStore).
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hakobs.fekthor
+        PRODUCT_NAME: Fekthor
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Fekthor
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.graphics-design
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_STYLE: Automatic

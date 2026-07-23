@@ -11,6 +11,10 @@ struct LayersPanel: View {
     @Binding var offset: CGSize
     @Binding var size: CGSize
     let onMinimize: () -> Void
+    var stackEdges: (topFlat: Bool, bottomFlat: Bool) = (false, false)
+    var isStackFollower: Bool = false
+    var onDragChanged: ((CGSize) -> Void)? = nil
+    var onDragEnded: ((CGSize) -> Void)? = nil
 
     @State private var editingID: UUID?
     @State private var editingText: String = ""
@@ -42,6 +46,10 @@ struct LayersPanel: View {
             onMinimize: onMinimize,
             resizable: true,
             size: $size,
+            stackEdges: stackEdges,
+            isStackFollower: isStackFollower,
+            onDragChanged: onDragChanged,
+            onDragEnded: onDragEnded,
             contentPadding: 0
         ) {
             VStack(alignment: .leading, spacing: 10) {

@@ -24,11 +24,10 @@ export interface ProductSection {
 }
 
 export interface ProductPageData {
-  /** App id from the registry, used for cross-links and accent. */
+  /** App id from the registry, used for cross-links, status, and the per-app accent modifier. */
   id: string;
   name: string;
   icon: string;
-  accent: string;
   eyebrow: string;
   /** H1. */
   tagline: string;

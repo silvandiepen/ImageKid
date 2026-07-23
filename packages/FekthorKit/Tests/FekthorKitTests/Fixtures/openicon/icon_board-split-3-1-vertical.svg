@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="board-split-3-1-vertical" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72">
+  <rect x="13.5" y="13.5" width="45" height="45" rx="2" ry="2" style="fill: #ed2024; opacity: .5;"/>
+  <line x1="45" y1="13.5" x2="45" y2="58.5" style="fill: none; stroke: #ed2024; stroke-miterlimit: 10; stroke-width: 4px;"/>
+  <rect x="13.5" y="13.5" width="45" height="45" rx="2" ry="2" transform="translate(72 72) rotate(180)" style="fill: none; stroke: #010101; stroke-miterlimit: 10; stroke-width: 4px;"/>
+</svg>

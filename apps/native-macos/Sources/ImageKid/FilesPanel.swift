@@ -118,6 +118,10 @@ struct FilesPanel: View {
     @Binding var offset: CGSize
     @Binding var size: CGSize
     let onMinimize: () -> Void
+    var stackEdges: (topFlat: Bool, bottomFlat: Bool) = (false, false)
+    var isStackFollower: Bool = false
+    var onDragChanged: ((CGSize) -> Void)? = nil
+    var onDragEnded: ((CGSize) -> Void)? = nil
 
     var body: some View {
         FloatingToolPanel(
@@ -127,6 +131,10 @@ struct FilesPanel: View {
             onMinimize: onMinimize,
             resizable: true,
             size: $size,
+            stackEdges: stackEdges,
+            isStackFollower: isStackFollower,
+            onDragChanged: onDragChanged,
+            onDragEnded: onDragEnded,
             contentPadding: 0
         ) {
             if appModel.items.isEmpty {

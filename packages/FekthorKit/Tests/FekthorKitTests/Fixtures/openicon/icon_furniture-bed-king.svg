@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="furniture-bed-king" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72">
+  <rect x="9" y="36" width="54" height="13.5" style="fill: #ed2024; opacity: .5;"/>
+  <rect x="13.5" y="18" width="45" height="18" style="fill: #ed2024; opacity: .5;"/>
+  <line x1="13.5" y1="58.5" x2="13.5" y2="49.5" style="fill: none; stroke: #010101; stroke-linecap: round; stroke-linejoin: round; stroke-width: 4px;"/>
+  <line x1="58.5" y1="58.5" x2="58.5" y2="49.5" style="fill: none; stroke: #010101; stroke-linecap: round; stroke-linejoin: round; stroke-width: 4px;"/>
+  <rect x="9" y="36" width="54" height="13.5" style="fill: none; stroke: #010101; stroke-linecap: round; stroke-linejoin: round; stroke-width: 4px;"/>
+  <polyline points="13.5 36 13.5 18 58.5 18 58.5 36" style="fill: none; stroke: #010101; stroke-linecap: round; stroke-linejoin: round; stroke-width: 4px;"/>
+  <polyline points="45 36 45 27 27 27 27 36" style="fill: none; stroke: #010101; stroke-linecap: round; stroke-linejoin: round; stroke-width: 4px;"/>
+  <line x1="36" y1="27" x2="36" y2="36" style="fill: none; stroke: #010101; stroke-linecap: round; stroke-linejoin: round; stroke-width: 4px;"/>
+</svg>

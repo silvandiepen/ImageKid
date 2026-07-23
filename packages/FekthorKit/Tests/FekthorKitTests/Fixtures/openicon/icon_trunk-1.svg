@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="furniture-chair_4" data-name="furniture-chair 4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72">
+  <path d="M36,18s-9,9-4.5,22.5,0,18,0,18" style="fill: none; stroke: #ed1c24; stroke-miterlimit: 10; stroke-width: 4px;"/>
+  <line x1="49.5" y1="31.5" x2="63" y2="27" style="fill: none; stroke: #ed1c24; stroke-miterlimit: 10; stroke-width: 4px;"/>
+  <ellipse cx="45" cy="36" rx="4.5" ry="9" style="fill: none; stroke: #ed1c24; stroke-miterlimit: 10; stroke-width: 4px;"/>
+  <polygon points="13.5 27 13.5 36 22.5 45 22.5 31.5 13.5 27" style="fill: none; stroke: #231f20; stroke-miterlimit: 10; stroke-width: 4px;"/>
+  <polyline points="49.5 27 63 22.5 63 31.5 49.5 40.5" style="fill: none; stroke: #231f20; stroke-miterlimit: 10; stroke-width: 4px;"/>
+  <rect x="22.5" y="18" width="27" height="40.5" style="fill: none; stroke: #231f20; stroke-miterlimit: 10; stroke-width: 4px;"/>
+</svg>

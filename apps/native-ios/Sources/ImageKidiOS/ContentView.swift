@@ -1,5 +1,6 @@
 import AVKit
 import ImageKidInference
+import ImageKidKit
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
@@ -32,12 +33,33 @@ struct ContentView: View {
     @State private var annotationKind: Annotation.Kind = .freehand
     @State private var annotationColor: Color = .red
     @State private var annotationWidthFraction: CGFloat = 0.008
+    @State private var annotationBrush: BrushPreset = .pen
+    @State private var annotationOpacity: CGFloat = 1
+    @State private var annotationSoftness: CGFloat = 0
     @State private var textSizeFraction: CGFloat = 0.05
+    // The Mask tool's non-destructive session: cutout-derived mask, painted
+    // refinements, and live preview. Applied or discarded as one history step.
+    @State private var maskSession: MaskSession?
+    // Set while a "Mask from Subject" cutout is in flight; cleared to disown
+    // the request (cancel, picture switch) so its completion is dropped.
+    @State private var maskRequestToken: MaskRequestToken?
+    @State private var maskRevealMode = true
+    @State private var maskWidthFraction: CGFloat = 0.05
+    @State private var maskSoftness: CGFloat = 0.5
+    @State private var maskDraftPoints: [CGPoint] = []
     @State private var isEnteringText = false
     @State private var textInput = ""
     @State private var pendingTextLocation: CGPoint?
+    @State private var isShowingLayersSheet = false
+    @State private var isShowingHistorySheet = false
     @State private var currentSample: SampledColor?
     @State private var sampleLocation: CGPoint?
+
+    // On regular widths every panel — Draw/Text options, Colours, Layers,
+    // History — floats over the canvas on one shared dock (same mechanic and
+    // chrome as the Mac app): magnetic stacking, the minimize-chip rail, and
+    // resting spots persisted together under "ipad.panels".
+    @StateObject private var panelDock = PanelDockModel<IPadDockPanel>.makeIPadDock()
 
     /// Editable, non-destructive annotations for the selected picture.
     private var annotations: Binding<[Annotation]> {
@@ -81,18 +103,79 @@ struct ContentView: View {
                         // keyboard while typing.
                         textBar
                     } else {
-                        toolInspector
+                        if !usesFloatingAnnotatePanel && !usesFloatingColourPanel && !usesFloatingMaskPanel {
+                            toolInspector
+                        }
                         bottomToolbar
                     }
                 }
             }
             .padding(.bottom, 6)
         }
+        .overlay {
+            if usesPanelDock {
+                IPadPanelsLayer(
+                    model: model,
+                    dock: panelDock,
+                    isTextTool: activeTool == .text,
+                    annotationKind: $annotationKind,
+                    annotationColor: $annotationColor,
+                    annotationWidthFraction: $annotationWidthFraction,
+                    annotationBrush: $annotationBrush,
+                    annotationOpacity: $annotationOpacity,
+                    annotationSoftness: $annotationSoftness,
+                    textSizeFraction: $textSizeFraction,
+                    annotations: annotations,
+                    layers: layers,
+                    selectedAnnotationID: $selectedAnnotationID,
+                    selectedLayerID: $selectedLayerID,
+                    currentSample: currentSample,
+                    onSaveSample: {
+                        if let currentSample { model.addSampledColor(currentSample) }
+                    },
+                    onAnnotateCancel: {
+                        resetAnnotations()
+                        activeTool = nil
+                    },
+                    onAnnotateApply: applyAnnotations,
+                    maskHasMask: maskSession != nil,
+                    maskEngineTitle: model.preferredBackgroundEngine.title,
+                    isBusy: model.isBusy,
+                    maskRevealMode: $maskRevealMode,
+                    maskWidthFraction: $maskWidthFraction,
+                    maskSoftness: $maskSoftness,
+                    onMaskFromSubject: maskFromSubject,
+                    onMaskCancel: cancelMask,
+                    onMaskApply: {
+                        applyMask()
+                        activeTool = nil
+                    },
+                    onToggleTool: toggleDockTool
+                )
+                .padding(16)
+            }
+        }
+        .background { hardwareDeleteShortcut }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { editorToolbar }
         .onChange(of: pickerItem) { _, newValue in
             loadPickedImage(newValue)
+        }
+        .onChange(of: activeTool) { _, newTool in
+            syncDockToolPanels(newTool)
+        }
+        .onChange(of: model.selectedItemID) { _, _ in
+            // A mask session belongs to one picture; switching pictures
+            // discards it — and disowns any in-flight cutout request —
+            // rather than risking a commit onto the wrong one.
+            maskSession = nil
+            maskRequestToken = nil
+            maskDraftPoints = []
+            if activeTool == .mask { activeTool = nil }
+        }
+        .onAppear {
+            syncDockToolPanels(activeTool)
         }
         .onChange(of: layerPickerItem) { _, newValue in
             loadLayerImage(newValue)
@@ -162,6 +245,28 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var editorToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarTrailing) {
+            if model.workingImage != nil, model.videoURL == nil {
+                Button {
+                    if isRegularWidth {
+                        panelDock.railToggle(.layers)
+                    } else {
+                        isShowingLayersSheet = true
+                    }
+                } label: {
+                    Image(systemName: "square.3.layers.3d")
+                }
+                .accessibilityLabel("Layers")
+                Button {
+                    if isRegularWidth {
+                        panelDock.railToggle(.history)
+                    } else {
+                        isShowingHistorySheet = true
+                    }
+                } label: {
+                    Image(systemName: "clock.arrow.circlepath")
+                }
+                .accessibilityLabel("History")
+            }
             if model.workingImage != nil {
                 Button { model.undo() } label: { Image(systemName: "arrow.uturn.backward") }
                     .disabled(!model.canUndo)
@@ -197,7 +302,7 @@ struct ContentView: View {
                 if let original = model.refineRestoreImage?.normalizedCGImage(),
                    let current = model.workingImage?.normalizedCGImage() {
                     RefineView(original: original, current: current) { rendered in
-                        model.applyEditedImage(rendered, status: "Refined")
+                        model.applyEditedImage(rendered, status: "Refined", systemImage: "lasso")
                         activeTool = nil
                     }
                 }
@@ -215,6 +320,41 @@ struct ContentView: View {
             .sheet(isPresented: $isShowingSettings) {
                 SettingsView()
             }
+            .sheet(isPresented: $isShowingLayersSheet) {
+                NavigationStack {
+                    LayersPanelContent(
+                        annotations: annotations,
+                        layers: layers,
+                        selectedAnnotationID: $selectedAnnotationID,
+                        selectedLayerID: $selectedLayerID
+                    )
+                    .padding()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .navigationTitle("Layers")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { isShowingLayersSheet = false }
+                        }
+                    }
+                }
+                .presentationDetents([.medium, .large])
+            }
+            .sheet(isPresented: $isShowingHistorySheet) {
+                NavigationStack {
+                    HistoryPanelContent(model: model)
+                        .padding()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .navigationTitle("History")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("Done") { isShowingHistorySheet = false }
+                            }
+                        }
+                }
+                .presentationDetents([.medium, .large])
+            }
             .alert(
                 "Something went wrong",
                 isPresented: Binding(
@@ -227,6 +367,84 @@ struct ContentView: View {
     }
 
     private var isRegularWidth: Bool { horizontalSizeClass == .regular }
+
+    /// iPad only: the dock's floating panels and chip rail live over the
+    /// canvas. Compact widths keep inline inspectors and sheets, and video
+    /// mode has no panels at all.
+    private var usesPanelDock: Bool {
+        isRegularWidth && model.workingImage != nil && model.videoURL == nil
+    }
+
+    /// iPad only: Draw/Text options leave the bottom stack and float on the
+    /// dock. Compact widths keep the existing inline inspector.
+    private var usesFloatingAnnotatePanel: Bool {
+        usesPanelDock && (activeTool == .draw || activeTool == .text)
+    }
+
+    /// iPad only: the colour sampler's swatches float as a "Colours" panel.
+    private var usesFloatingColourPanel: Bool {
+        usesPanelDock && activeTool == .colour
+    }
+
+    /// iPad only: the Mask tool's options float as a "Mask" dock panel.
+    private var usesFloatingMaskPanel: Bool {
+        usesPanelDock && activeTool == .mask
+    }
+
+    /// The Draw/Text and Colours panels are tool-driven: they appear on the
+    /// dock while their tool is active and leave it when the tool goes away
+    /// (their minimized state still persists, so a minimized panel comes back
+    /// as a highlighted rail chip).
+    private func syncDockToolPanels(_ tool: EditorTool?) {
+        setDockPanel(.annotate, presented: tool == .draw || tool == .text)
+        setDockPanel(.colours, presented: tool == .colour)
+        setDockPanel(.mask, presented: tool == .mask)
+    }
+
+    private func setDockPanel(_ panel: IPadDockPanel, presented: Bool) {
+        if presented {
+            panelDock.presented.insert(panel)
+        } else if panelDock.presented.contains(panel) {
+            // Hide without clearing the minimized flag (unlike toggle), so a
+            // minimized panel returns as a chip next time the tool comes up.
+            panelDock.stacks.detach(panelDock.stackKey(panel))
+            panelDock.presented.remove(panel)
+        }
+    }
+
+    /// Rail chips for the tool-driven panels toggle their tool; the dock then
+    /// follows via `syncDockToolPanels`.
+    private func toggleDockTool(_ panel: IPadDockPanel) {
+        switch panel {
+        case .annotate:
+            activate(activeTool == .text ? .text : .draw)
+        case .colours:
+            activate(.colour)
+        case .mask:
+            activate(.mask)
+        case .layers, .history:
+            break
+        }
+    }
+
+    /// Hidden button so Backspace/Delete on a hardware keyboard removes the
+    /// selected annotation — but never while typing into a text field.
+    private var hardwareDeleteShortcut: some View {
+        Button(action: deleteSelectedAnnotation) {
+            EmptyView()
+        }
+        .keyboardShortcut(.delete, modifiers: [])
+        .disabled(selectedAnnotationID == nil || editingTextID != nil || isEditingTextInline)
+        .opacity(0)
+        .accessibilityHidden(true)
+    }
+
+    private func deleteSelectedAnnotation() {
+        guard let id = selectedAnnotationID else { return }
+        model.annotations.removeAll { $0.id == id }
+        selectedAnnotationID = nil
+        if editingTextID == id { editingTextID = nil }
+    }
 
     /// The canvas fills the whole editor area; the image sits on top with a border
     /// that marks its exact bounds (like the macOS viewport).
@@ -256,10 +474,13 @@ struct ContentView: View {
 
     @ViewBuilder
     private func editingPreview(for display: UIImage) -> some View {
+        // While a mask session is live, the canvas shows its composited
+        // preview (subject full, background dimmed) instead of the raw image.
+        let shown = (activeTool == .mask ? maskSession?.preview : nil) ?? display
         Group {
             if let activeTool, activeTool.usesEditingCanvas {
                 InlineEditingCanvas(
-                    image: display,
+                    image: shown,
                     activeTool: activeTool,
                     cornerRadius: settings.imageCornerRadius,
                     borderColor: settings.canvasBorderColor,
@@ -268,16 +489,24 @@ struct ContentView: View {
                     annotations: annotations,
                     layers: layers,
                     draftAnnotation: $draftAnnotation,
-                    annotationKind: annotationToolKind,
-                    annotationColor: annotationColor,
-                    annotationWidthFraction: annotationWidthFraction,
-                    textSizeFraction: textSizeFraction,
-                    currentSample: $currentSample,
-                    sampleLocation: $sampleLocation,
-                    isEditingText: $isEditingTextInline,
                     selectedAnnotationID: $selectedAnnotationID,
                     editingTextID: $editingTextID,
                     selectedLayerID: $selectedLayerID,
+                    isEditingText: $isEditingTextInline,
+                    annotationKind: annotationToolKind,
+                    annotationColor: annotationColor,
+                    annotationWidthFraction: annotationWidthFraction,
+                    annotationBrush: annotationBrush,
+                    annotationOpacity: annotationOpacity,
+                    annotationSoftness: annotationSoftness,
+                    textSizeFraction: textSizeFraction,
+                    currentSample: $currentSample,
+                    sampleLocation: $sampleLocation,
+                    isMaskActive: maskSession != nil,
+                    maskRevealMode: maskRevealMode,
+                    maskWidthFraction: maskWidthFraction,
+                    maskDraftPoints: $maskDraftPoints,
+                    onMaskStroke: commitMaskStroke,
                     onTextLocation: { _ in }
                 )
             } else {
@@ -421,6 +650,7 @@ struct ContentView: View {
             toolButton(.draw)
             toolButton(.text)
             Divider().frame(height: 26).padding(.horizontal, 2)
+            toolButton(.mask)
             toolButton(.background)
             magicMenu
         }
@@ -505,8 +735,12 @@ struct ContentView: View {
                         selectedTool: $annotationKind,
                         color: $annotationColor,
                         widthFraction: $annotationWidthFraction,
+                        brush: $annotationBrush,
+                        opacity: $annotationOpacity,
+                        softness: $annotationSoftness,
                         textSizeFraction: $textSizeFraction,
                         annotations: annotations,
+                        selectedAnnotationID: $selectedAnnotationID,
                         defaultKind: .freehand,
                         onCancel: {
                             resetAnnotations()
@@ -523,6 +757,26 @@ struct ContentView: View {
                     onMask: { maskingLayerID = $0 },
                     onClose: { activeTool = nil }
                 )
+            case .mask:
+                InspectorPanel(title: "Mask", systemImage: "person.and.background.dotted", onClose: {
+                    resolveMaskSession()
+                    activeTool = nil
+                }) {
+                    MaskControls(
+                        hasMask: maskSession != nil,
+                        isBusy: model.isBusy,
+                        engineTitle: model.preferredBackgroundEngine.title,
+                        revealMode: $maskRevealMode,
+                        widthFraction: $maskWidthFraction,
+                        softness: $maskSoftness,
+                        onMaskFromSubject: maskFromSubject,
+                        onCancel: cancelMask,
+                        onApply: {
+                            applyMask()
+                            activeTool = nil
+                        }
+                    )
+                }
             case .select, .text:
                 EmptyView()
             }
@@ -554,9 +808,13 @@ struct ContentView: View {
 
     private func activate(_ tool: EditorTool) {
         if activeTool == tool {
+            if tool == .mask { resolveMaskSession() }
             activeTool = nil
             return
         }
+        // Leaving the Mask tool auto-applies an existing mask first (it's one
+        // undoable history step), so another tool never edits a stale image.
+        if activeTool == .mask { resolveMaskSession() }
         if tool != .draw, tool != .text, tool != .select { resetAnnotations() }
         if tool != .colour {
             currentSample = nil
@@ -603,6 +861,9 @@ struct ContentView: View {
         draftAnnotation = nil
         pendingTextLocation = nil
         textInput = ""
+        selectedAnnotationID = nil
+        editingTextID = nil
+        isEditingTextInline = false
     }
 
     /// "Done": leave the annotation tools. Annotations stay editable; nothing is
@@ -648,6 +909,88 @@ struct ContentView: View {
             }
         }
         return out.cgImage.map { UIImage(cgImage: $0) } ?? base
+    }
+
+    // MARK: Mask tool
+
+    /// Runs the background-removal model WITHOUT committing, derives an
+    /// editable alpha mask from the cutout, and starts the live preview.
+    private func maskFromSubject() {
+        guard maskSession == nil,
+              let base = model.workingImage,
+              let baseCG = base.normalizedCGImage() else { return }
+        // Bind the request to the picture AND the exact history step the base
+        // was captured from; the result is dropped unless both still match and
+        // the Mask tool is still active, so a stale cutout can never bake old
+        // pixels over edits made while the model was running.
+        let token = MaskRequestToken(itemID: model.selectedItemID, historyStepID: model.currentHistoryStepID)
+        maskRequestToken = token
+        model.generateCutout(engine: model.preferredBackgroundEngine) { cutout in
+            guard maskRequestToken == token else { return }  // disowned: cancelled or picture switched
+            maskRequestToken = nil
+            guard model.selectedItemID == token.itemID else { return }
+            guard model.currentHistoryStepID == token.historyStepID else {
+                model.statusText = "Mask cancelled — image changed"
+                return
+            }
+            guard activeTool == .mask else {
+                // Tool was left while the model ran; clear the stale
+                // "Subject masked" status generateCutout just posted.
+                model.statusText = nil
+                return
+            }
+            guard let cutout,
+                  let mask = MaskRenderer.alphaMask(of: cutout),
+                  let preview = MaskRenderer.preview(base: baseCG, mask: mask) else { return }
+            maskSession = MaskSession(
+                base: base,
+                baseCG: baseCG,
+                mask: mask,
+                preview: UIImage(cgImage: preview)
+            )
+        }
+    }
+
+    /// Bakes one finished Reveal/Hide stroke into the mask and refreshes the
+    /// live preview (the in-flight stroke shows as a tinted overlay instead).
+    private func commitMaskStroke(_ points: [CGPoint]) {
+        guard let session = maskSession else { return }
+        guard let painted = MaskRenderer.paint(
+            points: points,
+            reveal: maskRevealMode,
+            widthFraction: maskWidthFraction,
+            softness: maskSoftness,
+            into: session.mask
+        ), let preview = MaskRenderer.preview(base: session.baseCG, mask: painted) else { return }
+        maskSession = MaskSession(
+            base: session.base,
+            baseCG: session.baseCG,
+            mask: painted,
+            preview: UIImage(cgImage: preview)
+        )
+    }
+
+    /// Commits the masked result as a single history step and ends the session.
+    private func applyMask() {
+        guard let session = maskSession else { return }
+        if let baked = MaskRenderer.apply(base: session.baseCG, mask: session.mask) {
+            model.applyEditedImage(baked, status: "Masked background", systemImage: "person.and.background.dotted")
+        }
+        maskSession = nil
+        maskDraftPoints = []
+    }
+
+    private func cancelMask() {
+        maskSession = nil
+        maskRequestToken = nil
+        maskDraftPoints = []
+        activeTool = nil
+    }
+
+    /// Called when the Mask tool is left with a session still open: apply it
+    /// (undoable) rather than silently losing the painted refinements.
+    private func resolveMaskSession() {
+        if maskSession != nil { applyMask() }
     }
 
     /// The "Magic" entry point: a context menu grouping AI-powered actions —
@@ -720,6 +1063,7 @@ private enum EditorTool: String, CaseIterable, Identifiable {
     case layer
     case draw
     case text
+    case mask
     case background
 
     var id: String { rawValue }
@@ -733,6 +1077,7 @@ private enum EditorTool: String, CaseIterable, Identifiable {
         case .layer: "Layers"
         case .draw: "Draw"
         case .text: "Text"
+        case .mask: "Mask"
         case .background: "Remove background"
         }
     }
@@ -746,13 +1091,14 @@ private enum EditorTool: String, CaseIterable, Identifiable {
         case .layer: "square.3.layers.3d"
         case .draw: "pencil.tip.crop.circle"
         case .text: "textformat"
+        case .mask: "person.and.background.dotted"
         case .background: "eraser"
         }
     }
 
     var usesEditingCanvas: Bool {
         switch self {
-        case .select, .colour, .crop, .layer, .draw, .text: true
+        case .select, .colour, .crop, .layer, .draw, .text, .mask: true
         case .resize, .background: false
         }
     }
@@ -1041,63 +1387,397 @@ private struct AnnotationInspector: View {
     @Binding var selectedTool: Annotation.Kind
     @Binding var color: Color
     @Binding var widthFraction: CGFloat
+    @Binding var brush: BrushPreset
+    @Binding var opacity: CGFloat
+    @Binding var softness: CGFloat
     @Binding var textSizeFraction: CGFloat
     @Binding var annotations: [Annotation]
+    @Binding var selectedAnnotationID: UUID?
     let defaultKind: Annotation.Kind
     let onCancel: () -> Void
     let onApply: () -> Void
 
     var body: some View {
         InspectorPanel(title: defaultKind == .text ? "Text" : "Draw", systemImage: defaultKind == .text ? "textformat" : "pencil.tip.crop.circle", onClose: onCancel) {
-            VStack(spacing: 12) {
-                if defaultKind != .text {
-                    Picker("Tool", selection: $selectedTool) {
-                        ForEach(Annotation.Kind.allCases.filter { $0 != .text }) { kind in
-                            Image(systemName: kind.systemImage).tag(kind)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                }
+            AnnotationControls(
+                selectedTool: $selectedTool,
+                color: $color,
+                widthFraction: $widthFraction,
+                brush: $brush,
+                opacity: $opacity,
+                softness: $softness,
+                textSizeFraction: $textSizeFraction,
+                annotations: $annotations,
+                selectedAnnotationID: $selectedAnnotationID,
+                defaultKind: defaultKind,
+                onCancel: onCancel,
+                onApply: onApply
+            )
+        }
+    }
+}
 
-                HStack(spacing: 14) {
-                    ColorPicker("Colour", selection: $color, supportsOpacity: false)
-                        .labelsHidden()
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(defaultKind == .text ? "Text size" : "Thickness")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Slider(
-                            value: defaultKind == .text ? $textSizeFraction : $widthFraction,
-                            in: defaultKind == .text ? 0.02...0.15 : 0.002...0.02
-                        )
-                    }
-                    Button {
-                        if !annotations.isEmpty { annotations.removeLast() }
-                    } label: {
-                        Image(systemName: "arrow.uturn.backward")
-                    }
-                    .disabled(annotations.isEmpty)
-                }
+/// The Draw/Text option controls, host-agnostic: the compact inline inspector
+/// and the iPad dock panel both wrap this.
+struct AnnotationControls: View {
+    @Binding var selectedTool: Annotation.Kind
+    @Binding var color: Color
+    @Binding var widthFraction: CGFloat
+    @Binding var brush: BrushPreset
+    @Binding var opacity: CGFloat
+    @Binding var softness: CGFloat
+    @Binding var textSizeFraction: CGFloat
+    @Binding var annotations: [Annotation]
+    @Binding var selectedAnnotationID: UUID?
+    let defaultKind: Annotation.Kind
+    let onCancel: () -> Void
+    let onApply: () -> Void
 
-                HStack {
-                    Button("Cancel", role: .cancel, action: onCancel)
-                        .buttonStyle(.bordered)
+    var body: some View {
+        VStack(spacing: 12) {
+            if defaultKind != .text {
+                Picker("Tool", selection: $selectedTool) {
+                    ForEach(Annotation.Kind.allCases.filter { $0 != .text }) { kind in
+                        Image(systemName: kind.systemImage).tag(kind)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            if defaultKind != .text, selectedTool == .freehand {
+                brushSection
+            }
+
+            HStack(spacing: 14) {
+                ColorPicker("Colour", selection: $color, supportsOpacity: false)
+                    .labelsHidden()
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(defaultKind == .text ? "Text size" : "Thickness")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Slider(
+                        value: defaultKind == .text ? $textSizeFraction : $widthFraction,
+                        in: defaultKind == .text ? 0.02...0.15 : 0.002...0.02
+                    )
+                }
+                Button {
+                    if !annotations.isEmpty { annotations.removeLast() }
+                } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                }
+                .disabled(annotations.isEmpty)
+                if defaultKind == .text {
+                    // Deletes the SELECTED text (the per-layer delete the
+                    // canvas selection pairs with); the trash below still
+                    // clears everything.
                     Button(role: .destructive) {
-                        annotations.removeAll()
+                        if let id = selectedAnnotationID {
+                            annotations.removeAll { $0.id == id }
+                            selectedAnnotationID = nil
+                        }
                     } label: {
                         Image(systemName: "trash")
                     }
-                    .buttonStyle(.bordered)
-                    .disabled(annotations.isEmpty)
-                    Button(action: onApply) {
-                        Label("Apply", systemImage: "checkmark")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(annotations.isEmpty)
+                    .tint(.red)
+                    .disabled(selectedAnnotationID == nil)
+                    .accessibilityLabel("Delete selected text")
                 }
             }
+
+            HStack {
+                Button("Cancel", role: .cancel, action: onCancel)
+                    .buttonStyle(.bordered)
+                Button(role: .destructive) {
+                    annotations.removeAll()
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.bordered)
+                .disabled(annotations.isEmpty)
+                Button(action: onApply) {
+                    Label("Apply", systemImage: "checkmark")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(annotations.isEmpty)
+            }
         }
+    }
+
+    /// Brush presets plus the opacity/softness sliders (freehand tool only).
+    /// Picking a preset seeds all three stroke properties; the sliders then
+    /// fine-tune them without dropping the preset (caps stay per brush).
+    private var brushSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Brushes")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                ForEach(BrushPreset.allCases) { preset in
+                    brushButton(preset)
+                }
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Opacity").font(.caption).foregroundStyle(.secondary)
+                Slider(value: $opacity, in: 0.1...1)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Softness").font(.caption).foregroundStyle(.secondary)
+                Slider(value: $softness, in: 0...1)
+            }
+        }
+    }
+
+    private func brushButton(_ preset: BrushPreset) -> some View {
+        let isSelected = brush == preset
+        return Button {
+            brush = preset
+            opacity = preset.opacity
+            softness = preset.softness
+            widthFraction = preset.widthFraction
+        } label: {
+            VStack(spacing: 3) {
+                Image(systemName: preset.systemImage)
+                    .font(.system(size: 16, weight: .medium))
+                Text(preset.label)
+                    .font(.system(size: 10, weight: .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .foregroundStyle(isSelected ? .white : .primary)
+            .frame(maxWidth: .infinity, minHeight: 52)
+            .background(
+                isSelected ? Color.accentColor : Color.primary.opacity(0.06),
+                in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(preset.label) brush")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// The unified layer stack — image layers and vector annotations interleaved
+/// by their shared depth (`z`), topmost first. Shared by the iPad floating
+/// panel and the compact-width sheet; ports the macOS LayersPanel semantics
+/// to iOS: tap to select, eye to hide, arrows to reorder, trash to delete.
+struct LayersPanelContent: View {
+    @Binding var annotations: [Annotation]
+    @Binding var layers: [EditorLayer]
+    @Binding var selectedAnnotationID: UUID?
+    @Binding var selectedLayerID: UUID?
+    var listMaxHeight: CGFloat?
+
+    private enum Row: Identifiable {
+        case layer(EditorLayer)
+        case annotation(Annotation)
+
+        var id: UUID {
+            switch self {
+            case .layer(let layer): layer.id
+            case .annotation(let annotation): annotation.id
+            }
+        }
+
+        var z: Double {
+            switch self {
+            case .layer(let layer): layer.z
+            case .annotation(let annotation): annotation.z
+            }
+        }
+    }
+
+    /// Front-most first (higher z renders closer to the viewer).
+    private var orderedRows: [Row] {
+        (layers.map(Row.layer) + annotations.map(Row.annotation))
+            .sorted { $0.z > $1.z }
+    }
+
+    private var selectedID: UUID? { selectedAnnotationID ?? selectedLayerID }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if orderedRows.isEmpty {
+                VStack(spacing: 10) {
+                    Image(systemName: "square.3.layers.3d")
+                        .font(.system(size: 28, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Text("Draw, add text, or place an image with the tools below — everything shows up here as a layer.")
+                        .font(.caption)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 110)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 4) {
+                        ForEach(orderedRows) { entry in
+                            row(entry)
+                        }
+                    }
+                }
+                .frame(maxHeight: listMaxHeight ?? .infinity)
+                .scrollBounceBehavior(.basedOnSize)
+
+                controlBar
+            }
+        }
+    }
+
+    private func row(_ entry: Row) -> some View {
+        let isSelected = selectedID == entry.id
+        let hidden = isHidden(entry)
+        return HStack(spacing: 10) {
+            Image(systemName: icon(for: entry))
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 22)
+                .opacity(hidden ? 0.4 : 1)
+            Text(label(for: entry))
+                .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                .lineLimit(1)
+                .opacity(hidden ? 0.5 : 1)
+            Spacer()
+            Button {
+                toggleHidden(entry)
+            } label: {
+                Image(systemName: hidden ? "eye.slash" : "eye")
+                    .font(.system(size: 12))
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel(hidden ? "Show layer" : "Hide layer")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            isSelected ? Color.accentColor.opacity(0.30) : Color.primary.opacity(0.05),
+            in: RoundedRectangle(cornerRadius: 8)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            select(entry)
+        }
+    }
+
+    private var controlBar: some View {
+        HStack(spacing: 6) {
+            control("arrow.up", label: "Bring forward") { moveSelected(forward: true) }
+            control("arrow.down", label: "Send backward") { moveSelected(forward: false) }
+            Spacer()
+            control("trash", label: "Delete layer", role: .destructive) { deleteSelected() }
+                .foregroundStyle(.red)
+        }
+        .disabled(selectedID == nil)
+        .padding(.top, 2)
+    }
+
+    private func control(
+        _ symbol: String,
+        label: String,
+        role: ButtonRole? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(role: role, action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 34, height: 30)
+                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    private func icon(for entry: Row) -> String {
+        switch entry {
+        case .layer: return "photo"
+        case .annotation(let annotation): return annotation.kind.systemImage
+        }
+    }
+
+    private func label(for entry: Row) -> String {
+        switch entry {
+        case .layer(let layer):
+            return layer.name
+        case .annotation(let annotation):
+            if annotation.isText {
+                let text = annotation.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                return text.isEmpty ? "Text" : text
+            }
+            return annotation.displayLabel
+        }
+    }
+
+    private func isHidden(_ entry: Row) -> Bool {
+        switch entry {
+        case .layer(let layer): return !layer.isVisible
+        case .annotation(let annotation): return annotation.isHidden
+        }
+    }
+
+    private func toggleHidden(_ entry: Row) {
+        switch entry {
+        case .layer(let layer):
+            if let i = layers.firstIndex(where: { $0.id == layer.id }) { layers[i].isVisible.toggle() }
+        case .annotation(let annotation):
+            if let i = annotations.firstIndex(where: { $0.id == annotation.id }) {
+                annotations[i].isHidden.toggle()
+            }
+        }
+    }
+
+    private func select(_ entry: Row) {
+        switch entry {
+        case .layer(let layer):
+            selectedLayerID = layer.id
+            selectedAnnotationID = nil
+        case .annotation(let annotation):
+            selectedAnnotationID = annotation.id
+            selectedLayerID = nil
+        }
+    }
+
+    private func setZ(_ id: UUID, to z: Double) {
+        if let i = annotations.firstIndex(where: { $0.id == id }) {
+            annotations[i].z = z
+        } else if let i = layers.firstIndex(where: { $0.id == id }) {
+            layers[i].z = z
+        }
+    }
+
+    /// Re-number the whole stack bottom→top as 1…n (the macOS normalizeStackZ),
+    /// so neighbouring rows always have distinct, swappable depths.
+    private func normalizeZ() {
+        for (index, entry) in orderedRows.reversed().enumerated() {
+            setZ(entry.id, to: Double(index + 1))
+        }
+    }
+
+    /// Forward = towards the viewer = higher z. Depths are swapped with the
+    /// neighbouring row after normalising, mirroring the macOS reorderStack.
+    private func moveSelected(forward: Bool) {
+        guard let id = selectedID else { return }
+        normalizeZ()
+        let rows = orderedRows
+        guard let index = rows.firstIndex(where: { $0.id == id }) else { return }
+        let neighbour = forward ? index - 1 : index + 1
+        guard rows.indices.contains(neighbour) else { return }
+        let a = rows[index]
+        let b = rows[neighbour]
+        let az = a.z
+        setZ(a.id, to: b.z)
+        setZ(b.id, to: az)
+    }
+
+    private func deleteSelected() {
+        guard let id = selectedID else { return }
+        annotations.removeAll { $0.id == id }
+        layers.removeAll { $0.id == id }
+        if selectedAnnotationID == id { selectedAnnotationID = nil }
+        if selectedLayerID == id { selectedLayerID = nil }
     }
 }
 
@@ -1322,63 +2002,87 @@ private struct ColourInspector: View {
 
     var body: some View {
         InspectorPanel(title: "Colours", systemImage: "eyedropper", onClose: onClose) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 12) {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(current?.color ?? Color(.tertiarySystemFill))
-                        .frame(width: 52, height: 52)
-                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.quaternary))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(current?.hex ?? "Pick a pixel")
-                            .font(.headline.monospaced())
-                        Text(current?.rgb ?? "Drag on the image to sample a colour.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    if let current {
-                        Menu {
-                            copyButtons(for: current)
-                        } label: {
-                            Image(systemName: "doc.on.doc")
-                        }
-                    }
-                    Button(action: onSave) {
-                        Image(systemName: "plus.circle.fill")
-                    }
-                    .disabled(current == nil)
-                }
-                if model.sampledColors.isEmpty {
-                    Text("No saved colours yet.")
+            ColourSampleControls(model: model, current: current, onSave: onSave)
+        }
+    }
+}
+
+/// The colour sampler's readout and saved-swatch strip, host-agnostic: the
+/// compact inline inspector and the iPad "Colours" dock panel both wrap this.
+/// Swatches persist on the model, so the panel pairs with the sampling tool
+/// the way Fekthor's swatch palette does.
+struct ColourSampleControls: View {
+    @ObservedObject var model: InferenceModel
+    let current: SampledColor?
+    let onSave: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(current?.color ?? Color(.tertiarySystemFill))
+                    .frame(width: 52, height: 52)
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.quaternary))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(current?.hex ?? "Pick a pixel")
+                        .font(.headline.monospaced())
+                    Text(current?.rgb ?? "Drag on the image to sample a colour.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                } else {
-                    HStack {
-                        Text("Saved").font(.caption).foregroundStyle(.secondary)
-                        Spacer()
-                        Menu {
-                            Button("Copy HEX list") { copyPalette(\.hex) }
-                            Button("Copy RGB list") { copyPalette(\.rgb) }
-                            Button("Copy CSS variables") { copyPalette(\.cssVariable) }
-                            Button("Copy JSON") { copyPaletteJSON() }
-                        } label: {
-                            Label("Export", systemImage: "square.and.arrow.up")
-                                .font(.caption)
-                        }
+                }
+                Spacer()
+                if let current {
+                    Menu {
+                        copyButtons(for: current)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(model.sampledColors) { swatch in
-                                Menu {
-                                    copyButtons(for: swatch)
-                                    Divider()
-                                    Button("Remove", role: .destructive) { model.removeSampledColor(swatch.id) }
-                                } label: {
-                                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                        .fill(swatch.color)
-                                        .frame(width: 44, height: 44)
-                                        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(.quaternary))
-                                }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Copy colour")
+                }
+                Button(action: onSave) {
+                    Image(systemName: "plus.circle.fill")
+                        .imageScale(.large)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(current == nil)
+                .opacity(current == nil ? 0.4 : 1)
+                .accessibilityLabel("Save colour")
+            }
+            if model.sampledColors.isEmpty {
+                Text("No saved colours yet.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                HStack {
+                    Text("Saved").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Menu {
+                        Button("Copy HEX list") { copyPalette(\.hex) }
+                        Button("Copy RGB list") { copyPalette(\.rgb) }
+                        Button("Copy CSS variables") { copyPalette(\.cssVariable) }
+                        Button("Copy JSON") { copyPaletteJSON() }
+                    } label: {
+                        Label("Export", systemImage: "square.and.arrow.up")
+                            .font(.caption)
+                    }
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(model.sampledColors) { swatch in
+                            Menu {
+                                copyButtons(for: swatch)
+                                Divider()
+                                Button("Remove", role: .destructive) { model.removeSampledColor(swatch.id) }
+                            } label: {
+                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    .fill(swatch.color)
+                                    .frame(width: 44, height: 44)
+                                    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(.quaternary))
                             }
                         }
                     }
@@ -1508,19 +2212,33 @@ private struct InlineEditingCanvas: View {
     @Binding var annotations: [Annotation]
     @Binding var layers: [EditorLayer]
     @Binding var draftAnnotation: Annotation?
-    let annotationKind: Annotation.Kind
-    let annotationColor: Color
-    let annotationWidthFraction: CGFloat
-    let textSizeFraction: CGFloat
-    @Binding var currentSample: SampledColor?
-    @Binding var sampleLocation: CGPoint?
-    @Binding var isEditingText: Bool
     @Binding var selectedAnnotationID: UUID?
     @Binding var editingTextID: UUID?
     @Binding var selectedLayerID: UUID?
+    @Binding var isEditingText: Bool
+    let annotationKind: Annotation.Kind
+    let annotationColor: Color
+    let annotationWidthFraction: CGFloat
+    let annotationBrush: BrushPreset
+    let annotationOpacity: CGFloat
+    let annotationSoftness: CGFloat
+    let textSizeFraction: CGFloat
+    @Binding var currentSample: SampledColor?
+    @Binding var sampleLocation: CGPoint?
+    /// Mask mode: true once a mask session exists, so drags paint Reveal/Hide
+    /// strokes. The in-flight stroke shows as a tinted overlay; the finished
+    /// stroke is baked by `onMaskStroke`.
+    let isMaskActive: Bool
+    let maskRevealMode: Bool
+    let maskWidthFraction: CGFloat
+    @Binding var maskDraftPoints: [CGPoint]
+    let onMaskStroke: ([CGPoint]) -> Void
     let onTextLocation: (CGPoint) -> Void
 
     @State private var dragStartCrop: CGRect?
+    /// Shared box the window-level force observer writes into; the draw
+    /// gesture reads it when recording each freehand point.
+    @State private var pencilPressure = PencilPressureState()
     @State private var zoomScale: CGFloat = 1
     @State private var committedZoomScale: CGFloat = 1
     @State private var panOffset: CGSize = .zero
@@ -1577,6 +2295,10 @@ private struct InlineEditingCanvas: View {
                     selectionOverlay(in: imageRect)
                 }
 
+                if activeTool == .mask, !maskDraftPoints.isEmpty {
+                    maskDraftOverlay(in: imageRect)
+                }
+
                 if activeTool == .colour, let sampleLocation {
                     let point = CGPoint(
                         x: imageRect.minX + sampleLocation.x * imageRect.width,
@@ -1591,7 +2313,9 @@ private struct InlineEditingCanvas: View {
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .contentShape(Rectangle())
+            .background(PencilPressureReader(pressure: pencilPressure))
             .gesture(canvasGesture(in: imageRect))
+            .simultaneousGesture(doubleTapGesture(in: imageRect))
             .simultaneousGesture(zoomGesture())
             .overlay(alignment: .topLeading) {
                 inlineTextEditor(in: imageRect)
@@ -1602,6 +2326,26 @@ private struct InlineEditingCanvas: View {
                     .padding(.top, canvasTopControlInset())
             }
         }
+    }
+
+    /// The Reveal/Hide stroke in flight, tinted so the painter sees where the
+    /// mask will change before it is baked on release.
+    private func maskDraftOverlay(in imageRect: CGRect) -> some View {
+        Canvas { context, _ in
+            let localRect = CGRect(origin: .zero, size: imageRect.size)
+            context.stroke(
+                Path(RefineRenderer.strokePath(maskDraftPoints, in: localRect)),
+                with: .color((maskRevealMode ? Color.green : Color.red).opacity(0.45)),
+                style: StrokeStyle(
+                    lineWidth: max(1, maskWidthFraction * min(localRect.width, localRect.height)),
+                    lineCap: .round,
+                    lineJoin: .round
+                )
+            )
+        }
+        .frame(width: imageRect.width, height: imageRect.height)
+        .position(x: imageRect.midX, y: imageRect.midY)
+        .allowsHitTesting(false)
     }
 
     private var zoomControls: some View {
@@ -1742,7 +2486,7 @@ private struct InlineEditingCanvas: View {
                             .position(x: rect.midX, y: rect.midY)
                     }
                 case .annotation(let annotation):
-                    if annotation.id != editingTextID {
+                    if !annotation.isHidden, annotation.id != editingTextID {
                         singleAnnotationCanvas(annotation, in: imageRect)
                     }
                 }
@@ -1761,11 +2505,9 @@ private struct InlineEditingCanvas: View {
                 )
                 context.draw(resolved, at: annotation.textOrigin(in: imageRect), anchor: .topLeading)
             } else {
-                context.stroke(
-                    Path(annotation.path(in: imageRect)),
-                    with: .color(annotation.color),
-                    style: StrokeStyle(lineWidth: annotation.strokeWidth(in: imageRect), lineCap: .round, lineJoin: .round)
-                )
+                // Brush-aware stroke pass: opacity, softness, caps, and Pencil
+                // pressure render exactly like the flattened image.
+                context.drawStroke(annotation, in: imageRect)
             }
         }
         .allowsHitTesting(false)
@@ -1792,19 +2534,25 @@ private struct InlineEditingCanvas: View {
         }
     }
 
-    /// Dashed outline around the selected annotation (Select tool).
+    /// Selection border around the selected annotation: a white casing under a
+    /// dashed accent line so it reads against any image content.
     @ViewBuilder
     private func selectionOverlay(in imageRect: CGRect) -> some View {
-        if activeTool == .select, editingTextID == nil,
+        if editingTextID == nil,
            let id = selectedAnnotationID,
-           let annotation = annotations.first(where: { $0.id == id }) {
-            let box = annotation.hitBounds(in: imageRect)
+           let annotation = annotations.first(where: { $0.id == id }),
+           !annotation.isHidden {
+            let box = annotation.selectionBounds(in: imageRect).insetBy(dx: -8, dy: -8)
             if !box.isNull, !box.isInfinite {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
-                    .frame(width: box.width, height: box.height)
-                    .position(x: box.midX, y: box.midY)
-                    .allowsHitTesting(false)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color.white.opacity(0.85), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1.8, lineCap: .round, dash: [7, 5]))
+                }
+                .frame(width: box.width, height: box.height)
+                .position(x: box.midX, y: box.midY)
+                .allowsHitTesting(false)
             }
         }
     }
@@ -1852,12 +2600,25 @@ private struct InlineEditingCanvas: View {
         isEditingText = false
     }
 
-    /// Topmost annotation whose hit area contains `point` (view space), if any.
+    /// Topmost visible annotation whose hit area contains `point` (view space), if any.
     private func hitTestAnnotation(at point: CGPoint, in imageRect: CGRect) -> Int? {
-        for idx in annotations.indices.reversed() where annotations[idx].hitBounds(in: imageRect).contains(point) {
+        for idx in annotations.indices.reversed()
+        where !annotations[idx].isHidden && annotations[idx].hitBounds(in: imageRect).contains(point) {
             return idx
         }
         return nil
+    }
+
+    /// Double tap (touch) or double click (trackpad) on a text annotation
+    /// starts editing it in place.
+    private func doubleTapGesture(in imageRect: CGRect) -> some Gesture {
+        SpatialTapGesture(count: 2, coordinateSpace: .local)
+            .onEnded { value in
+                guard activeTool == .text || activeTool == .select, !isPanning else { return }
+                guard let idx = hitTestAnnotation(at: value.location, in: imageRect),
+                      annotations[idx].isText else { return }
+                beginTextEditing(annotations[idx].id)
+            }
     }
 
     private func canvasGesture(in imageRect: CGRect) -> some Gesture {
@@ -1959,14 +2720,29 @@ private struct InlineEditingCanvas: View {
                         new.start = point
                         new.end = point
                         new.points = [point]
+                        if annotationKind == .freehand {
+                            // Brush strokes carry the preset's look and record
+                            // pencil pressure per point (multiplier 1 = finger
+                            // or no force data). Shapes stay crisp and opaque.
+                            new.brush = annotationBrush
+                            new.opacity = annotationOpacity
+                            new.softness = annotationSoftness
+                            new.pressureWidths = [pencilPressure.widthMultiplier]
+                        }
                         new.z = nextStackZ
                         draftAnnotation = new
                     } else {
                         draftAnnotation?.end = point
-                        if annotationKind == .freehand { draftAnnotation?.points.append(point) }
+                        if annotationKind == .freehand {
+                            draftAnnotation?.points.append(point)
+                            draftAnnotation?.pressureWidths.append(pencilPressure.widthMultiplier)
+                        }
                     }
+                case .mask:
+                    guard isMaskActive else { return }
+                    maskDraftPoints.append(normalized(value.location, in: imageRect))
                 case .text:
-                    break
+                    break // moving/selection handled above; taps resolve on end
                 case .resize, .background:
                     break
                 }
@@ -2023,6 +2799,10 @@ private struct InlineEditingCanvas: View {
                 case .draw:
                     if let draftAnnotation { annotations.append(draftAnnotation) }
                     draftAnnotation = nil
+                case .mask:
+                    let points = maskDraftPoints
+                    maskDraftPoints = []
+                    if !points.isEmpty { onMaskStroke(points) }
                 case .text:
                     guard tapped else { break }
                     // Tap an existing text to edit it; otherwise create a new one

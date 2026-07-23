@@ -1,5 +1,5 @@
 <template>
-  <article :class="[bemm(), `product-page--${data.id}`]" :style="{ '--app-accent': data.accent }">
+  <article :class="[bemm(), `product-page--${data.id}`]">
     <section :class="bemm('hero')">
       <div :class="bemm('hero-copy')">
         <div :class="bemm('eyebrow-row')">
@@ -86,9 +86,8 @@
         <RouterLink
           v-for="app in siblings"
           :key="app.id"
-          :class="bemm('family-card')"
+          :class="bemm('family-card', app.id)"
           :to="app.to"
-          :style="{ '--app-accent': app.accent }"
         >
           <img :class="bemm('family-icon')" :src="app.icon" :alt="`${app.name} app icon`" width="48" height="48" />
           <span :class="bemm('family-name')">{{ app.name }}</span>

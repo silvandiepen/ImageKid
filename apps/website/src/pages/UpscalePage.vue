@@ -12,7 +12,6 @@ const data: ProductPageData = {
   id: meta.id,
   name: meta.name,
   icon: meta.icon,
-  accent: meta.accent,
   eyebrow: "Batch upscaler for Mac",
   tagline: "Enlarge a whole folder, locally.",
   lead:
