@@ -74,6 +74,9 @@ struct ImageWorkspaceView: View {
                 }
 
                 stackedContent(in: imageRect)
+                if !session.imageLayers.isEmpty || session.baseUnlocked {
+                    outOfCanvasDim(in: imageRect, canvas: bounds)
+                }
                 maskEditOverlay(in: imageRect)
                 gridOverlay(in: imageRect, canvas: bounds)
                 imageSelection(in: imageRect)
@@ -568,6 +571,18 @@ struct ImageWorkspaceView: View {
             settings.canvasColor
                 .ignoresSafeArea()
         }
+    }
+
+    /// Dims everything outside the canvas rect so content that spills past the
+    /// canvas edge reads clearly as off-canvas.
+    private func outOfCanvasDim(in imageRect: CGRect, canvas bounds: CGRect) -> some View {
+        let radius = imageCornerRadius(for: imageRect)
+        return Path { path in
+            path.addRect(bounds)
+            path.addRoundedRect(in: imageRect, cornerSize: CGSize(width: radius, height: radius))
+        }
+        .fill(Color.black.opacity(0.35), style: FillStyle(eoFill: true))
+        .allowsHitTesting(false)
     }
 
     private func canvasBorder(in imageRect: CGRect) -> some View {
