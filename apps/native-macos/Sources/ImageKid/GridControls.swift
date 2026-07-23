@@ -7,6 +7,7 @@ import ImageKidKit
 struct GridControls: View {
     @ObservedObject var session: ImageSession
     @Binding var offset: CGSize
+    var dockEdges: (leadingFlat: Bool, trailingFlat: Bool) = (false, false)
     let onClose: () -> Void
 
     private let sizePresets: [Int] = [8, 16, 32, 64, 128, 256]
@@ -17,7 +18,8 @@ struct GridControls: View {
             systemImage: "grid",
             width: 300,
             offset: $offset,
-            onClose: onClose
+            onClose: onClose,
+            dockEdges: dockEdges
         ) {
             VStack(alignment: .leading, spacing: 16) {
                 Toggle("Show grid", isOn: $session.showGrid)

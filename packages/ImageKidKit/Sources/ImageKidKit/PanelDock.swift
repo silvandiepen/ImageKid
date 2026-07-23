@@ -24,8 +24,24 @@ public struct DockPanelSpec<ID: Hashable>: Identifiable {
     }
 }
 
+/// A floating panel's resting spot stored edge-relative to the dock, so a
+/// right-docked panel rides the right edge across window resizes (0 offset is
+/// always flush against its edge). Mirrors Fekthor's palette anchors.
+public struct PanelAnchor: Codable, Equatable, Sendable {
+    public var side: PanelDockSide
+    public var offset: CGFloat
+    public var y: CGFloat
+
+    public init(side: PanelDockSide, offset: CGFloat, y: CGFloat) {
+        self.side = side
+        self.offset = offset
+        self.y = y
+    }
+}
+
 /// Reusable state for a set of movable / minimizable / resizable panels that
-/// snap to a grid. Generic over an app-defined panel identifier.
+/// snap to a grid, stick to each other, and dock/stick to the workspace edges.
+/// Generic over an app-defined panel identifier.
 @MainActor
 public final class PanelDockModel<ID: Hashable>: ObservableObject {
     public let order: [ID]
@@ -44,6 +60,14 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
     /// Which panels are magnetically stuck together (ordered top → bottom),
     /// keyed by `stackKey(_:)`.
     @Published public var stacks = PanelStacks() { didSet { persistStacks() } }
+    /// Edge-relative resting anchors — the source of truth for head/unstacked
+    /// panels once they've been moved. `positions` is kept only to migrate
+    /// pre-anchor stored spots (see `migrateLegacyPositions(in:)`).
+    @Published private var anchors: [ID: PanelAnchor] = [:] { didSet { persistAnchors() } }
+    /// Freshly shown panels that still need a non-overlapping opening slot in
+    /// the dock. Drained by the host layer (which knows the live frames);
+    /// never persisted.
+    @Published public var needsPlacement: Set<ID> = []
 
     public init(
         panels: [DockPanelSpec<ID>],
@@ -86,6 +110,14 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
             for (key, value) in raw where value.count == 2 {
                 guard let id = byKey[key] else { continue }
                 sizes[id] = CGSize(width: value[0], height: value[1])
+            }
+        }
+        if let data = defaults.data(forKey: defaultsKey + ".anchors"),
+            let decoded = try? JSONDecoder().decode([String: PanelAnchor].self, from: data)
+        {
+            for (key, anchor) in decoded {
+                guard let id = byKey[key] else { continue }
+                anchors[id] = anchor
             }
         }
         if let data = defaults.data(forKey: defaultsKey + ".stacks"),
@@ -137,6 +169,14 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
         UserDefaults.standard.set(data, forKey: defaultsKey + ".stacks")
     }
 
+    private func persistAnchors() {
+        guard let defaultsKey else { return }
+        let byString = Dictionary(
+            uniqueKeysWithValues: anchors.map { (String(describing: $0.key), $0.value) })
+        guard let data = try? JSONEncoder().encode(byString) else { return }
+        UserDefaults.standard.set(data, forKey: defaultsKey + ".anchors")
+    }
+
     public func spec(_ id: ID) -> DockPanelSpec<ID>? { specs[id] }
 
     public func isExpanded(_ id: ID) -> Bool {
@@ -149,6 +189,7 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
             presented.remove(id)
             minimized.remove(id)
         } else {
+            needsPlacement.insert(id)
             presented.insert(id)
             minimized.remove(id)
         }
@@ -162,6 +203,7 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
     }
 
     public func restore(_ id: ID) {
+        if !presented.contains(id) { needsPlacement.insert(id) }
         presented.insert(id)
         minimized.remove(id)
     }
@@ -183,8 +225,21 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
     }
 
     public func setSize(_ id: ID, to size: CGSize) {
+        let newWidth = min(max(size.width, minSize.width), maxSize.width)
+        // The resize handle is the bottom-trailing corner, so a widen should
+        // keep the LEADING edge put and grow rightward. A right-side anchor is
+        // stored trailing-edge-relative, so resolving it with the new width
+        // would otherwise shove the panel left by the whole width delta —
+        // compensate by shrinking the trailing offset to hold the leading edge.
+        if let anchor = anchors[id], anchor.side == .right {
+            let delta = newWidth - self.size(id).width
+            if delta != 0 {
+                anchors[id] = PanelAnchor(
+                    side: .right, offset: anchor.offset - delta, y: anchor.y)
+            }
+        }
         sizes[id] = CGSize(
-            width: min(max(size.width, minSize.width), maxSize.width),
+            width: newWidth,
             height: min(max(size.height, minSize.height), maxSize.height)
         )
     }
@@ -196,6 +251,7 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
     /// Rail button behaviour: show if hidden, restore if minimized, hide if open.
     public func railToggle(_ id: ID) {
         if !presented.contains(id) {
+            needsPlacement.insert(id)
             presented.insert(id)
             minimized.remove(id)
         } else if minimized.contains(id) {
@@ -303,6 +359,134 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
                 sizes[member] = CGSize(width: width, height: current.height)
             }
         }
+    }
+
+    // MARK: - Edge docking (dock-size aware)
+    //
+    // These mirror Fekthor's palette placement (`PanelPlacement`): a stored
+    // anchor resolves to an absolute spot in the CURRENT dock and is clamped so
+    // the panel stays reachable; drops stick flush to the dock edges; freshly
+    // opened panels take a non-overlapping slot. The dock-agnostic methods
+    // above stay for the stacking maths and any caller without a dock size.
+
+    private func panelWidth(_ id: ID) -> CGFloat { size(id).width }
+
+    /// Where the panel rests in the CURRENT dock: its stored anchor resolved
+    /// against this dock width (right-anchored panels ride the right edge) and
+    /// clamped in-bounds. Falls back to any pre-anchor absolute spot, then the
+    /// spec default.
+    public func position(_ id: ID, in dock: CGSize) -> CGSize {
+        if let anchor = anchors[id] {
+            let width = panelWidth(id)
+            guard dock.width > 0 else {
+                return CGSize(width: anchor.side == .left ? anchor.offset : 0, height: anchor.y)
+            }
+            let point = PanelPlacement.clamped(
+                CGPoint(
+                    x: PanelPlacement.resolveX(
+                        side: anchor.side, edgeOffset: anchor.offset,
+                        panelWidth: width, dockWidth: dock.width),
+                    y: anchor.y),
+                panelSize: size(id), dock: dock)
+            return CGSize(width: point.x, height: point.y)
+        }
+        if let legacy = positions[id] { return legacy }
+        return specs[id]?.defaultPosition ?? .zero
+    }
+
+    /// Store a dropped spot as an edge anchor: the side is the panel centre
+    /// against the dock midpoint, the offset that side's edge distance. Clears
+    /// any legacy absolute position for this panel.
+    public func setPosition(_ id: ID, to position: CGSize, in dock: CGSize) {
+        let width = panelWidth(id)
+        let side: PanelDockSide =
+            dock.width > 0
+            ? PanelPlacement.side(ofPanelAt: position.width, panelWidth: width, dockWidth: dock.width)
+            : .left
+        anchors[id] = PanelAnchor(
+            side: side,
+            offset: PanelPlacement.edgeOffset(
+                forPanelAt: position.width, side: side, panelWidth: width, dockWidth: dock.width),
+            y: position.height)
+        if positions[id] != nil { positions[id] = nil }
+    }
+
+    /// One-time conversion of pre-anchor absolute positions into edge anchors,
+    /// run by the host once a believable dock size is known (side/offset need
+    /// the real dock width, or every panel misfiles as left-docked).
+    public func migrateLegacyPositions(in dock: CGSize) {
+        guard dock.width >= 300, !positions.isEmpty else { return }
+        let legacy = positions
+        for (id, position) in legacy { setPosition(id, to: position, in: dock) }
+        positions = [:]
+    }
+
+    /// Where the panel actually rests now (dock-aware): followers derive their
+    /// origin from their stack head so the stack always reads flush.
+    public func displayPosition(_ id: ID, in dock: CGSize) -> CGSize {
+        let key = stackKey(id)
+        guard let stack = stacks.stack(containing: key), stack.first != key,
+            let headID = panel(forStackKey: stack[0])
+        else { return position(id, in: dock) }
+        let head = position(headID, in: dock)
+        var memberSizes: [String: CGSize] = [:]
+        for memberKey in stack {
+            guard let member = panel(forStackKey: memberKey) else { continue }
+            memberSizes[memberKey] = size(member)
+        }
+        let origins = PanelStacks.layout(
+            stack: stack, headOrigin: CGPoint(x: head.width, y: head.height), sizes: memberSizes)
+        guard let origin = origins[key] else { return position(id, in: dock) }
+        return CGSize(width: origin.x, height: origin.y)
+    }
+
+    /// Flatten the chrome's leading/trailing corners when the panel sits flush
+    /// against a dock edge — the visual "stuck to the edge" cue.
+    public func dockEdges(of id: ID, in dock: CGSize) -> (leadingFlat: Bool, trailingFlat: Bool) {
+        guard dock.width > 0 else { return (false, false) }
+        let origin = displayPosition(id, in: dock)
+        let width = size(id).width
+        return (origin.width <= 0.5, origin.width + width >= dock.width - 0.5)
+    }
+
+    /// Frames of every expanded panel in the current dock — the input for
+    /// stick detection and opening-slot placement.
+    public func expandedFrames(in dock: CGSize) -> [String: CGRect] {
+        var frames: [String: CGRect] = [:]
+        for id in order where isExpanded(id) {
+            let origin = displayPosition(id, in: dock)
+            frames[stackKey(id)] = CGRect(
+                origin: CGPoint(x: origin.width, y: origin.height), size: size(id))
+        }
+        return frames
+    }
+
+    /// Grabbing a follower's header detaches it: freeze it exactly where it
+    /// rests (as an anchor, not grid-snapped) and pull it from its stack.
+    public func detachForDrag(_ id: ID, in dock: CGSize) {
+        let key = stackKey(id)
+        guard stacks.isFollower(key) else { return }
+        setPosition(id, to: displayPosition(id, in: dock), in: dock)
+        stacks.detach(key)
+    }
+
+    /// Stick detection for a released panel against the current dock frames.
+    public func snapReleased(_ id: ID, in dock: CGSize) {
+        let key = stackKey(id)
+        let frames = expandedFrames(in: dock)
+        guard let dragged = frames[key],
+            let target = stacks.snapCandidate(for: key, frame: dragged, others: frames)
+        else { return }
+        stacks.attach(key, below: target)
+        syncStackWidths(containing: target)
+    }
+
+    /// Drain the freshly-opened panels awaiting placement, in dock order.
+    public func takePendingPlacement() -> [ID] {
+        guard !needsPlacement.isEmpty else { return [] }
+        let pending = order.filter { needsPlacement.contains($0) }
+        needsPlacement = []
+        return pending
     }
 }
 

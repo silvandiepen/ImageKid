@@ -7,6 +7,7 @@ struct DrawingInspector: View {
     @EnvironmentObject private var library: ColorLibrary
     @ObservedObject var session: ImageSession
     @Binding var offset: CGSize
+    var dockEdges: (leadingFlat: Bool, trailingFlat: Bool) = (false, false)
     let onClose: () -> Void
 
     @State private var showFillPopover = false
@@ -18,7 +19,8 @@ struct DrawingInspector: View {
             systemImage: "pencil.tip.crop.circle",
             width: 300,
             offset: $offset,
-            onClose: onClose
+            onClose: onClose,
+            dockEdges: dockEdges
         ) {
             VStack(alignment: .leading, spacing: 18) {
                 if let selected = selectedDrawable {

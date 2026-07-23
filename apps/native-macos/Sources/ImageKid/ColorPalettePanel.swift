@@ -8,6 +8,7 @@ struct ColorPalettePanel: View {
     @EnvironmentObject private var library: ColorLibrary
     @ObservedObject var session: ImageSession
     @Binding var offset: CGSize
+    var dockEdges: (leadingFlat: Bool, trailingFlat: Bool) = (false, false)
     let onClose: () -> Void
 
     @State private var expandedColorIDs: Set<UUID> = []
@@ -24,6 +25,7 @@ struct ColorPalettePanel: View {
             onClose: onClose,
             resizable: true,
             size: $panelSize,
+            dockEdges: dockEdges,
             contentPadding: 0
         ) {
             VStack(alignment: .leading, spacing: 14) {

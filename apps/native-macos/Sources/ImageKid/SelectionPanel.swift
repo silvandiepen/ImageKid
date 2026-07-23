@@ -8,6 +8,7 @@ struct SelectionPanel: View {
     @ObservedObject var session: ImageSession
     @ObservedObject var appModel: AppModel
     @Binding var offset: CGSize
+    var dockEdges: (leadingFlat: Bool, trailingFlat: Bool) = (false, false)
     let onClose: () -> Void
 
     var body: some View {
@@ -16,7 +17,8 @@ struct SelectionPanel: View {
             systemImage: "cursorarrow.and.square.on.square.dashed",
             width: 240,
             offset: $offset,
-            onClose: onClose
+            onClose: onClose,
+            dockEdges: dockEdges
         ) {
             VStack(spacing: 9) {
                 action("Copy", "doc.on.doc") { appModel.copyImageSelectionToClipboard() }

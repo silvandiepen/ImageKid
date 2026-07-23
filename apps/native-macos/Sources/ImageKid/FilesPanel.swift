@@ -119,6 +119,7 @@ struct FilesPanel: View {
     @Binding var size: CGSize
     let onMinimize: () -> Void
     var stackEdges: (topFlat: Bool, bottomFlat: Bool) = (false, false)
+    var dockEdges: (leadingFlat: Bool, trailingFlat: Bool) = (false, false)
     var isStackFollower: Bool = false
     var onDragChanged: ((CGSize) -> Void)? = nil
     var onDragEnded: ((CGSize) -> Void)? = nil
@@ -132,6 +133,7 @@ struct FilesPanel: View {
             resizable: true,
             size: $size,
             stackEdges: stackEdges,
+            dockEdges: dockEdges,
             isStackFollower: isStackFollower,
             onDragChanged: onDragChanged,
             onDragEnded: onDragEnded,
