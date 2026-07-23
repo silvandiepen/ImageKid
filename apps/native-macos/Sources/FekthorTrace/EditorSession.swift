@@ -385,6 +385,27 @@ final class EditorSession: ObservableObject {
         }
     }
 
+    /// Duplicate the selected shapes, offset by (dx, dy), and select the
+    /// copies — Option-drag / Option-arrow, Illustrator-style. One undo step.
+    @discardableResult
+    func duplicateSelection(dx: Double, dy: Double) -> Set<Int> {
+        let ids = selection.sorted()
+        guard !ids.isEmpty else { return [] }
+        beginGesture(label: "Duplicate")
+        var newIDs: Set<Int> = []
+        mutate { doc in
+            for id in ids {
+                guard let shape = doc.firstShape(id: id) else { continue }
+                var copy = Editing2.translated(shape, dx: dx, dy: dy)
+                copy.id = doc.nextNodeID
+                doc.nodes.append(.shape(copy))
+                newIDs.insert(copy.id)
+            }
+        }
+        if !newIDs.isEmpty { selection = newIDs }
+        return newIDs
+    }
+
     // MARK: - Transforms (scale/rotate drags; caller snapshots once)
 
     /// Replace several shapes in one mutation. Transform drags recompute

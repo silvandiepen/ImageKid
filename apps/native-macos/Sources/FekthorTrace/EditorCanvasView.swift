@@ -152,40 +152,67 @@ struct EditorCanvasView: View {
             session.undo()
             return true
         }
+        // Arrow keys: move the selected point, or the whole selection; ⌥ makes
+        // a placed duplicate (Illustrator-style). ⌘/⌃ arrows pass through.
+        let arrow: (dx: Double, dy: Double)?
+        switch e.keyCode {
+        case 126: arrow = (0, -1)  // up
+        case 125: arrow = (0, 1)  // down
+        case 123: arrow = (-1, 0)  // left
+        case 124: arrow = (1, 0)  // right
+        default: arrow = nil
+        }
+        if let arrow {
+            let mods = e.modifierFlags.intersection([.command, .option, .control])
+            if mods.isEmpty { return moveByArrow(dx: arrow.dx, dy: arrow.dy, duplicate: false) }
+            if mods == .option { return moveByArrow(dx: arrow.dx, dy: arrow.dy, duplicate: true) }
+            return false
+        }
+        // Unmodified single keys.
         guard e.modifierFlags.intersection([.command, .option, .control]).isEmpty
         else { return false }
-        switch e.keyCode {
-        case 126: return nudgeActiveAnchor(dx: 0, dy: -1)  // up arrow
-        case 125: return nudgeActiveAnchor(dx: 0, dy: 1)  // down arrow
-        case 123: return nudgeActiveAnchor(dx: -1, dy: 0)  // left arrow
-        case 124: return nudgeActiveAnchor(dx: 1, dy: 0)  // right arrow
-        case 6:  // Z
+        if e.keyCode == 6 {  // Z arms scrubby zoom
             zoomScrub = true
             return true
-        default: return false
         }
+        return false
     }
 
     private func handleCanvasKeyUp(_ e: NSEvent) {
         if e.keyCode == 6 { zoomScrub = false }  // Z released
     }
 
-    /// Move the selected point by one step in the given direction. With grid
-    /// snapping on the step is one grid unit (and the point lands on the grid);
-    /// off, it's a fine 1pt nudge — ⇧ makes either a 10× coarse nudge.
+    /// Keyboard move by one step in a direction. A selected POINT moves alone;
+    /// otherwise the whole selection moves. `duplicate` (⌥) places a copy of
+    /// the selection instead. Step = one grid unit when snapping, else 1pt;
+    /// ⇧ makes it a 10× coarse step.
     @discardableResult
-    private func nudgeActiveAnchor(dx: Double, dy: Double) -> Bool {
-        guard session.tool == .select, let sel = single, let active = activeAnchor,
+    private func moveByArrow(dx: Double, dy: Double, duplicate: Bool) -> Bool {
+        guard session.tool == .select else { return false }
+        let base = snapStep ?? 1
+        let step = NSEvent.modifierFlags.contains(.shift) ? base * 10 : base
+        if duplicate {
+            guard !session.selection.isEmpty else { return false }
+            session.duplicateSelection(dx: dx * step, dy: dy * step)
+            activeAnchor = nil
+            return true
+        }
+        // Move the selected point when one is active.
+        if let sel = single, let active = activeAnchor,
             let shape = session.document.firstShape(id: sel),
             let anchor = Editing2.anchors(of: shape).first(where: {
                 $0.path == active.path && $0.index == active.index
             })
-        else { return false }
-        let base = snapStep ?? 1
-        let step = NSEvent.modifierFlags.contains(.shift) ? base * 10 : base
-        let target = Pt(anchor.position.x + dx * step, anchor.position.y + dy * step)
-        session.beginGesture(label: "Nudge point")
-        session.moveAnchor(node: sel, path: active.path, anchor: active.index, to: snapped(target))
+        {
+            let target = Pt(anchor.position.x + dx * step, anchor.position.y + dy * step)
+            session.beginGesture(label: "Nudge point")
+            session.moveAnchor(node: sel, path: active.path, anchor: active.index, to: snapped(target))
+            return true
+        }
+        // Otherwise move the whole selection.
+        guard !session.selection.isEmpty else { return false }
+        session.beginGesture(label: "Move")
+        session.translateSelection(dx: dx * step, dy: dy * step)
         return true
     }
 
@@ -1114,6 +1141,27 @@ struct EditorCanvasView: View {
             }
             if let hit = best {
                 session.beginGesture(label: "Move anchor")
+                snapMagnets = collectMagnets(excluding: session.selection)
+                draggingAnchor = (hit.0.path, hit.0.index)
+                activeAnchor = (hit.0.path, hit.0.index)
+                return
+            }
+        }
+        // Direct point selection: clicking near a point of the shape under the
+        // cursor selects that shape AND the point in one click (Illustrator
+        // direct-select), so arrow keys can nudge it right away.
+        if session.distort == nil, session.selection.count != 1,
+            let under = hitNode(at: v.startLocation, in: size),
+            let shape = doc.firstShape(id: under) {
+            var best: (Editing2.Anchor, CGFloat)? = nil
+            for a in Editing2.anchors(of: shape) {
+                let av = CGPoint(x: a.position.x * t.s + t.tx, y: a.position.y * t.s + t.ty)
+                let d = hypot(av.x - v.startLocation.x, av.y - v.startLocation.y)
+                if d <= hitRadius, best == nil || d < best!.1 { best = (a, d) }
+            }
+            if let hit = best {
+                session.beginGesture(label: "Move anchor")
+                session.selection = [under]
                 snapMagnets = collectMagnets(excluding: session.selection)
                 draggingAnchor = (hit.0.path, hit.0.index)
                 activeAnchor = (hit.0.path, hit.0.index)
