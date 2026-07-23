@@ -535,6 +535,39 @@ final class ExportTests: XCTestCase {
         }
     }
 
+    func testSafeFileNameNormalizes() throws {
+        // Ordinary names and subfolders pass through.
+        XCTAssertEqual(try ExportRunner.safeFileName("a.svg"), "a.svg")
+        XCTAssertEqual(try ExportRunner.safeFileName("web/icons/a.svg"), "web/icons/a.svg")
+        // Leading slashes strip (absolute → relative), `.` and doubled
+        // slashes collapse, and interior `..` resolves lexically.
+        XCTAssertEqual(try ExportRunner.safeFileName("/etc/a.svg"), "etc/a.svg")
+        XCTAssertEqual(try ExportRunner.safeFileName("//x//a.svg"), "x/a.svg")
+        XCTAssertEqual(try ExportRunner.safeFileName("./a.svg"), "a.svg")
+        XCTAssertEqual(try ExportRunner.safeFileName("sub/../a.svg"), "a.svg")
+        XCTAssertEqual(try ExportRunner.safeFileName("a/b/../../c.svg"), "c.svg")
+    }
+
+    func testSafeFileNameRejectsEscapesAndEmpty() {
+        func expect(_ name: String, _ expected: ExportRunner.FileNameError) {
+            XCTAssertThrowsError(try ExportRunner.safeFileName(name), name) { e in
+                XCTAssertEqual(e as? ExportRunner.FileNameError, expected, name)
+            }
+        }
+        // Climbing above the destination is never allowed — even when a
+        // leading slash or `.` precedes the `..`.
+        expect("../a.svg", .escapesDestination("../a.svg"))
+        expect("a/../../b.svg", .escapesDestination("a/../../b.svg"))
+        expect("/../a.svg", .escapesDestination("/../a.svg"))
+        expect("./../a.svg", .escapesDestination("./../a.svg"))
+        // Nothing left to write: empty, only separators, or a `..` chain
+        // landing exactly on the destination directory itself.
+        expect("", .empty)
+        expect("/", .empty)
+        expect(".", .empty)
+        expect("a/..", .empty)
+    }
+
     // MARK: - Acceptance: the open-icon library build
 
     /// Encode open-icon's real build (icon-components-v2 with the repo's

@@ -117,9 +117,8 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.files.user-selected.read-write: true
-        # Optional on-device models download from the owner's R2 bucket on an
-        # explicit user action (same source the companions use).
-        com.apple.security.network.client: true
+        # No network entitlement: Fekthor is local-first and never downloads
+        # at runtime (models are installed locally; see ModelStore).
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hakobs.fekthor

@@ -624,7 +624,21 @@ final class ExportRunController: ObservableObject {
             var written = 0
             var progress = 0
             func writeOut(_ fileName: String, _ doc: GraphicDocument) {
-                let target = destination.appendingPathComponent(fileName)
+                // The name comes from a user-editable template ({name} /
+                // {profile}); it must never escape the picked folder.
+                let safeName: String
+                do {
+                    safeName = try ExportRunner.safeFileName(fileName)
+                } catch {
+                    problems.append("\(fileName): \(error) — skipped")
+                    return
+                }
+                let target = destination.appendingPathComponent(safeName).standardizedFileURL
+                guard target.path.hasPrefix(destination.standardizedFileURL.path + "/") else {
+                    problems.append(
+                        "\(fileName): resolves outside the destination folder — skipped")
+                    return
+                }
                 do {
                     try FileManager.default.createDirectory(
                         at: target.deletingLastPathComponent(),

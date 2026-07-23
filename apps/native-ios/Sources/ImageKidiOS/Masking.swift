@@ -13,6 +13,16 @@ struct MaskSession {
     var preview: UIImage
 }
 
+/// Identity captured when "Mask from Subject" starts its async cutout: the
+/// picture and the exact history step the working image came from. The result
+/// is installed only if the token still matches on completion — otherwise the
+/// mask was built from pixels the user has since replaced (crop, undo, another
+/// edit) and must be dropped rather than baked over the newer state.
+struct MaskRequestToken: Equatable {
+    let itemID: UUID?
+    let historyStepID: UUID?
+}
+
 /// Mask compositing and painting. The removal engines return a composed
 /// transparent cutout rather than a mask, so the mask is derived from the
 /// cutout's alpha channel (v1) and edited as an opaque grayscale image that

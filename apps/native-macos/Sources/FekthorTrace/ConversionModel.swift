@@ -23,10 +23,10 @@ final class ConversionModel: ObservableObject {
     @Published var flatten: Double = 0
     /// ML part awareness (Vision instance masks) — Shapes only, opt-in.
     @Published var partAware: Bool = false
-    /// Real-ESRGAN 4× enhancement for small sources (model optional, local).
+    /// Real-ESRGAN 4× enhancement for small sources (model optional, local —
+    /// user-installed under Application Support, never downloaded by the app).
     @Published var enhance: Bool = false
     @Published var enhanceAvailable: Bool = Enhance.isAvailable
-    @Published var modelDownloading: Bool = false
     @Published var sourceIsSmall: Bool = false
     private var originalImage: RasterImage?
     @Published var smoothing: Double = 0.65
@@ -136,6 +136,9 @@ final class ConversionModel: ObservableObject {
     private func adopt(_ img: RasterImage, name: String) {
         originalImage = img
         sourceIsSmall = max(img.width, img.height) <= Enhance.maxInputSide
+        // Re-probe on every import so a model installed while the app is
+        // running (dropped into Application Support) is picked up.
+        enhanceAvailable = Enhance.isAvailable
         applySourcePipeline(name: name)
     }
 
@@ -161,30 +164,6 @@ final class ConversionModel: ObservableObject {
 
     func enhanceChanged() {
         applySourcePipeline(name: nil)
-    }
-
-    /// Explicit user action (privacy plan): download the optional 4× model
-    /// from the owner's R2 bucket, then enable enhancement.
-    func downloadEnhanceModel() {
-        guard !modelDownloading else { return }
-        modelDownloading = true
-        status = "Downloading Real-ESRGAN model (33 MB)…"
-        Task {
-            do {
-                try await ModelStore.download(.realESRGAN)
-                await MainActor.run {
-                    self.modelDownloading = false
-                    self.enhanceAvailable = Enhance.isAvailable
-                    self.status = "Model installed."
-                    if self.enhance { self.applySourcePipeline(name: nil) }
-                }
-            } catch {
-                await MainActor.run {
-                    self.modelDownloading = false
-                    self.status = "Model download failed: \(error.localizedDescription)"
-                }
-            }
-        }
     }
 
     /// Re-derive the working image at the current resolution and convert.

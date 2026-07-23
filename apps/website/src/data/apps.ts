@@ -10,8 +10,6 @@ export interface AppMeta {
   summary: string;
   /** Path to the rounded-square icon in /public/media/brand. */
   icon: string;
-  /** Brand accent, used as --app-accent on product pages and cards. */
-  accent: string;
   /** Route to the product page. */
   to: string;
   /** Availability label, e.g. "Coming to the App Store". */
@@ -30,7 +28,6 @@ export const apps: AppMeta[] = [
     summary:
       "Remove backgrounds, enhance and upscale, crop, annotate, and export — all on your device, no subscription.",
     icon: "/media/brand/imagekid.svg",
-    accent: "#315fdb",
     to: "/imagekid",
     status: "Coming to the App Store",
     platforms: "macOS · iPad · iPhone",
@@ -43,7 +40,6 @@ export const apps: AppMeta[] = [
     summary:
       "The basics of Illustrator, but better — trace, edit, and batch-export clean SVGs from a folder of icons.",
     icon: "/media/brand/fekthor.svg",
-    accent: "#6c5cf0",
     to: "/fekthor",
     status: "In development",
     platforms: "macOS",
@@ -56,7 +52,6 @@ export const apps: AppMeta[] = [
     summary:
       "Drop in a folder, pick a scale, and enlarge every image on-device. Pay once, keep using it.",
     icon: "/media/brand/upscale.svg",
-    accent: "#0e9a83",
     to: "/upscale",
     status: "Coming soon",
     platforms: "macOS",
@@ -69,7 +64,6 @@ export const apps: AppMeta[] = [
     summary:
       "Drop product shots, portraits, or generated assets and get clean transparent PNGs — no service fees.",
     icon: "/media/brand/cutout.svg",
-    accent: "#e0552a",
     to: "/cutout",
     status: "Coming soon",
     platforms: "macOS",

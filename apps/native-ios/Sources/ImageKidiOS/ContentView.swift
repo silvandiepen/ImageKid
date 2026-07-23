@@ -40,6 +40,9 @@ struct ContentView: View {
     // The Mask tool's non-destructive session: cutout-derived mask, painted
     // refinements, and live preview. Applied or discarded as one history step.
     @State private var maskSession: MaskSession?
+    // Set while a "Mask from Subject" cutout is in flight; cleared to disown
+    // the request (cancel, picture switch) so its completion is dropped.
+    @State private var maskRequestToken: MaskRequestToken?
     @State private var maskRevealMode = true
     @State private var maskWidthFraction: CGFloat = 0.05
     @State private var maskSoftness: CGFloat = 0.5
@@ -164,8 +167,10 @@ struct ContentView: View {
         }
         .onChange(of: model.selectedItemID) { _, _ in
             // A mask session belongs to one picture; switching pictures
-            // discards it rather than risking a commit onto the wrong one.
+            // discards it — and disowns any in-flight cutout request —
+            // rather than risking a commit onto the wrong one.
             maskSession = nil
+            maskRequestToken = nil
             maskDraftPoints = []
             if activeTool == .mask { activeTool = nil }
         }
@@ -914,7 +919,26 @@ struct ContentView: View {
         guard maskSession == nil,
               let base = model.workingImage,
               let baseCG = base.normalizedCGImage() else { return }
+        // Bind the request to the picture AND the exact history step the base
+        // was captured from; the result is dropped unless both still match and
+        // the Mask tool is still active, so a stale cutout can never bake old
+        // pixels over edits made while the model was running.
+        let token = MaskRequestToken(itemID: model.selectedItemID, historyStepID: model.currentHistoryStepID)
+        maskRequestToken = token
         model.generateCutout(engine: model.preferredBackgroundEngine) { cutout in
+            guard maskRequestToken == token else { return }  // disowned: cancelled or picture switched
+            maskRequestToken = nil
+            guard model.selectedItemID == token.itemID else { return }
+            guard model.currentHistoryStepID == token.historyStepID else {
+                model.statusText = "Mask cancelled — image changed"
+                return
+            }
+            guard activeTool == .mask else {
+                // Tool was left while the model ran; clear the stale
+                // "Subject masked" status generateCutout just posted.
+                model.statusText = nil
+                return
+            }
             guard let cutout,
                   let mask = MaskRenderer.alphaMask(of: cutout),
                   let preview = MaskRenderer.preview(base: baseCG, mask: mask) else { return }
@@ -958,6 +982,7 @@ struct ContentView: View {
 
     private func cancelMask() {
         maskSession = nil
+        maskRequestToken = nil
         maskDraftPoints = []
         activeTool = nil
     }

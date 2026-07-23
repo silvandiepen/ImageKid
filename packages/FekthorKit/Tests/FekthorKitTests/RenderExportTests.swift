@@ -188,6 +188,79 @@ final class RenderExportTests: XCTestCase {
         XCTAssertEqual(px(data, width: 100, 10, 20).a, 0)
     }
 
+    // MARK: - Presentation attributes & display:none
+
+    func testPresentationAttributeStylingRendersInExport() throws {
+        // Styled ONLY by presentation attributes (the trace exporter's
+        // shape): fill=/stroke=/stroke-width= live in attributes.extras, so
+        // rendering from bare `effectiveStyle` would paint default black and
+        // no stroke. `renderStyle` folds them in beneath the cascade.
+        let svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">\
+            <rect width="10" height="10" fill="#00ff00"/>\
+            <line x1="0" y1="5" x2="10" y2="5" fill="none" stroke="#ff0000" stroke-width="2"/>\
+            </svg>
+            """
+        let doc = try SVGReader.read(svg)
+        let data = rgba(try XCTUnwrap(GraphicRenderer.render(doc, scale: 10)))
+        let corner = px(data, width: 100, 5, 5)  // rect only: green, not black
+        XCTAssertEqual(corner.r, 0)
+        XCTAssertEqual(corner.g, 255)
+        XCTAssertEqual(corner.a, 255)
+        let mid = px(data, width: 100, 50, 50)  // on the stroked line: red
+        XCTAssertEqual(mid.r, 255)
+        XCTAssertEqual(mid.g, 0)
+        // Stroke width 2 → nothing 3 units above the centreline (still rect green).
+        XCTAssertEqual(px(data, width: 100, 50, 20).g, 255)
+    }
+
+    func testInlineStyleBeatsPresentationAttribute() throws {
+        // SVG cascade: presentation attributes are the LOWEST layer.
+        let svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">\
+            <rect width="10" height="10" fill="#00ff00" style="fill: #0000ff;"/>\
+            </svg>
+            """
+        let doc = try SVGReader.read(svg)
+        let data = rgba(try XCTUnwrap(GraphicRenderer.render(doc, scale: 10)))
+        let p = px(data, width: 100, 50, 50)
+        XCTAssertEqual(p.b, 255)
+        XCTAssertEqual(p.g, 0)
+    }
+
+    func testDisplayNoneLeavesNoPixels() throws {
+        // Hidden shape (attribute form) and hidden group (whole subtree,
+        // inline-style form) must not print in exports.
+        let svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">\
+            <rect width="10" height="10" display="none"/>\
+            <g style="display: none;"><circle cx="5" cy="5" r="4" fill="#ff0000"/></g>\
+            </svg>
+            """
+        let doc = try SVGReader.read(svg)
+        let data = rgba(try XCTUnwrap(GraphicRenderer.render(doc, scale: 10)))
+        for i in stride(from: 3, to: data.count, by: 4) {
+            if data[i] != 0 { return XCTFail("pixel painted by a display:none node") }
+        }
+    }
+
+    func testPDFHonoursPresentationAttributesAndDisplayNone() throws {
+        // The PDF path shares GraphicRenderer.draw, so one sanity check:
+        // attribute-styled rect renders green, hidden circle stays out.
+        let svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">\
+            <rect width="10" height="10" fill="#00ff00"/>\
+            <circle cx="5" cy="5" r="4" fill="#ff0000" display="none"/>\
+            </svg>
+            """
+        let doc = try SVGReader.read(svg)
+        let pdf = try XCTUnwrap(RasterExport.pdfData(doc))
+        let data = try rasterizePDF(pdf, width: 100, height: 100)
+        let centre = px(data, width: 100, 50, 50)
+        XCTAssertEqual(centre.r, 0)  // hidden circle did not print
+        XCTAssertEqual(centre.g, 255)  // presentation-attribute fill applied
+    }
+
     // MARK: - PNG export
 
     func testPNGRoundTripMatchesDirectRender() throws {

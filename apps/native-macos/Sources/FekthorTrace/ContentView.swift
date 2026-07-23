@@ -21,6 +21,11 @@ struct ContentView: View {
     @State private var newIconRequest: NewIconRequest? = nil
     /// The Workspace Settings sheet (gallery gear, or Workspace ▸ ⇧⌘,).
     @State private var workspaceSettingsShown = false
+    /// A mode change (New, Open, Trace Image, Open Workspace, New Icon…)
+    /// that would replace a dirty editor session waits here for the
+    /// Save/Discard/Cancel choice; Cancel drops it entirely.
+    @State private var pendingModeChange: (() -> Void)? = nil
+    @State private var confirmModeChange = false
 
     struct WorkspaceTraceTarget {
         var category: String
@@ -111,6 +116,29 @@ struct ContentView: View {
                     "Re-converting rebuilds the vector from the image and your manual point, curve and colour edits will be lost."
                 )
             }
+            // The mode-change guard: the same Save/Discard/Cancel choice as
+            // the editor's Back button, for every transition that would
+            // replace or clear a dirty session (see `withDirtyCheck`).
+            .confirmationDialog(
+                "Save the changes to \(editorSession?.fileURL?.lastPathComponent ?? "this file")?",
+                isPresented: $confirmModeChange
+            ) {
+                Button("Save and Close") {
+                    // Proceed only when the save really landed — a cancelled
+                    // Save As panel or a failed write keeps the session.
+                    if editorSession?.save() ?? true {
+                        pendingModeChange?()
+                    }
+                    pendingModeChange = nil
+                }
+                Button("Discard Changes", role: .destructive) {
+                    pendingModeChange?()
+                    pendingModeChange = nil
+                }
+                Button("Cancel", role: .cancel) { pendingModeChange = nil }
+            } message: {
+                Text("Your edits have not been saved.")
+            }
             .onChange(of: model.imageGeneration) { _, _ in
                 zoom = 1
                 offset = .zero
@@ -138,8 +166,10 @@ struct ContentView: View {
                 editorSession?.saveAs()
             }
             .onReceive(NotificationCenter.default.publisher(for: .fekthorTraceImage)) { _ in
-                editorSession = nil
-                model.openPanel()
+                withDirtyCheck {
+                    editorSession = nil
+                    model.openPanel()
+                }
             }
             .background(objectCommandListeners)
             .background(workspaceCommandListeners)
@@ -282,24 +312,47 @@ struct ContentView: View {
             }
     }
 
+    /// Runs `action` right away when no unsaved editor work is at stake;
+    /// otherwise the confirmation dialog above decides — Save and Close
+    /// (proceeds only when the save lands), Discard, or Cancel (the mode
+    /// change never happens, no panel is shown).
+    private func withDirtyCheck(_ action: @escaping () -> Void) {
+        if let session = editorSession, session.dirty {
+            pendingModeChange = action
+            confirmModeChange = true
+        } else {
+            action()
+        }
+    }
+
     private func newFile() {
-        editorSession = EditorSession.blank(size: 72)
-        zoom = 1
-        offset = .zero
+        withDirtyCheck {
+            editorSession = EditorSession.blank(size: 72)
+            zoom = 1
+            offset = .zero
+        }
     }
 
     // MARK: - New icon (the workspace's primary action)
 
     /// Opens the New Icon prompt. Without an explicit category it targets
     /// the icon open in the editor / selected in the gallery. A dirty
-    /// editor with a file is saved first — switching must never lose work.
+    /// editor with a file is saved first — switching must never lose work —
+    /// and the prompt only opens when that save lands; a dirty untitled
+    /// session goes through the Save/Discard/Cancel dialog instead.
     private func requestNewIcon(category: String? = nil) {
         guard workspaceSession.workspace != nil else {
             newFile()
             return
         }
-        if let session = editorSession, session.dirty, session.fileURL != nil {
-            session.save()
+        if let session = editorSession, session.dirty {
+            guard session.fileURL != nil else {
+                withDirtyCheck {
+                    newIconRequest = NewIconRequest(category: category ?? inferredCategory)
+                }
+                return
+            }
+            guard session.save() else { return }
         }
         newIconRequest = NewIconRequest(category: category ?? inferredCategory)
     }
@@ -401,6 +454,11 @@ struct ContentView: View {
 
     /// One Open for everything: svg/fekthor go to the editor, rasters to trace.
     private func openAny() {
+        withDirtyCheck { openAnyResolved() }
+    }
+
+    /// The open panel + routing, after any dirty session has been resolved.
+    private func openAnyResolved() {
         let panel = NSOpenPanel()
         var types: [UTType] = [.png, .jpeg, .tiff, .heic, .image]
         if let svg = UTType(filenameExtension: "svg") { types.insert(svg, at: 0) }
@@ -442,15 +500,21 @@ struct ContentView: View {
     }
 
     private func openWorkspace() {
-        if workspaceSession.openPanel() { enterWorkspaceMode() }
+        withDirtyCheck {
+            if workspaceSession.openPanel() { enterWorkspaceMode() }
+        }
     }
 
     private func newWorkspace() {
-        if workspaceSession.newWorkspace() { enterWorkspaceMode() }
+        withDirtyCheck {
+            if workspaceSession.newWorkspace() { enterWorkspaceMode() }
+        }
     }
 
     private func openRecentWorkspace(_ recent: RecentWorkspace) {
-        if workspaceSession.openRecent(recent) { enterWorkspaceMode() }
+        withDirtyCheck {
+            if workspaceSession.openRecent(recent) { enterWorkspaceMode() }
+        }
     }
 
     /// Gallery double-click / Open in Editor: straight into the editor; the
@@ -1190,12 +1254,12 @@ private struct InspectorView: View {
                             )
                     } else {
                         LabeledContent("Enhance small image (AI)") {
-                            Button(model.modelDownloading ? "Downloading…" : "Get model (33 MB)") {
-                                model.downloadEnhanceModel()
-                            }
-                            .disabled(model.modelDownloading)
+                            Text("Model not installed")
+                                .foregroundStyle(.secondary)
                         }
-                        .help("Downloads the Real-ESRGAN model once from models-data.hakobs.com; it runs fully on-device.")
+                        .help(
+                            "Fekthor never downloads models. To enable on-device 4× upscaling, place a compiled Real-ESRGAN model at \(ModelStore.compiledURL(.realESRGAN).path); it runs fully local."
+                        )
                     }
                 }
                 Picker("Resolution", selection: $model.resolution) {
@@ -1434,8 +1498,9 @@ struct EditorWorkspaceView: View {
             isPresented: $confirmClose
         ) {
             Button("Save and Close") {
-                session.save()
-                onClose()
+                // Close only when the save really landed — untitled files
+                // route through Save As, which the user can cancel.
+                if session.save() { onClose() }
             }
             Button("Discard Changes", role: .destructive) { onClose() }
             Button("Cancel", role: .cancel) {}

@@ -219,7 +219,10 @@ public enum SVGReader {
             case "svg":
                 sawSVG = true
                 if let vb = attrs["viewBox"] {
-                    let n = vb.split(separator: " ").compactMap { Double($0) }
+                    // Per SVG, numbers separate on whitespace and/or commas
+                    // ("0 0 24 24", "0,0,24,24", "0, 0  24 24" are all valid).
+                    let n = vb.split(whereSeparator: { $0 == "," || $0.isWhitespace })
+                        .compactMap { Double($0) }
                     if n.count == 4 {
                         viewBox = ViewBox(minX: n[0], minY: n[1], width: n[2], height: n[3])
                     }

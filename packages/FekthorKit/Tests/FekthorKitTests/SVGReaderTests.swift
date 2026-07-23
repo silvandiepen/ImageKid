@@ -94,6 +94,30 @@ final class SVGReaderTests: XCTestCase {
         XCTAssertNil(SVGReader.parseTransform("garbage"))
     }
 
+    func testViewBoxSeparators() throws {
+        // Per SVG, viewBox numbers separate on whitespace and/or commas.
+        func viewBox(_ vb: String) throws -> ViewBox {
+            try SVGReader.read(
+                #"<svg xmlns="http://www.w3.org/2000/svg" viewBox="\#(vb)"><rect width="1" height="1"/></svg>"#
+            ).viewBox
+        }
+        let expected = ViewBox(minX: 0, minY: 0, width: 24, height: 24)
+        XCTAssertEqual(try viewBox("0 0 24 24"), expected)
+        XCTAssertEqual(try viewBox("0,0,24,24"), expected)
+        XCTAssertEqual(try viewBox("0, 0 24  24"), expected)
+        XCTAssertEqual(try viewBox(" 0 ,\t0\n24 , 24 "), expected)
+        XCTAssertEqual(
+            try viewBox("-8,-8,24,24"), ViewBox(minX: -8, minY: -8, width: 24, height: 24))
+    }
+
+    func testViewBoxWidthHeightFallback() throws {
+        // No viewBox: width/height attributes stand in, exactly as before.
+        let doc = try SVGReader.read(
+            #"<svg xmlns="http://www.w3.org/2000/svg" width="30" height="20"><rect width="1" height="1"/></svg>"#
+        )
+        XCTAssertEqual(doc.viewBox, ViewBox(width: 30, height: 20))
+    }
+
     func testCorpusSmoke() throws {
         guard let root = ProcessInfo.processInfo.environment["FEKTHOR_ICON_CORPUS"] else {
             throw XCTSkip("set FEKTHOR_ICON_CORPUS to run")

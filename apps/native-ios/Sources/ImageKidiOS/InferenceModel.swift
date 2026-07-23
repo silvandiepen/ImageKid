@@ -279,6 +279,14 @@ final class InferenceModel: ObservableObject {
     var history: [HistoryStep] { active?.history ?? [] }
     var historyIndex: Int { active?.historyIndex ?? 0 }
 
+    /// Identity of the working image: the history step under the cursor. Any
+    /// commit, undo, redo, or timeline jump yields a different id, so async
+    /// operations can capture it and detect that their input went stale.
+    var currentHistoryStepID: UUID? {
+        guard let active, active.history.indices.contains(active.historyIndex) else { return nil }
+        return active.history[active.historyIndex].id
+    }
+
     /// Saved colour swatches for the selected picture (persist across sheets).
     var sampledColors: [SampledColor] { active?.sampledColors ?? [] }
 

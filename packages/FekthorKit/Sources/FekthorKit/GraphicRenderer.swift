@@ -14,7 +14,10 @@ import Foundation
 ///   shape; `.raw` / `var()` / `currentColor` / `.reference` fall back to
 ///   `PaintValue.renderColor` exactly like the app does;
 /// - strokes honour width, `stroke-linecap`, `stroke-linejoin`,
-///   `stroke-opacity` and `stroke-dasharray`/`stroke-dashoffset`.
+///   `stroke-opacity` and `stroke-dasharray`/`stroke-dashoffset`;
+/// - styling comes from `renderStyle` — presentation attributes layered
+///   beneath class/inline per the SVG cascade — and `display: none` nodes
+///   (and their subtrees) are skipped.
 ///
 /// The background is transparent by default; pass `background` for an opaque
 /// artboard colour. All drawing happens in document (viewBox) coordinates —
@@ -115,22 +118,26 @@ public enum GraphicRenderer {
     }
 
     /// Mirrors `ThumbnailRenderer.draw` / `EditorCanvasView.drawNodes`:
-    /// groups compose transform and opacity; shapes honour effective
-    /// fill/stroke styles, fill-rule, fill-opacity, caps, joins and dashes.
+    /// groups compose transform and opacity; shapes honour `renderStyle`
+    /// (presentation attributes beneath class + inline, `display: none`
+    /// skips the node), fill-rule, fill-opacity, caps, joins and dashes.
     static func drawNodes(_ nodes: [GraphicNode], in ctx: CGContext, opacity: Double) {
         for node in nodes {
             switch node {
             case .raw:
                 continue  // defs/style blocks have no direct rendering
             case .group(let g):
+                let groupStyle = g.renderStyle
+                if groupStyle.isDisplayNone { continue }  // hidden layer
                 ctx.saveGState()
                 if let t = g.transform { ctx.concatenate(affine(t)) }
-                drawNodes(g.children, in: ctx, opacity: opacity * (g.style.opacity ?? 1))
+                drawNodes(g.children, in: ctx, opacity: opacity * (groupStyle.opacity ?? 1))
                 ctx.restoreGState()
             case .shape(let s):
+                let style = s.renderStyle
+                if style.isDisplayNone { continue }  // hidden layer
                 ctx.saveGState()
                 if let t = s.transform { ctx.concatenate(affine(t)) }
-                let style = s.effectiveStyle
                 let nodeOpacity = opacity * (style.opacity ?? 1)
                 let path = CGPathBuilder.path(for: s.kind)
                 fill(path, style: style, shape: s, opacity: nodeOpacity, in: ctx)

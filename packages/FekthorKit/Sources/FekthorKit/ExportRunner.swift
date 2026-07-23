@@ -33,6 +33,52 @@ public enum ExportRunner {
             .replacingOccurrences(of: "{profile}", with: profile.name)
     }
 
+    /// Why `safeFileName` rejected a templated output name.
+    public enum FileNameError: Error, Equatable, Sendable, CustomStringConvertible {
+        /// Nothing left after normalization (empty, only slashes/`.`, or a
+        /// `..` chain that lands exactly on the destination).
+        case empty
+        /// The name climbs above the destination directory (`../…`).
+        case escapesDestination(String)
+
+        public var description: String {
+            switch self {
+            case .empty:
+                return "output name is empty"
+            case .escapesDestination(let name):
+                return "output name \"\(name)\" escapes the destination folder"
+            }
+        }
+    }
+
+    /// Normalize a templated output name into a relative path guaranteed to
+    /// stay STRICTLY inside the destination directory. Templates are user
+    /// data (`{name}`/`{profile}` substitution), so a name like
+    /// `../../etc/x.svg` or `/abs/x.svg` must never leave the folder the
+    /// user picked. Leading slashes are stripped (absolute → relative),
+    /// empty and `.` components collapse, and `..` resolves lexically — a
+    /// name that would climb out throws `FileNameError.escapesDestination`;
+    /// one that resolves to nothing throws `FileNameError.empty`.
+    public static func safeFileName(_ fileName: String) throws -> String {
+        var components: [Substring] = []
+        // `split` drops empty runs, which strips leading/doubled slashes.
+        for part in fileName.split(separator: "/") {
+            switch part {
+            case ".":
+                continue
+            case "..":
+                guard !components.isEmpty else {
+                    throw FileNameError.escapesDestination(fileName)
+                }
+                components.removeLast()
+            default:
+                components.append(part)
+            }
+        }
+        guard !components.isEmpty else { throw FileNameError.empty }
+        return components.joined(separator: "/")
+    }
+
     /// Apply a profile to one document. Returns the templated file name and
     /// the transformed document. Throws `ExportActionError` on bad actions.
     ///

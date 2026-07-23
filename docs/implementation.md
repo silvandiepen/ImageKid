@@ -36,20 +36,26 @@ The package form keeps the initial repository small, reviewable, and directly te
 - Geometry, crop-coordinate, freehand-input, and colour-coordinate mapping unit tests.
 - macOS CI build and test workflow.
 
-## Fekthor Trace (raster-to-vector companion)
+## Fekthor (vector editor)
 
-Fekthor Trace joined the monorepo as a separate macOS app target
-(`com.hakobs.fekthor.trace`, `apps/native-macos/Sources/FekthorTrace`) with its
-engine in `packages/FekthorKit` (SwiftPM, deterministic, 73 unit tests, its own
-`fekthor` CLI target and fixture-based eval harness). It vectorises raster
-images into editable SVG: Auto/Shapes/Strokes/Gradient modes with mode-aware
-quality scoring, Split/Overlay/Wipe comparison, Auto-tune settings search,
-opt-in variable-width stroke envelopes, node editing (anchors, Bezier handles,
-undo), and optional on-device Real-ESRGAN enhancement (explicit-action model
-download, same source as the companions). It depends on FekthorKit and
-ImageKidInference; like all apps here it never imports from another app.
-Thor remains the app's mascot/branding. The name "Fekthor" (without Trace) is
-reserved for a future vector-file editor.
+Fekthor is the monorepo's second flagship: a workspace-first native macOS
+vector editor (`com.hakobs.fekthor`, `apps/native-macos/Sources/FekthorTrace`)
+with its engine in `packages/FekthorKit` (SwiftPM, deterministic, 317 unit
+tests, its own `fekthor` CLI target and fixture-based eval harness). A
+folder-backed workspace presents icons in a searchable gallery; documents
+carry named styles, design tokens, and swatches, including file-local ones;
+and export runs through named non-destructive profiles with container and
+partial support. Editing covers pen, shape, transform, and corner tools,
+gradients, and node editing (anchors, Bezier handles, undo). Raster tracing is
+a built-in feature rather than a separate app: Auto/Shapes/Strokes/Gradient
+modes with mode-aware quality scoring, Split/Overlay/Wipe comparison,
+Auto-tune settings search, opt-in variable-width stroke envelopes, and
+optional on-device Real-ESRGAN enhancement (explicit-action model download,
+same source as the companions). The floating panel system lives in
+`packages/ImageKidKit` (41 unit tests) and is shared across the family.
+Fekthor depends on FekthorKit, ImageKidKit, and ImageKidInference; like all
+apps here it never imports from another app. Thor remains the app's
+mascot/branding.
 
 ## Incomplete or provisional
 

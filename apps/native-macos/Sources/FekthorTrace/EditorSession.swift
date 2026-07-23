@@ -1190,28 +1190,32 @@ final class EditorSession: ObservableObject {
 
     // MARK: - Saving
 
-    func save() {
+    /// Returns true only when the document actually reached disk — untitled
+    /// sessions route through Save As, so a cancelled panel or a failed
+    /// write reports false and callers must not treat the file as saved.
+    @discardableResult
+    func save() -> Bool {
         guard let url = fileURL else {
-            saveAs()
-            return
+            return saveAs()
         }
-        write(to: url)
+        return write(to: url)
     }
 
-    func saveAs() {
+    @discardableResult
+    func saveAs() -> Bool {
         let panel = NSSavePanel()
         let svgType = UTType(filenameExtension: "svg") ?? .xml
         let fekthorType = UTType(filenameExtension: "fekthor") ?? .json
         panel.allowedContentTypes = fileKind == .fekthor ? [fekthorType, svgType] : [svgType, fekthorType]
         panel.nameFieldStringValue =
             fileURL?.lastPathComponent ?? (fileKind == .fekthor ? "untitled.fekthor" : "untitled.svg")
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard panel.runModal() == .OK, let url = panel.url else { return false }
         fileKind = url.pathExtension.lowercased() == "fekthor" ? .fekthor : .svg
         fileURL = url
-        write(to: url)
+        return write(to: url)
     }
 
-    private func write(to url: URL) {
+    private func write(to url: URL) -> Bool {
         do {
             // File-local swatches/styles land in (or leave) the metadata
             // block at save time; the in-memory document stays untouched.
@@ -1226,8 +1230,10 @@ final class EditorSession: ObservableObject {
             }
             dirty = false
             status = "Saved \(url.lastPathComponent)"
+            return true
         } catch {
             status = "Save failed: \(error.localizedDescription)"
+            return false
         }
     }
 }
