@@ -25,6 +25,7 @@ struct NewIconSheet: View {
                 .textFieldStyle(.roundedBorder)
                 .focused($nameFocused)
                 .onSubmit { create() }
+                .accessibilityIdentifier("newicon.name")
             Picker("Category", selection: $category) {
                 Text("Uncategorized").tag("")
                 ForEach(session.workspace?.categories ?? [], id: \.self) {
@@ -41,6 +42,7 @@ struct NewIconSheet: View {
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(trimmedName.isEmpty)
+                    .accessibilityIdentifier("newicon.create")
             }
         }
         .padding(20)

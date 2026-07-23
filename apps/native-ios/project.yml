@@ -59,3 +59,20 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    scheme:
+      testTargets:
+        - ImageKidiOSUITests
+  ImageKidiOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Tests/ImageKidiOSUITests
+    dependencies:
+      - target: ImageKidiOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hakobs.imagekid.uitests
+        TEST_TARGET_NAME: ImageKidiOS
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
