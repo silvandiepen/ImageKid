@@ -642,11 +642,20 @@ final class ImageSession: ObservableObject {
         paragraph.alignment = a.textAlignment.paragraphAlignment
         paragraph.lineHeightMultiple = max(a.lineHeight, 0.01)
         let attrs: [NSAttributedString.Key: Any] = [.font: baseFont, .paragraphStyle: paragraph]
-        let bounds = (content as NSString).boundingRect(
-            with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: attrs
+        // Use the layout manager's *used* rect — the tight bounds of the laid-out
+        // glyphs — instead of boundingRect, which pads with extra line leading and
+        // makes single-line boxes look like they have a trailing blank line.
+        let storage = NSTextStorage(string: content, attributes: attrs)
+        let container = NSTextContainer(
+            size: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         )
+        container.lineFragmentPadding = 0
+        let layoutManager = NSLayoutManager()
+        layoutManager.usesFontLeading = false
+        layoutManager.addTextContainer(container)
+        storage.addLayoutManager(layoutManager)
+        layoutManager.ensureLayout(for: container)
+        let bounds = layoutManager.usedRect(for: container)
         let pad = max(a.fontSize * 0.18, 4)
         let px = pixelSize
         let w = min((bounds.width + pad * 2) / max(px.width, 1), 1)
