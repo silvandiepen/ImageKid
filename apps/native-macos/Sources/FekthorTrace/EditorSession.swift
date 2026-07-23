@@ -247,6 +247,75 @@ final class EditorSession: ObservableObject {
         status = "Added point."
     }
 
+    // MARK: - Crossing points
+
+    /// Every visible shape's baked doc-space paths except `excluding` —
+    /// the obstacle set for crossing detection. Mirrors the canvas walk:
+    /// hidden groups skip their whole subtree; locked shapes still count
+    /// (they are visible, so their crossings are real).
+    func visibleObstaclePaths(excluding id: Int) -> [RefinedPath] {
+        var out: [RefinedPath] = []
+        func walk(_ nodes: [GraphicNode]) {
+            for node in nodes {
+                switch node {
+                case .raw:
+                    continue
+                case .group(let g):
+                    guard !g.renderStyle.isDisplayNone else { continue }
+                    walk(g.children)
+                case .shape(let s):
+                    guard s.id != id, !s.renderStyle.isDisplayNone else { continue }
+                    out.append(contentsOf: Editing2.bakedPaths(of: s))
+                }
+            }
+        }
+        walk(document.nodes)
+        return out
+    }
+
+    /// How many crossing points "Add Crossing Points" would insert on this
+    /// shape — the context menu's cheap pre-check (computed lazily, for the
+    /// clicked shape only).
+    func crossingCount(node id: Int) -> Int {
+        guard let shape = document.firstShape(id: id) else { return 0 }
+        let obstacles = visibleObstaclePaths(excluding: id)
+        guard !obstacles.isEmpty else { return 0 }
+        return Editing2.bakedPaths(of: shape).reduce(0) {
+            $0 + PathCrossings.crossings(of: $1, with: obstacles).count
+        }
+    }
+
+    /// "Add Crossing Points": insert anchors on the shape exactly where its
+    /// outline crosses any other visible shape's outline (engine-exact via
+    /// `PathCrossings`). Primitives degrade to `.path` like every other
+    /// anchor-level edit. One labelled undo step; the shape stays selected
+    /// so the new anchors are visible.
+    func addCrossingPoints(node id: Int) {
+        guard let shape = document.firstShape(id: id) else { return }
+        let obstacles = visibleObstaclePaths(excluding: id)
+        var out = Editing2.editable(shape)
+        guard case .path(let paths) = out.kind, !obstacles.isEmpty else {
+            status = "No crossings found."
+            return
+        }
+        var added = 0
+        let next = paths.map { rp -> RefinedPath in
+            let hits = PathCrossings.crossings(of: rp, with: obstacles)
+            guard !hits.isEmpty else { return rp }
+            added += hits.count
+            return PathCrossings.insertingCrossings(rp, with: obstacles)
+        }
+        guard added > 0 else {
+            status = "No crossings found."
+            return
+        }
+        out.kind = .path(next)
+        beginGesture(label: "Add crossing points")
+        mutate { $0.replaceShape(id: id, with: out) }
+        selection = [id]
+        status = added == 1 ? "Added 1 point." : "Added \(added) points."
+    }
+
     // MARK: - Z-order (selection, one undo step each)
 
     func bringForward() {

@@ -1754,6 +1754,19 @@ struct EditorCanvasView: View {
                 ))
             }
         }
+        // "Add Crossing Points" on the clicked shape, only when its outline
+        // actually crosses another visible shape's (checked lazily here, on
+        // menu build, for the clicked shape only).
+        if let hit = hitNode(at: point, in: size), session.crossingCount(node: hit) > 0 {
+            items.append((
+                "Add Crossing Points",
+                {
+                    session.selection = [hit]
+                    activeAnchor = nil
+                    session.addCrossingPoints(node: hit)
+                }
+            ))
+        }
         if !session.selection.isEmpty {
             items.append(("Delete \(session.selection.count) Node(s)", { session.deleteSelection() }))
         }

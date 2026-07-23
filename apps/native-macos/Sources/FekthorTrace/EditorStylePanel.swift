@@ -335,6 +335,7 @@ private struct PaintControls: View {
                     onPick: { color in
                         apply { set(&$0, paint(from: color)) }
                     })
+                    .accessibilityIdentifier("panel.\(editKey).well")
                 TextField("hex", text: $hex)
                     .textFieldStyle(.roundedBorder)
                     .font(.caption.monospaced())

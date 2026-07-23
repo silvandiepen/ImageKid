@@ -143,7 +143,22 @@ struct ContentView: View {
                 zoom = 1
                 offset = .zero
             }
-            .onAppear { model.loadLaunchArgumentIfPresent() }
+            .onAppear {
+                // UI-test launches are deterministic: open exactly what the
+                // arguments name (workspace folder / file), never the trace
+                // flow's bare-path argument.
+                if UITestMode.enabled {
+                    if let path = UITestMode.workspacePath,
+                        workspaceSession.open(folder: URL(fileURLWithPath: path))
+                    {
+                        enterWorkspaceMode()
+                    } else if let path = UITestMode.openPath {
+                        route(url: URL(fileURLWithPath: path))
+                    }
+                } else {
+                    model.loadLaunchArgumentIfPresent()
+                }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .fekthorNewFile)) { _ in
                 // ⌘N in a workspace means "new icon"; the detached blank
                 // file remains the no-workspace behaviour.
@@ -517,6 +532,25 @@ struct ContentView: View {
         }
     }
 
+    /// Trace → editor handoff: the CURRENT vector (hand edits included)
+    /// crosses the Model2Bridge into an UNTITLED editor session — dirty
+    /// from birth, so leaving without saving prompts. The trace state
+    /// clears once the session exists (same reset the workspace-save flow
+    /// uses); a workspace trace target does NOT reroute this — the save
+    /// bar remains the way to file a trace into the workspace, Open in
+    /// Editor always detaches.
+    private func openTraceInEditor() {
+        guard let doc = model.document else { return }
+        let session = EditorSession(document: Model2Bridge.graphicDocument(from: doc))
+        session.dirty = true
+        session.status = "Opened the traced vector — untitled; ⌘S saves it."
+        editorSession = session
+        traceTarget = nil
+        model.reset()
+        zoom = 1
+        offset = .zero
+    }
+
     /// Gallery double-click / Open in Editor: straight into the editor; the
     /// editor's Back returns to the gallery (the workspace stays open).
     private func openEntry(_ entry: IconEntry) {
@@ -631,6 +665,11 @@ struct ContentView: View {
                 }
                 .keyboardShortcut("z", modifiers: .command)
                 .disabled(!model.canUndo)
+                Button { openTraceInEditor() } label: {
+                    Label("Open in Editor", systemImage: "square.and.pencil")
+                }
+                .disabled(!model.hasResult)
+                .help("Continue with this vector in the editor")
                 Button { model.exportSVG() } label: {
                     Label("Export SVG", systemImage: "square.and.arrow.up")
                 }
@@ -695,6 +734,7 @@ private struct EmptyStateView: View {
                     ) {
                         onNewFile()
                     }
+                    .accessibilityIdentifier("home.newFile")
                     homeCard(
                         icon: "square.grid.3x3.square",
                         title: "New Workspace",
@@ -703,6 +743,7 @@ private struct EmptyStateView: View {
                     ) {
                         onNewWorkspace()
                     }
+                    .accessibilityIdentifier("home.newWorkspace")
                     homeCard(
                         icon: "wand.and.rays",
                         title: "Vectorize Image",
@@ -711,6 +752,7 @@ private struct EmptyStateView: View {
                     ) {
                         model.openPanel()
                     }
+                    .accessibilityIdentifier("home.vectorize")
                 }
                 HStack(spacing: 20) {
                     Button("Open a file…", action: onOpen)
@@ -1472,6 +1514,7 @@ struct EditorWorkspaceView: View {
                 Text("\(session.document.nodes.count) nodes")
                     .font(.system(.callout, design: .monospaced))
                     .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("editor.nodeCount")
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -1520,10 +1563,14 @@ struct EditorWorkspaceView: View {
             } label: {
                 Label(backLabel, systemImage: "chevron.left")
             }
+            .accessibilityIdentifier("editor.back")
             Text(session.fileURL?.lastPathComponent ?? "Untitled")
                 .font(.headline)
+                .accessibilityIdentifier("editor.title")
             if session.dirty {
                 Circle().fill(.orange).frame(width: 7, height: 7)
+                    .accessibilityLabel("Edited")
+                    .accessibilityIdentifier("editor.dirtyDot")
             }
             Spacer()
             if !session.selection.isEmpty {
@@ -1540,12 +1587,14 @@ struct EditorWorkspaceView: View {
             .keyboardShortcut("z", modifiers: .command)
             .disabled(!session.canUndo)
             .help("Undo (⌘Z)")
+            .accessibilityIdentifier("editor.undo")
             Button {
                 session.save()
             } label: {
                 Label("Save", systemImage: "square.and.arrow.down")
                     .labelStyle(.iconOnly)
             }
+            .accessibilityIdentifier("editor.save")
             // The one prominent header action: Save keeps the accent while
             // there is something to save; everything else stays neutral.
             .tint(session.dirty ? Color.fekthorAccent : .primary)
@@ -1658,6 +1707,8 @@ struct EditorWorkspaceView: View {
         }
         .buttonStyle(.plain)
         .help("\(name) (\(keys))")
+        .accessibilityLabel(name)
+        .accessibilityIdentifier("tool.\(tool.rawValue)")
     }
 
     private var toolShortcuts: some View {

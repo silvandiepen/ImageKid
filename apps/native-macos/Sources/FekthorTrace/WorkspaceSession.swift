@@ -633,7 +633,7 @@ final class WorkspaceSession: ObservableObject {
     }
 
     private static func loadRecents() -> [RecentWorkspace] {
-        guard let data = UserDefaults.standard.data(forKey: recentsKey),
+        guard let data = AppDefaults.store.data(forKey: recentsKey),
             let list = try? JSONDecoder().decode([RecentWorkspace].self, from: data)
         else { return [] }
         return list
@@ -641,7 +641,7 @@ final class WorkspaceSession: ObservableObject {
 
     private static func saveRecents(_ list: [RecentWorkspace]) {
         if let data = try? JSONEncoder().encode(list) {
-            UserDefaults.standard.set(data, forKey: recentsKey)
+            AppDefaults.store.set(data, forKey: recentsKey)
         }
     }
 

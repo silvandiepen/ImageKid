@@ -53,7 +53,7 @@ final class MenuState: ObservableObject {
     /// has no showGrid field; persisted globally in UserDefaults so hiding
     /// never erases a workspace's configured spacing.
     @Published var showGrid: Bool {
-        didSet { UserDefaults.standard.set(showGrid, forKey: Self.showGridKey) }
+        didSet { AppDefaults.store.set(showGrid, forKey: Self.showGridKey) }
     }
     /// Snap to grid (⇧⌘'). Mirrors the open workspace's setting (persisted
     /// through the workfile by ContentView); session-level for detached
@@ -68,7 +68,7 @@ final class MenuState: ObservableObject {
     /// corners/centres. App-side and persisted globally in UserDefaults —
     /// point snapping is an editor habit, not a workspace standard.
     @Published var snapToPoints: Bool {
-        didSet { UserDefaults.standard.set(snapToPoints, forKey: Self.snapToPointsKey) }
+        didSet { AppDefaults.store.set(snapToPoints, forKey: Self.snapToPointsKey) }
     }
     /// View ▸ Preview Composed Icons (⌥⌘P): the gallery also shows virtual
     /// icon-in-container cells. Session-level — composed previews are never
@@ -79,8 +79,8 @@ final class MenuState: ObservableObject {
     private static let snapToPointsKey = "fekthor.snapToPoints"
 
     private init() {
-        showGrid = UserDefaults.standard.object(forKey: Self.showGridKey) as? Bool ?? true
-        snapToPoints = UserDefaults.standard.bool(forKey: Self.snapToPointsKey)
+        showGrid = AppDefaults.store.object(forKey: Self.showGridKey) as? Bool ?? true
+        snapToPoints = AppDefaults.store.bool(forKey: Self.snapToPointsKey)
     }
 }
 
