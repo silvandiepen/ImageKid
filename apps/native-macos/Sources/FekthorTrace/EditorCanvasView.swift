@@ -45,15 +45,27 @@ struct EditorCanvasView: View {
     /// corners/centres. Point snap WINS over grid snap; ⌃ disables both.
     var snapToPoints: Bool = false
 
-    @State private var activeAnchor: (path: Int, index: Int)? = nil
+    /// A path anchor, hashable for multi-point selection.
+    struct AnchorRef: Hashable { let path: Int; let index: Int }
+    /// The selected points (Direct Select). Move and corner-radius act on all
+    /// of them; a single selection also exposes its Bézier handles.
+    @State private var selectedAnchors: Set<AnchorRef> = []
+    /// The single selected point, when exactly one — for handle editing.
+    private var activeAnchor: (path: Int, index: Int)? {
+        selectedAnchors.count == 1
+            ? selectedAnchors.first.map { (path: $0.path, index: $0.index) } : nil
+    }
     /// Hold-Z scrubby zoom: Z arms it (`zoomScrub`); a drag then zooms by its
     /// horizontal delta from the grab point (`zoomDragStart`).
     @State private var zoomScrub = false
     @State private var zoomDragStart: (location: CGPoint, zoom: CGFloat)? = nil
     @State private var draggingAnchor: (path: Int, index: Int)? = nil
-    /// The dragged anchor's doc position at grab time, so a drag moves it by
-    /// the delta from there — a click (no movement) never snaps it to grid.
-    @State private var anchorDragStart: Pt? = nil
+    /// Every selected anchor's doc position at grab time, so a drag moves the
+    /// whole group by the delta — and a click (no movement) never snaps.
+    @State private var anchorDragStarts: [AnchorRef: Pt] = [:]
+    /// A no-shift click that landed on an already-multi-selected point: keep
+    /// the group for a drag, but collapse to just this point on mouse-up.
+    @State private var pendingAnchorCollapse: AnchorRef? = nil
     /// The anchor drag hasn't taken its undo snapshot yet — deferred until the
     /// first real move, so selecting a point doesn't create an empty undo step.
     @State private var pendingAnchorGesture = false
@@ -151,7 +163,7 @@ struct EditorCanvasView: View {
             .onChange(of: session.tool) {
                 // Leaving Direct Select drops the point highlight so Select
                 // shows the transform frame instead of anchor dots.
-                if session.tool != .directSelect { activeAnchor = nil }
+                if session.tool != .directSelect { selectedAnchors = [] }
             }
         }
         .frame(minWidth: 300, minHeight: 340)
@@ -211,26 +223,71 @@ struct EditorCanvasView: View {
         if duplicate {
             guard !session.selection.isEmpty else { return false }
             session.duplicateSelection(dx: dx * step, dy: dy * step)
-            activeAnchor = nil
+            selectedAnchors = []
             return true
         }
-        // Move the selected point when one is active.
-        if let sel = single, let active = activeAnchor,
-            let shape = session.document.firstShape(id: sel),
-            let anchor = Editing2.anchors(of: shape).first(where: {
-                $0.path == active.path && $0.index == active.index
-            })
-        {
-            let target = Pt(anchor.position.x + dx * step, anchor.position.y + dy * step)
-            session.beginGesture(label: "Nudge point")
-            session.moveAnchor(node: sel, path: active.path, anchor: active.index, to: snapped(target))
-            return true
+        // Move the selected point(s) in Direct Select.
+        if session.tool == .directSelect, !selectedAnchors.isEmpty, let sel = single,
+            let shape = session.document.firstShape(id: sel) {
+            var moves: [(path: Int, anchor: Int, to: Pt)] = []
+            for a in Editing2.anchors(of: shape)
+            where selectedAnchors.contains(AnchorRef(path: a.path, index: a.index)) {
+                let raw = Pt(a.position.x + dx * step, a.position.y + dy * step)
+                // One point snaps to the grid; a group moves rigidly by the step.
+                moves.append((a.path, a.index, selectedAnchors.count == 1 ? snapped(raw) : raw))
+            }
+            if !moves.isEmpty {
+                session.beginGesture(label: moves.count > 1 ? "Move points" : "Nudge point")
+                session.moveAnchors(node: sel, moves: moves)
+                return true
+            }
         }
         // Otherwise move the whole selection.
         guard !session.selection.isEmpty else { return false }
         session.beginGesture(label: "Move")
         session.translateSelection(dx: dx * step, dy: dy * step)
         return true
+    }
+
+    /// Select and grab a point to drag. ⇧ toggles it in the multi-set; a plain
+    /// click selects just it — or keeps an existing multi-set for a group drag,
+    /// collapsing to this point on mouse-up if it doesn't move. Captures every
+    /// selected point's start position for the drag.
+    private func grabAnchor(path: Int, index: Int, shape: ShapeNode) {
+        let ref = AnchorRef(path: path, index: index)
+        pendingAnchorCollapse = nil
+        if NSEvent.modifierFlags.contains(.shift) {
+            if selectedAnchors.contains(ref) {
+                selectedAnchors.remove(ref)  // ⇧-click a selected point deselects it
+                draggingAnchor = nil
+                anchorDragStarts = [:]
+                return
+            }
+            selectedAnchors.insert(ref)
+        } else if selectedAnchors.contains(ref), selectedAnchors.count > 1 {
+            pendingAnchorCollapse = ref
+        } else {
+            selectedAnchors = [ref]
+        }
+        draggingAnchor = (path, index)
+        pendingAnchorGesture = true
+        snapMagnets = collectMagnets(excluding: session.selection)
+        anchorDragStarts = [:]
+        for a in Editing2.anchors(of: shape)
+        where selectedAnchors.contains(AnchorRef(path: a.path, index: a.index)) {
+            anchorDragStarts[AnchorRef(path: a.path, index: a.index)] = a.position
+        }
+    }
+
+    /// Which corners a radius edit applies to: every selected point when the
+    /// dragged corner is part of a multi-selection, otherwise just that corner.
+    private func cornerScope(path: Int, index: Int) -> [Int: Set<Int>] {
+        if selectedAnchors.contains(AnchorRef(path: path, index: index)), selectedAnchors.count > 1 {
+            var grouped: [Int: Set<Int>] = [:]
+            for a in selectedAnchors { grouped[a.path, default: []].insert(a.index) }
+            return grouped
+        }
+        return [path: [index]]
     }
 
     private func canvas(in size: CGSize) -> some View {
@@ -650,8 +707,7 @@ struct EditorCanvasView: View {
         }
         for a in Editing2.anchors(of: shape) {
             let v = CGPoint(x: a.position.x * t.s + t.tx, y: a.position.y * t.s + t.ty)
-            let isActive =
-                activeAnchor.map { $0.path == a.path && $0.index == a.index } ?? false
+            let isActive = selectedAnchors.contains(AnchorRef(path: a.path, index: a.index))
             let r: CGFloat = isActive ? 4.5 : 3.5
             let rect = CGRect(x: v.x - r, y: v.y - r, width: 2 * r, height: 2 * r)
             ctx.fill(Path(ellipseIn: rect), with: .color(isActive ? .blue : .white))
@@ -1128,13 +1184,14 @@ struct EditorCanvasView: View {
             }
             if let hit = best {
                 session.beginGesture(label: "Corner radius")
-                // Dragging a corner's dot rounds THAT corner (live: the point
-                // is preserved). Whole-shape rounding is the Corners panel.
+                // Dragging a corner's dot rounds THAT corner — or every selected
+                // point's corner when the dragged one is part of a multi-select.
+                // Whole-shape rounding is the Corners panel. (Live: points kept.)
                 cornerDrag = CornerDrag(
                     originals: selectedOriginals(),
                     path: hit.path, index: hit.info.index,
                     anchor: hit.info.position, bisector: hit.info.bisector,
-                    only: [hit.path: [hit.info.index]])
+                    only: cornerScope(path: hit.path, index: hit.info.index))
                 return
             }
         }
@@ -1160,11 +1217,7 @@ struct EditorCanvasView: View {
                 }
             }
             if let hit = best {
-                pendingAnchorGesture = true
-                snapMagnets = collectMagnets(excluding: session.selection)
-                draggingAnchor = (hit.0.path, hit.0.index)
-                anchorDragStart = hit.0.position
-                activeAnchor = (hit.0.path, hit.0.index)
+                grabAnchor(path: hit.0.path, index: hit.0.index, shape: shape)
                 return
             }
         }
@@ -1181,12 +1234,9 @@ struct EditorCanvasView: View {
                 if d <= hitRadius, best == nil || d < best!.1 { best = (a, d) }
             }
             if let hit = best {
-                pendingAnchorGesture = true
                 session.selection = [under]
-                snapMagnets = collectMagnets(excluding: session.selection)
-                draggingAnchor = (hit.0.path, hit.0.index)
-                anchorDragStart = hit.0.position
-                activeAnchor = (hit.0.path, hit.0.index)
+                selectedAnchors = []
+                grabAnchor(path: hit.0.path, index: hit.0.index, shape: shape)
                 return
             }
         }
@@ -1279,21 +1329,27 @@ struct EditorCanvasView: View {
             session.moveHandle(
                 node: sel, path: active.path, segment: h.segment, kind: h.kind,
                 to: want, mirror: mirror)
-        } else if let d = draggingAnchor, let sel = single, let start = anchorDragStart {
-            // A click (no real movement) only selects — never move/snap the
-            // point. Once dragging, move it by the delta from its grab point
-            // (so it doesn't jump to the cursor), snapping the result to grid.
+        } else if let d = draggingAnchor, let sel = single,
+            let grabbedStart = anchorDragStarts[AnchorRef(path: d.path, index: d.index)] {
+            // A click (no real movement) only selects — never move/snap. Once
+            // dragging, snap the GRABBED point to grid and shift every selected
+            // point by the same delta (so a group keeps its shape).
             if hypot(v.translation.width, v.translation.height) > 2 {
                 if pendingAnchorGesture {
-                    session.beginGesture(label: "Move anchor")
+                    session.beginGesture(label: anchorDragStarts.count > 1 ? "Move points" : "Move anchor")
                     pendingAnchorGesture = false
+                    pendingAnchorCollapse = nil  // a real drag keeps the whole group
                 }
                 let s = docPoint(from: v.startLocation, in: size)
                 let cur = docPoint(from: v.location, in: size)
-                let raw = Pt(start.x + (cur.x - s.x), start.y + (cur.y - s.y))
-                session.moveAnchor(
-                    node: sel, path: d.path, anchor: d.index,
-                    to: pointOrGridSnapped(raw, in: size))
+                let grabbedTarget = pointOrGridSnapped(
+                    Pt(grabbedStart.x + (cur.x - s.x), grabbedStart.y + (cur.y - s.y)), in: size)
+                let ddx = grabbedTarget.x - grabbedStart.x
+                let ddy = grabbedTarget.y - grabbedStart.y
+                let moves = anchorDragStarts.map {
+                    (path: $0.key.path, anchor: $0.key.index, to: Pt($0.value.x + ddx, $0.value.y + ddy))
+                }
+                session.moveAnchors(node: sel, moves: moves)
             }
         } else if draggingBody, let origin = moveOrigin {
             // Point snap sticks the GRAB POINT to the magnet (the shape
@@ -1328,8 +1384,14 @@ struct EditorCanvasView: View {
             gestureBegan = false
             snapMagnets = []
             activeMagnet = nil
-            anchorDragStart = nil
+            anchorDragStarts = [:]
             pendingAnchorGesture = false
+            pendingAnchorCollapse = nil
+        }
+        // A no-shift click on an already-selected point (no drag) collapses the
+        // multi-selection down to just that point.
+        if let collapse = pendingAnchorCollapse, pendingAnchorGesture {
+            selectedAnchors = [collapse]
         }
         if zoomDragStart != nil {
             zoomDragStart = nil
@@ -1379,7 +1441,7 @@ struct EditorCanvasView: View {
             session.insertAnchor(
                 node: ins.node, path: ins.path, segment: ins.segment, t: ins.t)
             session.selection = [ins.node]
-            activeAnchor = (ins.path, ins.anchorIndex)
+            selectedAnchors = [AnchorRef(path: ins.path, index: ins.anchorIndex)]
             return
         }
         if let hit = hitNode(at: v.location, in: size) {
@@ -1389,14 +1451,14 @@ struct EditorCanvasView: View {
                 } else {
                     session.selection.insert(hit)
                 }
-                activeAnchor = nil
+                selectedAnchors = []
             } else {
                 session.selection = [hit]
-                activeAnchor = nil
+                selectedAnchors = []
             }
         } else if !shift && !cmd {
             session.selection = []
-            activeAnchor = nil
+            selectedAnchors = []
         }
         session.generation += 1
     }
@@ -1491,7 +1553,7 @@ struct EditorCanvasView: View {
         if band.width < 4, band.height < 4 {
             if !NSEvent.modifierFlags.contains(.shift) {
                 session.selection = []
-                activeAnchor = nil
+                selectedAnchors = []
             }
             return
         }
@@ -1522,7 +1584,7 @@ struct EditorCanvasView: View {
         }
         walk(session.document.nodes)
         session.selection = picked
-        activeAnchor = nil
+        selectedAnchors = []
     }
 
     // MARK: - Shape drawing
@@ -1909,7 +1971,7 @@ struct EditorCanvasView: View {
                     "Remove Point",
                     {
                         session.removeAnchor(node: sel, path: anchor.path, anchor: anchor.index)
-                        activeAnchor = nil
+                        selectedAnchors = []
                     }
                 ))
             }
@@ -1922,7 +1984,7 @@ struct EditorCanvasView: View {
                 "Add Crossing Points",
                 {
                     session.selection = [hit]
-                    activeAnchor = nil
+                    selectedAnchors = []
                     session.addCrossingPoints(node: hit)
                 }
             ))

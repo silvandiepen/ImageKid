@@ -217,6 +217,19 @@ final class EditorSession: ObservableObject {
         mutate { $0.replaceShape(id: id, with: moved) }
     }
 
+    /// Move several anchors of one shape to absolute targets in one mutation —
+    /// multi-point drag / nudge. Caller snapshots once (beginGesture).
+    func moveAnchors(node id: Int, moves: [(path: Int, anchor: Int, to: Pt)]) {
+        guard !moves.isEmpty else { return }
+        mutate { doc in
+            guard var shape = doc.firstShape(id: id) else { return }
+            for m in moves {
+                shape = Editing2.moveAnchor(shape, path: m.path, anchor: m.anchor, to: m.to)
+            }
+            doc.replaceShape(id: id, with: shape)
+        }
+    }
+
     func moveHandle(
         node id: Int, path: Int, segment: Int, kind: Editing.HandleKind, to: Pt, mirror: Bool
     ) {
