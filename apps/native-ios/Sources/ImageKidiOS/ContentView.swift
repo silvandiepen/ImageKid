@@ -1497,6 +1497,10 @@ private struct InlineEditingCanvas: View {
     // Drag-to-move an image layer (Layers tool).
     @State private var movingLayerIndex: Int?
     @State private var moveOriginalLayer: EditorLayer?
+    // Two-finger pan: a pinch (MagnificationGesture) marks isZooming; the
+    // simultaneous drag then pans instead of driving the active tool.
+    @State private var isZooming = false
+    @State private var panDuringZoom = false
     @FocusState private var textEditorFocused: Bool
 
     var body: some View {
@@ -1822,6 +1826,15 @@ private struct InlineEditingCanvas: View {
     private func canvasGesture(in imageRect: CGRect) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onChanged { value in
+                // Two-finger gesture in progress → pan the canvas, whatever the tool.
+                if isZooming {
+                    panDuringZoom = true
+                    panOffset = CGSize(
+                        width: committedPanOffset.width + value.translation.width,
+                        height: committedPanOffset.height + value.translation.height
+                    )
+                    return
+                }
                 if isPanning {
                     panOffset = CGSize(
                         width: committedPanOffset.width + value.translation.width,
@@ -1922,6 +1935,11 @@ private struct InlineEditingCanvas: View {
                 }
             }
             .onEnded { value in
+                if panDuringZoom || isZooming {
+                    panDuringZoom = false
+                    committedPanOffset = panOffset
+                    return
+                }
                 if isPanning {
                     committedPanOffset = panOffset
                     return
@@ -1999,10 +2017,13 @@ private struct InlineEditingCanvas: View {
     private func zoomGesture() -> some Gesture {
         MagnificationGesture()
             .onChanged { value in
+                isZooming = true
                 zoomScale = clampedZoom(committedZoomScale * value)
             }
             .onEnded { _ in
                 committedZoomScale = zoomScale
+                committedPanOffset = panOffset
+                isZooming = false
             }
     }
 
