@@ -183,36 +183,51 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
         presented.contains(id) && !minimized.contains(id)
     }
 
-    /// Remembers which panel a hidden/minimized panel was stacked directly
-    /// under, so showing it again re-attaches to that stack instead of
-    /// floating free. Session-only.
-    private var stackMemory: [ID: String] = [:]
+    /// The stack neighbour a hidden/minimized panel sat next to, and on which
+    /// side, so showing it again rebuilds the same stack. `neighbourBelow`
+    /// true means the panel was the head (neighbour under it); false means it
+    /// was a follower (neighbour = its predecessor above).
+    private struct StackLink { let neighbour: String; let neighbourBelow: Bool }
+    private var stackMemory: [ID: StackLink] = [:]
 
-    /// Record the stack neighbour above `id` before it leaves a stack, so it
-    /// can slot back into the same place when shown again.
+    /// Record the adjacent panel before `id` leaves a stack: its predecessor
+    /// if it's a follower, otherwise its first follower if it's the head.
     private func rememberStack(_ id: ID) {
         let key = stackKey(id)
-        if let stack = stacks.stack(containing: key),
-            let index = stack.firstIndex(of: key), index > 0 {
-            stackMemory[id] = stack[index - 1]
+        guard let stack = stacks.stack(containing: key),
+            let index = stack.firstIndex(of: key)
+        else { stackMemory[id] = nil; return }
+        if index > 0 {
+            stackMemory[id] = StackLink(neighbour: stack[index - 1], neighbourBelow: false)
+        } else if stack.count > 1 {
+            stackMemory[id] = StackLink(neighbour: stack[index + 1], neighbourBelow: true)
         } else {
             stackMemory[id] = nil
         }
     }
 
-    /// Reveal a now-presented panel where it belongs: re-attached under the
-    /// stack neighbour it left (if that's still open), otherwise back at its
-    /// last spot. Only a panel that has *never* been placed gets a fresh
-    /// opening slot — a returning panel keeps exactly where it was.
+    /// Reveal a now-presented panel where it belongs: rebuild the stack it
+    /// left (re-attach under its predecessor, or pull its follower chain back
+    /// under it if it was the head) when the neighbour is still open;
+    /// otherwise back at its last spot. Only a panel that has *never* been
+    /// placed — or a former follower whose stack is gone (its stored spot is a
+    /// stale head-derived coordinate) — gets a fresh opening slot.
     private func revealPlacement(_ id: ID) {
-        if let targetKey = stackMemory[id], let target = panel(forStackKey: targetKey),
-            isExpanded(target) {
+        let key = stackKey(id)
+        if let link = stackMemory[id] {
             stackMemory[id] = nil
-            stacks.attach(stackKey(id), below: targetKey)
-            syncStackWidths(containing: targetKey)
-            return
+            if let target = panel(forStackKey: link.neighbour), isExpanded(target) {
+                if link.neighbourBelow {
+                    stacks.attach(link.neighbour, below: key)
+                    syncStackWidths(containing: key)
+                } else {
+                    stacks.attach(key, below: link.neighbour)
+                    syncStackWidths(containing: link.neighbour)
+                }
+                return
+            }
+            if !link.neighbourBelow { needsPlacement.insert(id); return }
         }
-        stackMemory[id] = nil
         if !hasPlacement(id) { needsPlacement.insert(id) }
     }
 

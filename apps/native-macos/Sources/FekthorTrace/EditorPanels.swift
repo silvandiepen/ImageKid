@@ -375,15 +375,21 @@ final class EditorPanelsState: ObservableObject {
     /// palette detaches first — its followers close up, and a collapsed
     /// palette can't be a stick target. Its (still highlighted) rail button
     /// or the Panels menu restores it where it was.
-    /// Remembers which palette a hidden/minimized one was stacked under, so
-    /// showing it again re-attaches to that stack instead of floating free.
-    private var stackMemory: [EditorPanel: String] = [:]
+    /// The stack neighbour a hidden/minimized palette sat next to, and on
+    /// which side, so showing it again rebuilds the same stack.
+    /// `neighbourBelow` true = it was the head (neighbour under it); false =
+    /// it was a follower (neighbour = its predecessor above).
+    private struct StackLink { let neighbour: String; let neighbourBelow: Bool }
+    private var stackMemory: [EditorPanel: StackLink] = [:]
 
     private func rememberStack(_ panel: EditorPanel) {
         let key = panel.rawValue
-        if let stack = stacks.stack(containing: key),
-            let index = stack.firstIndex(of: key), index > 0 {
-            stackMemory[panel] = stack[index - 1]
+        guard let stack = stacks.stack(containing: key), let index = stack.firstIndex(of: key)
+        else { stackMemory[panel] = nil; return }
+        if index > 0 {
+            stackMemory[panel] = StackLink(neighbour: stack[index - 1], neighbourBelow: false)
+        } else if stack.count > 1 {
+            stackMemory[panel] = StackLink(neighbour: stack[index + 1], neighbourBelow: true)
         } else {
             stackMemory[panel] = nil
         }
@@ -393,18 +399,25 @@ final class EditorPanelsState: ObservableObject {
         anchors[panel] != nil || legacyPositions[panel] != nil
     }
 
-    /// Reveal a now-visible palette where it belongs: re-attached under the
-    /// stack neighbour it left (if that's still open), otherwise back at its
-    /// last spot. Only a palette that has *never* been placed queues for a
-    /// fresh opening slot — a returning palette keeps exactly where it was.
+    /// Reveal a now-visible palette where it belongs: rebuild the stack it
+    /// left (re-attach under its predecessor, or pull its follower chain back
+    /// under it if it was the head) when the neighbour is still open;
+    /// otherwise back at its last spot. Only a never-placed palette — or a
+    /// former follower whose stack is gone (its stored spot is a stale
+    /// head-derived coordinate) — queues for a fresh opening slot.
     private func revealPlacement(_ panel: EditorPanel) {
-        if let targetKey = stackMemory[panel], let target = EditorPanel(rawValue: targetKey),
-            isExpanded(target) {
+        if let link = stackMemory[panel] {
             stackMemory[panel] = nil
-            attach(panel, belowStackKey: targetKey)
-            return
+            if let target = EditorPanel(rawValue: link.neighbour), isExpanded(target) {
+                if link.neighbourBelow {
+                    attach(target, belowStackKey: panel.rawValue)
+                } else {
+                    attach(panel, belowStackKey: link.neighbour)
+                }
+                return
+            }
+            if !link.neighbourBelow { needsPlacement.insert(panel); return }
         }
-        stackMemory[panel] = nil
         if !hasPlacement(panel) { needsPlacement.insert(panel) }
     }
 
