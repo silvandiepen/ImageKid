@@ -48,6 +48,29 @@ struct DrawingInspector: View {
             }
         }
 
+        // Freehand is a brush: show the Brush group right after the mode.
+        if modeBinding.wrappedValue == .freehand {
+            sectionDivider
+            field("Brush") {
+                LazyVGrid(columns: columns, spacing: 8) {
+                    ForEach(brushPresets) { preset in
+                        brushButton(preset)
+                    }
+                }
+                HStack(spacing: 10) {
+                    Image(systemName: "scribble")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.55))
+                    MinimalSlider(value: $session.drawingSmoothing, in: 0...1, step: 0.05)
+                    Text("\(Int(session.drawingSmoothing * 100))%")
+                        .font(.caption.monospacedDigit())
+                        .frame(width: 40, alignment: .trailing)
+                }
+            }
+        }
+
+        sectionDivider
+
         field("Stroke") {
             HStack {
                 ColorPicker("Stroke colour", selection: strokeColorBinding, supportsOpacity: false)
@@ -65,27 +88,6 @@ struct DrawingInspector: View {
             }
             .labelsHidden()
             .pickerStyle(.segmented)
-        }
-
-        if modeBinding.wrappedValue == .freehand {
-            field("Brush") {
-                LazyVGrid(columns: columns, spacing: 8) {
-                    ForEach(brushPresets) { preset in
-                        brushButton(preset)
-                    }
-                }
-            }
-            field("Smoothing") {
-                HStack(spacing: 10) {
-                    Image(systemName: "scribble")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.white.opacity(0.55))
-                    MinimalSlider(value: $session.drawingSmoothing, in: 0...1, step: 0.05)
-                    Text("\(Int(session.drawingSmoothing * 100))%")
-                        .font(.caption.monospacedDigit())
-                        .frame(width: 40, alignment: .trailing)
-                }
-            }
         }
 
         if modeBinding.wrappedValue.supportsFill {
@@ -333,6 +335,11 @@ struct DrawingInspector: View {
             .padding(14)
         }
         .frame(width: 268, height: 380)
+    }
+
+    /// Thin divider that visually separates the Draw / Brush / Stroke groups.
+    private var sectionDivider: some View {
+        Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
     }
 
     private func cornerField(_ label: String, _ value: Binding<Double>) -> some View {
