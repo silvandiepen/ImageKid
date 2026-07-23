@@ -231,6 +231,13 @@ final class InferenceModel: ObservableObject {
         set { if let i = activeIndex { items[i].layers = newValue } }
     }
 
+    /// Next depth for a new stack item (above all current layers + annotations).
+    var nextStackZ: Double {
+        let maxLayer = active?.layers.map(\.z).max() ?? 0
+        let maxAnno = active?.annotations.map(\.z).max() ?? 0
+        return max(maxLayer, maxAnno) + 1
+    }
+
     func addLayer(_ image: UIImage) {
         guard let base = workingImage else { return }
         // Fit the new layer to ~55% of the base, centred, preserving aspect.
@@ -241,7 +248,9 @@ final class InferenceModel: ObservableObject {
         if h > 0.9 { h = 0.9; w = h * (imgAspect / max(baseAspect, 0.0001)) }
         let frame = CGRect(x: (1 - w) / 2, y: (1 - h) / 2, width: w, height: h)
         let name = "Layer \(layers.count + 1)"
-        layers.append(EditorLayer(name: name, image: image, frame: frame))
+        var layer = EditorLayer(name: name, image: image, frame: frame)
+        layer.z = nextStackZ
+        layers.append(layer)
         statusText = "Layer added"
     }
 

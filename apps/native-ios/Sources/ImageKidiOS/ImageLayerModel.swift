@@ -12,6 +12,8 @@ struct EditorLayer: Identifiable {
     var frame: CGRect
     var opacity: Double = 1
     var isVisible: Bool = true
+    /// Shared stack order across layers and annotations (higher = on top).
+    var z: Double = 0
 
     /// A copy translated by a normalised delta.
     func translated(dx: CGFloat, dy: CGFloat) -> EditorLayer {

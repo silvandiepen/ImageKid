@@ -556,17 +556,43 @@ struct ContentView: View {
         activeTool = nil
     }
 
-    /// A UIImage with image layers then annotations flattened on top, for
-    /// view-mode display and export. Returns the base unchanged when empty.
+    /// A UIImage with image layers and annotations flattened on top in a single
+    /// depth-ordered pass (unified stack), for view-mode display and export.
     private func displayWithAnnotations(_ base: UIImage) -> UIImage {
-        guard var cg = base.normalizedCGImage() else { return base }
-        if !model.layers.isEmpty, let composited = LayerCompositor.render(base: cg, layers: model.layers) {
-            cg = composited
+        guard let baseCG = base.normalizedCGImage() else { return base }
+        let layers = model.layers
+        let annotations = model.annotations
+        guard !layers.isEmpty || !annotations.isEmpty else { return base }
+
+        let size = CGSize(width: baseCG.width, height: baseCG.height)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = false
+        let out = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            UIImage(cgImage: baseCG).draw(in: CGRect(origin: .zero, size: size))
+            let cg = context.cgContext
+            let fullRect = CGRect(origin: .zero, size: size)
+
+            enum StackItem { case layer(EditorLayer); case annotation(Annotation) }
+            var items: [(z: Double, item: StackItem)] = []
+            for layer in layers where layer.isVisible { items.append((layer.z, .layer(layer))) }
+            for annotation in annotations { items.append((annotation.z, .annotation(annotation))) }
+            items.sort { $0.z < $1.z }
+
+            for entry in items {
+                switch entry.item {
+                case .layer(let layer):
+                    let rect = CGRect(
+                        x: layer.frame.minX * size.width, y: layer.frame.minY * size.height,
+                        width: layer.frame.width * size.width, height: layer.frame.height * size.height
+                    )
+                    layer.image.draw(in: rect, blendMode: .normal, alpha: CGFloat(layer.opacity))
+                case .annotation(let annotation):
+                    AnnotationRasterizer.draw(annotation, in: cg, fullRect: fullRect)
+                }
+            }
         }
-        if !model.annotations.isEmpty, let rendered = AnnotationRasterizer.render(model.annotations, onto: cg) {
-            cg = rendered
-        }
-        return UIImage(cgImage: cg)
+        return out.cgImage.map { UIImage(cgImage: $0) } ?? base
     }
 
     /// The "Magic" entry point: a context menu grouping AI-powered actions —
@@ -1471,15 +1497,19 @@ private struct InlineEditingCanvas: View {
                     }
                     .position(x: imageRect.midX, y: imageRect.midY)
 
-                // Image layers render over the base, under annotations.
-                layersOverlay(in: imageRect)
+                // Unified stack: layers and annotations interleaved by depth.
+                unifiedStackOverlay(in: imageRect)
+
+                if activeTool == .layer {
+                    layerSelectionOverlay(in: imageRect)
+                }
 
                 if activeTool == .crop {
                     cropOverlay(in: imageRect)
                 }
 
                 if activeTool == .draw || activeTool == .text || activeTool == .select {
-                    annotationOverlay(in: imageRect)
+                    draftOverlay(in: imageRect)
                     selectionOverlay(in: imageRect)
                 }
 
@@ -1594,6 +1624,11 @@ private struct InlineEditingCanvas: View {
             .gesture(cropCornerGesture(corner, in: imageRect))
     }
 
+    /// Next depth for a new annotation (above all current layers + annotations).
+    private var nextStackZ: Double {
+        max(layers.map(\.z).max() ?? 0, annotations.map(\.z).max() ?? 0) + 1
+    }
+
     private func layerRect(_ layer: EditorLayer, in imageRect: CGRect) -> CGRect {
         CGRect(
             x: imageRect.minX + layer.frame.minX * imageRect.width,
@@ -1611,61 +1646,86 @@ private struct InlineEditingCanvas: View {
         return nil
     }
 
+    private struct StackEntry: Identifiable {
+        enum Kind { case layer(EditorLayer); case annotation(Annotation) }
+        let id: UUID
+        let z: Double
+        let kind: Kind
+    }
+
+    /// Layers + annotations sorted by depth (bottom → top).
+    private func stackItems() -> [StackEntry] {
+        var items: [StackEntry] = []
+        for layer in layers { items.append(StackEntry(id: layer.id, z: layer.z, kind: .layer(layer))) }
+        for annotation in annotations { items.append(StackEntry(id: annotation.id, z: annotation.z, kind: .annotation(annotation))) }
+        return items.sorted { $0.z < $1.z }
+    }
+
+    /// Renders the unified stack (layers as images, annotations as strokes/text)
+    /// interleaved by depth, so a layer can sit above or below any annotation.
     @ViewBuilder
-    private func layersOverlay(in imageRect: CGRect) -> some View {
+    private func unifiedStackOverlay(in imageRect: CGRect) -> some View {
         ZStack {
-            ForEach(layers) { layer in
-                if layer.isVisible {
-                    let rect = layerRect(layer, in: imageRect)
-                    Image(uiImage: layer.image)
-                        .resizable()
-                        .frame(width: rect.width, height: rect.height)
-                        .opacity(layer.opacity)
-                        .position(x: rect.midX, y: rect.midY)
+            ForEach(stackItems()) { entry in
+                switch entry.kind {
+                case .layer(let layer):
+                    if layer.isVisible {
+                        let rect = layerRect(layer, in: imageRect)
+                        Image(uiImage: layer.image)
+                            .resizable()
+                            .frame(width: rect.width, height: rect.height)
+                            .opacity(layer.opacity)
+                            .position(x: rect.midX, y: rect.midY)
+                    }
+                case .annotation(let annotation):
+                    if annotation.id != editingTextID {
+                        singleAnnotationCanvas(annotation, in: imageRect)
+                    }
                 }
             }
-            if activeTool == .layer, let id = selectedLayerID,
-               let layer = layers.first(where: { $0.id == id }) {
-                let rect = layerRect(layer, in: imageRect)
-                Rectangle()
-                    .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
-                    .frame(width: rect.width, height: rect.height)
-                    .position(x: rect.midX, y: rect.midY)
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func singleAnnotationCanvas(_ annotation: Annotation, in imageRect: CGRect) -> some View {
+        Canvas { context, _ in
+            if annotation.isText {
+                let resolved = context.resolve(
+                    Text(annotation.text.isEmpty ? " " : annotation.text)
+                        .font(annotation.swiftUIFont(in: imageRect))
+                        .foregroundColor(annotation.color)
+                )
+                context.draw(resolved, at: annotation.textOrigin(in: imageRect), anchor: .topLeading)
+            } else {
+                context.stroke(
+                    Path(annotation.path(in: imageRect)),
+                    with: .color(annotation.color),
+                    style: StrokeStyle(lineWidth: annotation.strokeWidth(in: imageRect), lineCap: .round, lineJoin: .round)
+                )
             }
         }
         .allowsHitTesting(false)
     }
 
     @ViewBuilder
-    private func annotationOverlay(in imageRect: CGRect) -> some View {
-        Canvas { context, _ in
-            for annotation in annotations + [draftAnnotation].compactMap({ $0 }) {
-                if annotation.isText {
-                    if annotation.id == editingTextID { continue } // shown live in the text field
-                    let resolved = context.resolve(
-                        Text(annotation.text.isEmpty ? " " : annotation.text)
-                            .font(annotation.swiftUIFont(in: imageRect))
-                            .foregroundColor(annotation.color)
-                    )
-                    context.draw(resolved, at: annotation.textOrigin(in: imageRect), anchor: .topLeading)
-                } else {
-                    context.stroke(
-                        Path(annotation.path(in: imageRect)),
-                        with: .color(annotation.color),
-                        style: StrokeStyle(
-                            lineWidth: annotation.strokeWidth(in: imageRect),
-                            lineCap: .round,
-                            lineJoin: .round
-                        )
-                    )
-                }
-            }
+    private func layerSelectionOverlay(in imageRect: CGRect) -> some View {
+        if let id = selectedLayerID, let layer = layers.first(where: { $0.id == id }) {
+            let rect = layerRect(layer, in: imageRect)
+            Rectangle()
+                .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                .frame(width: rect.width, height: rect.height)
+                .position(x: rect.midX, y: rect.midY)
+                .allowsHitTesting(false)
         }
-        // The Canvas fills the whole container and draws at container-space
-        // coordinates (the same space as hit-testing and the gesture), so text
-        // and shapes render exactly where they can be selected. (A framed-and-
-        // positioned Canvas double-offsets by the image margin.)
-        .allowsHitTesting(false)
+    }
+
+    /// Live preview of the in-progress (draft) shape while drawing. Committed
+    /// annotations are rendered by the unified stack overlay.
+    @ViewBuilder
+    private func draftOverlay(in imageRect: CGRect) -> some View {
+        if let draft = draftAnnotation {
+            singleAnnotationCanvas(draft, in: imageRect)
+        }
     }
 
     /// Dashed outline around the selected annotation (Select tool).
@@ -1826,6 +1886,7 @@ private struct InlineEditingCanvas: View {
                         new.start = point
                         new.end = point
                         new.points = [point]
+                        new.z = nextStackZ
                         draftAnnotation = new
                     } else {
                         draftAnnotation?.end = point
@@ -1896,6 +1957,7 @@ private struct InlineEditingCanvas: View {
                         new.start = normalized(value.location, in: imageRect)
                         new.text = ""
                         new.fontFraction = textSizeFraction
+                        new.z = nextStackZ
                         annotations.append(new)
                         beginTextEditing(new.id)
                     }

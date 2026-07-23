@@ -54,6 +54,8 @@ struct Annotation: Identifiable {
     var fontFraction: CGFloat = 0.05
     /// PostScript/family name of the font; nil = system font.
     var fontName: String?
+    /// Shared stack order across layers and annotations (higher = on top).
+    var z: Double = 0
 
     var isText: Bool { kind == .text }
 
@@ -182,27 +184,33 @@ enum AnnotationRasterizer {
         let output = renderer.image { context in
             UIImage(cgImage: base).draw(in: CGRect(origin: .zero, size: pixelSize))
             let cg = context.cgContext
-            cg.setLineCap(.round)
-            cg.setLineJoin(.round)
             let fullRect = CGRect(origin: .zero, size: pixelSize)
-            for annotation in annotations {
-                if annotation.isText {
-                    let attributes: [NSAttributedString.Key: Any] = [
-                        .font: annotation.uiFont(in: fullRect),
-                        .foregroundColor: UIColor(annotation.color)
-                    ]
-                    (annotation.text as NSString).draw(
-                        at: annotation.textOrigin(in: fullRect),
-                        withAttributes: attributes
-                    )
-                    continue
-                }
-                cg.setStrokeColor(UIColor(annotation.color).cgColor)
-                cg.setLineWidth(annotation.strokeWidth(in: fullRect))
-                cg.addPath(annotation.path(in: fullRect))
-                cg.strokePath()
-            }
+            for annotation in annotations { draw(annotation, in: cg, fullRect: fullRect) }
         }
         return output.cgImage
+    }
+
+    /// Draw a single annotation into an existing context (used for the unified
+    /// layer/annotation stack, so they can be interleaved by depth).
+    static func draw(_ annotation: Annotation, in cg: CGContext, fullRect: CGRect) {
+        cg.saveGState()
+        cg.setLineCap(.round)
+        cg.setLineJoin(.round)
+        if annotation.isText {
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: annotation.uiFont(in: fullRect),
+                .foregroundColor: UIColor(annotation.color)
+            ]
+            (annotation.text as NSString).draw(
+                at: annotation.textOrigin(in: fullRect),
+                withAttributes: attributes
+            )
+        } else {
+            cg.setStrokeColor(UIColor(annotation.color).cgColor)
+            cg.setLineWidth(annotation.strokeWidth(in: fullRect))
+            cg.addPath(annotation.path(in: fullRect))
+            cg.strokePath()
+        }
+        cg.restoreGState()
     }
 }
