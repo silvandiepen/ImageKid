@@ -101,7 +101,9 @@ extension CGPathBuilder {
         let path = CGMutablePath()
         switch kind {
         case .path(let paths):
-            for rp in paths { appendRefined(rp, to: path) }
+            // Live corners are resolved to real geometry only here (draw) and
+            // at export; the stored anchors stay sharp for editing.
+            for rp in paths { appendRefined(rp.flattenedCorners, to: path) }
         case .line(let a, let b):
             path.move(to: cg(a))
             path.addLine(to: cg(b))

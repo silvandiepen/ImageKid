@@ -695,6 +695,12 @@ final class EditorSession: ObservableObject {
     /// index → anchor indices; nil rounds every corner of every subpath.
     /// V1 is destructive (Illustrator pre-live-corners): geometry changes,
     /// nothing is stored.
+    /// Set a live corner radius: the sharp anchors are kept and the radius is
+    /// stored per corner (applied only when the geometry is drawn/exported), so
+    /// a rounded corner stays one editable point and radius 0 restores it. A
+    /// plain rect keeps its parametric `rx`; everything else stores per-anchor
+    /// radii on the path. `corners` scopes to specific anchors (nil = every
+    /// fillet-able corner of the shape).
     static func roundedShape(
         _ shape: ShapeNode, radius: Double, corners: [Int: Set<Int>]? = nil
     ) -> ShapeNode {
@@ -708,13 +714,46 @@ final class EditorSession: ObservableObject {
             return out
         }
         var out = Editing2.editable(shape)
-        guard case .path(let paths) = out.kind else { return shape }
-        out.kind = .path(
-            paths.enumerated().map { pi, rp in
-                LiveCorners.rounded(
-                    path: rp, radius: radius, corners: corners.map { $0[pi] ?? [] })
-            })
+        guard case .path(var paths) = out.kind else { return shape }
+        for pi in paths.indices {
+            let targets: Set<Int> =
+                corners.map { $0[pi] ?? [] }
+                ?? Set(LiveCorners.cornerAnchors(of: paths[pi]).map(\.index))
+            guard !targets.isEmpty else { continue }
+            var radii = paths[pi].cornerRadii
+            for idx in targets {
+                if radius > 0.001 { radii[idx] = radius } else { radii[idx] = nil }
+            }
+            paths[pi].cornerRadii = radii
+        }
+        out.kind = .path(paths)
         return out
+    }
+
+    /// The stored live radius of one anchor of the single selected shape
+    /// (0 = sharp) — for the panel field and the canvas corner handle's base.
+    func cornerRadius(path: Int, anchor: Int) -> Double {
+        guard selection.count == 1, let id = selection.first,
+            let shape = document.firstShape(id: id),
+            case .path(let paths) = Editing2.editable(shape).kind, path < paths.count
+        else { return 0 }
+        return paths[path].cornerRadii[anchor] ?? 0
+    }
+
+    /// Set the live radius of one anchor of the single selected shape.
+    func setCornerRadius(radius: Double, path: Int, anchor: Int) {
+        guard selection.count == 1, let id = selection.first, radius.isFinite, radius >= 0
+        else { return }
+        let key = "corner-anchor|\(id)|\(path)|\(anchor)"
+        if styleEditKey != key {
+            beginGesture(label: "Corner radius")
+            styleEditKey = key
+        }
+        mutate { doc in
+            guard let shape = doc.firstShape(id: id) else { return }
+            doc.replaceShape(
+                id: id, with: Self.roundedShape(shape, radius: radius, corners: [path: [anchor]]))
+        }
     }
 
     /// Corner radius on every selected shape (Corners palette, canvas

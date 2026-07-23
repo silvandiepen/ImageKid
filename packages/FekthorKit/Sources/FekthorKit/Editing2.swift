@@ -151,7 +151,10 @@ public enum Editing2 {
     public static func moveAnchor(_ node: ShapeNode, path: Int, anchor: Int, to: Pt) -> ShapeNode {
         var out = editable(node)
         guard case .path(var paths) = out.kind, path < paths.count else { return node }
-        paths[path] = Editing.movedPath(paths[path], anchor: anchor, to: to)
+        let radii = paths[path].cornerRadii  // moving a point keeps anchor indices
+        var moved = Editing.movedPath(paths[path], anchor: anchor, to: to)
+        moved.cornerRadii = radii
+        paths[path] = moved
         out.kind = .path(paths)
         return out
     }

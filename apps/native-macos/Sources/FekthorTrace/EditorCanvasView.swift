@@ -1081,13 +1081,13 @@ struct EditorCanvasView: View {
             }
             if let hit = best {
                 session.beginGesture(label: "Corner radius")
-                // Selection rule: a selected POINT scopes the edit to the
-                // dragged corner; a plain shape selection rounds them all.
+                // Dragging a corner's dot rounds THAT corner (live: the point
+                // is preserved). Whole-shape rounding is the Corners panel.
                 cornerDrag = CornerDrag(
                     originals: selectedOriginals(),
                     path: hit.path, index: hit.info.index,
                     anchor: hit.info.position, bisector: hit.info.bisector,
-                    only: activeAnchor != nil ? [hit.path: [hit.info.index]] : nil)
+                    only: [hit.path: [hit.info.index]])
                 return
             }
         }
