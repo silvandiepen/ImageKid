@@ -129,6 +129,20 @@ targets:
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.graphics-design
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_STYLE: Automatic
+  FekthorUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: Tests/FekthorUITests
+    dependencies:
+      - target: Fekthor
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hakobs.fekthor.uitests
+        PRODUCT_NAME: FekthorUITests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.0"
+        CODE_SIGN_STYLE: Automatic
   ImageKidCompanionTests:
     type: bundle.unit-test
     platform: macOS
@@ -143,3 +157,24 @@ targets:
         PRODUCT_NAME: ImageKid Companion Tests
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_VERSION: "5.0"
+# Explicit schemes replace Xcode's auto-created ones once any scheme is
+# defined, so Fekthor keeps a shared scheme of its own — with the UI smoke
+# suite attached to its test action — next to the dedicated test scheme.
+schemes:
+  Fekthor:
+    build:
+      targets:
+        Fekthor: all
+    run:
+      config: Debug
+    test:
+      targets:
+        - FekthorUITests
+  FekthorUITests:
+    build:
+      targets:
+        Fekthor: all
+        FekthorUITests: [test]
+    test:
+      targets:
+        - FekthorUITests

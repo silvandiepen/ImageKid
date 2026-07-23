@@ -102,6 +102,7 @@ struct WorkspaceGalleryView: View {
             }
             .buttonStyle(.plain)
             .help("Create a new icon (⌘N)")
+            .accessibilityIdentifier("gallery.newIcon")
             Spacer()
             searchField
             // Sort: icon-only menu with checkmarked modes.
@@ -358,6 +359,8 @@ struct WorkspaceGalleryView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier(
+                "gallery.section.\(category.isEmpty ? "Uncategorized" : category)")
             Button {
                 onNewIcon(category)
             } label: {
@@ -406,6 +409,8 @@ struct WorkspaceGalleryView: View {
             onOpen: { onOpenEntry(entry) }
         )
         .contextMenu { contextMenu(for: entry) }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("gallery.cell.\(entry.id)")
     }
 
     @ViewBuilder

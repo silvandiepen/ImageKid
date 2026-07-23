@@ -143,7 +143,22 @@ struct ContentView: View {
                 zoom = 1
                 offset = .zero
             }
-            .onAppear { model.loadLaunchArgumentIfPresent() }
+            .onAppear {
+                // UI-test launches are deterministic: open exactly what the
+                // arguments name (workspace folder / file), never the trace
+                // flow's bare-path argument.
+                if UITestMode.enabled {
+                    if let path = UITestMode.workspacePath,
+                        workspaceSession.open(folder: URL(fileURLWithPath: path))
+                    {
+                        enterWorkspaceMode()
+                    } else if let path = UITestMode.openPath {
+                        route(url: URL(fileURLWithPath: path))
+                    }
+                } else {
+                    model.loadLaunchArgumentIfPresent()
+                }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .fekthorNewFile)) { _ in
                 // ⌘N in a workspace means "new icon"; the detached blank
                 // file remains the no-workspace behaviour.
@@ -695,6 +710,7 @@ private struct EmptyStateView: View {
                     ) {
                         onNewFile()
                     }
+                    .accessibilityIdentifier("home.newFile")
                     homeCard(
                         icon: "square.grid.3x3.square",
                         title: "New Workspace",
@@ -703,6 +719,7 @@ private struct EmptyStateView: View {
                     ) {
                         onNewWorkspace()
                     }
+                    .accessibilityIdentifier("home.newWorkspace")
                     homeCard(
                         icon: "wand.and.rays",
                         title: "Vectorize Image",
@@ -711,6 +728,7 @@ private struct EmptyStateView: View {
                     ) {
                         model.openPanel()
                     }
+                    .accessibilityIdentifier("home.vectorize")
                 }
                 HStack(spacing: 20) {
                     Button("Open a file…", action: onOpen)
@@ -1472,6 +1490,7 @@ struct EditorWorkspaceView: View {
                 Text("\(session.document.nodes.count) nodes")
                     .font(.system(.callout, design: .monospaced))
                     .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("editor.nodeCount")
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -1520,10 +1539,14 @@ struct EditorWorkspaceView: View {
             } label: {
                 Label(backLabel, systemImage: "chevron.left")
             }
+            .accessibilityIdentifier("editor.back")
             Text(session.fileURL?.lastPathComponent ?? "Untitled")
                 .font(.headline)
+                .accessibilityIdentifier("editor.title")
             if session.dirty {
                 Circle().fill(.orange).frame(width: 7, height: 7)
+                    .accessibilityLabel("Edited")
+                    .accessibilityIdentifier("editor.dirtyDot")
             }
             Spacer()
             if !session.selection.isEmpty {
@@ -1540,12 +1563,14 @@ struct EditorWorkspaceView: View {
             .keyboardShortcut("z", modifiers: .command)
             .disabled(!session.canUndo)
             .help("Undo (⌘Z)")
+            .accessibilityIdentifier("editor.undo")
             Button {
                 session.save()
             } label: {
                 Label("Save", systemImage: "square.and.arrow.down")
                     .labelStyle(.iconOnly)
             }
+            .accessibilityIdentifier("editor.save")
             // The one prominent header action: Save keeps the accent while
             // there is something to save; everything else stays neutral.
             .tint(session.dirty ? Color.fekthorAccent : .primary)
@@ -1658,6 +1683,8 @@ struct EditorWorkspaceView: View {
         }
         .buttonStyle(.plain)
         .help("\(name) (\(keys))")
+        .accessibilityLabel(name)
+        .accessibilityIdentifier("tool.\(tool.rawValue)")
     }
 
     private var toolShortcuts: some View {

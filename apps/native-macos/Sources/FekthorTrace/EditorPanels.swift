@@ -151,7 +151,7 @@ final class EditorPanelsState: ObservableObject {
     /// Panels currently shown (while an editor is open).
     @Published var visible: Set<EditorPanel> {
         didSet {
-            UserDefaults.standard.set(
+            AppDefaults.store.set(
                 visible.map(\.rawValue).sorted(), forKey: Self.visibleKey)
         }
     }
@@ -160,7 +160,7 @@ final class EditorPanelsState: ObservableObject {
     /// button stays highlighted and a click restores them where they were).
     @Published var minimized: Set<EditorPanel> {
         didSet {
-            UserDefaults.standard.set(
+            AppDefaults.store.set(
                 minimized.map(\.rawValue).sorted(), forKey: Self.minimizedKey)
         }
     }
@@ -170,7 +170,7 @@ final class EditorPanelsState: ObservableObject {
     @Published var stacks: PanelStacks {
         didSet {
             guard let data = try? JSONEncoder().encode(stacks) else { return }
-            UserDefaults.standard.set(data, forKey: Self.stacksKey)
+            AppDefaults.store.set(data, forKey: Self.stacksKey)
         }
     }
 
@@ -225,21 +225,21 @@ final class EditorPanelsState: ObservableObject {
 
     private init() {
         let loadedVisible: Set<EditorPanel>
-        if let raw = UserDefaults.standard.array(forKey: Self.visibleKey) as? [String] {
+        if let raw = AppDefaults.store.array(forKey: Self.visibleKey) as? [String] {
             loadedVisible = Set(raw.compactMap(EditorPanel.init(rawValue:)))
         } else {
             loadedVisible = Self.defaultVisible
         }
         visible = loadedVisible
         let loadedMinimized: Set<EditorPanel>
-        if let raw = UserDefaults.standard.array(forKey: Self.minimizedKey) as? [String] {
+        if let raw = AppDefaults.store.array(forKey: Self.minimizedKey) as? [String] {
             loadedMinimized = Set(raw.compactMap(EditorPanel.init(rawValue:)))
         } else {
             loadedMinimized = []
         }
         minimized = loadedMinimized
         var loadedStacks = PanelStacks()
-        if let data = UserDefaults.standard.data(forKey: Self.stacksKey),
+        if let data = AppDefaults.store.data(forKey: Self.stacksKey),
             let decoded = try? JSONDecoder().decode(PanelStacks.self, from: data)
         {
             loadedStacks = decoded
@@ -258,16 +258,16 @@ final class EditorPanelsState: ObservableObject {
         var loadedLegacy: [EditorPanel: CGSize] = [:]
         var loadedSizes: [EditorPanel: CGSize] = [:]
         for panel in EditorPanel.allCases {
-            if let data = UserDefaults.standard.data(forKey: Self.anchorKey(panel)),
+            if let data = AppDefaults.store.data(forKey: Self.anchorKey(panel)),
                 let anchor = try? JSONDecoder().decode(Anchor.self, from: data)
             {
                 loadedAnchors[panel] = anchor
-            } else if let pair = UserDefaults.standard.array(
+            } else if let pair = AppDefaults.store.array(
                 forKey: Self.legacyPositionKey(panel)) as? [Double], pair.count == 2
             {
                 loadedLegacy[panel] = CGSize(width: pair[0], height: pair[1])
             }
-            if let pair = UserDefaults.standard.array(
+            if let pair = AppDefaults.store.array(
                 forKey: Self.sizeKey(panel)) as? [Double], pair.count == 2
             {
                 loadedSizes[panel] = CGSize(width: pair[0], height: pair[1])
@@ -333,9 +333,9 @@ final class EditorPanelsState: ObservableObject {
         anchors[panel] = anchor
         legacyPositions[panel] = nil
         if let data = try? JSONEncoder().encode(anchor) {
-            UserDefaults.standard.set(data, forKey: Self.anchorKey(panel))
+            AppDefaults.store.set(data, forKey: Self.anchorKey(panel))
         }
-        UserDefaults.standard.removeObject(forKey: Self.legacyPositionKey(panel))
+        AppDefaults.store.removeObject(forKey: Self.legacyPositionKey(panel))
     }
 
     /// One-time v3 → v4 conversion, run by the layer once a believable dock
@@ -356,7 +356,7 @@ final class EditorPanelsState: ObservableObject {
 
     func setSize(_ panel: EditorPanel, to size: CGSize) {
         sizes[panel] = size
-        UserDefaults.standard.set(
+        AppDefaults.store.set(
             [size.width, size.height], forKey: Self.sizeKey(panel))
     }
 
@@ -582,6 +582,8 @@ struct EditorPanelsLayer: View {
                     panels.railToggle(panel)
                 }
                 .help((isActive ? "Hide " : "Show ") + panel.title)
+                .accessibilityLabel(panel.title)
+                .accessibilityIdentifier("rail.\(panel.rawValue)")
             }
         }
     }
