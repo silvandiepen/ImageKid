@@ -20,6 +20,7 @@ public struct FloatingToolPanel<Content: View>: View {
     let isStackFollower: Bool
     let onDragChanged: ((CGSize) -> Void)?
     let onDragEnded: ((CGSize) -> Void)?
+    let contentPadding: CGFloat
     let content: Content
 
     @GestureState private var dragTranslation: CGSize = .zero
@@ -45,6 +46,7 @@ public struct FloatingToolPanel<Content: View>: View {
         isStackFollower: Bool = false,
         onDragChanged: ((CGSize) -> Void)? = nil,
         onDragEnded: ((CGSize) -> Void)? = nil,
+        contentPadding: CGFloat = 16,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
@@ -64,6 +66,7 @@ public struct FloatingToolPanel<Content: View>: View {
         self.isStackFollower = isStackFollower
         self.onDragChanged = onDragChanged
         self.onDragEnded = onDragEnded
+        self.contentPadding = contentPadding
         self.content = content()
     }
 
@@ -130,7 +133,7 @@ public struct FloatingToolPanel<Content: View>: View {
                 .frame(height: 1)
 
             content
-                .padding(16)
+                .padding(contentPadding)
                 .frame(maxHeight: resizable ? .infinity : nil, alignment: .top)
         }
         .frame(width: resolvedWidth, height: resolvedHeight, alignment: .top)
@@ -172,7 +175,7 @@ public struct FloatingToolPanel<Content: View>: View {
                 #endif
             }
             .gesture(
-                DragGesture()
+                DragGesture(coordinateSpace: .global)
                     .updating($resizeTranslation) { value, state, _ in
                         state = value.translation
                     }
@@ -233,7 +236,8 @@ public struct FloatingToolPanel<Content: View>: View {
         .padding(.vertical, 13)
         .contentShape(Rectangle())
         .gesture(
-            DragGesture()
+            // Global space so the moving panel doesn't distort the translation (true 1:1).
+            DragGesture(coordinateSpace: .global)
                 .updating($dragTranslation) { value, state, _ in
                     state = value.translation
                 }

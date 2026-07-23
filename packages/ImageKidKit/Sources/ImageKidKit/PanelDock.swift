@@ -347,20 +347,26 @@ public struct MinimizedPanelChip: View {
     }
 }
 
-/// Always-visible vertical rail of toggle buttons — one per panel. Each button
+/// Always-visible rail of toggle buttons — one per panel. Each button
 /// shows/hides its panel and is highlighted while the panel is open.
+/// Lay out vertically (default) or horizontally.
 public struct PanelDockRail<ID: Hashable>: View {
     @ObservedObject var model: PanelDockModel<ID>
+    let axis: Axis
 
-    public init(model: PanelDockModel<ID>) {
+    public init(model: PanelDockModel<ID>, axis: Axis = .vertical) {
         self.model = model
+        self.axis = axis
     }
 
     public var body: some View {
-        VStack(spacing: 8) {
+        let layout = axis == .horizontal
+            ? AnyLayout(HStackLayout(spacing: 8))
+            : AnyLayout(VStackLayout(spacing: 8))
+        layout {
             ForEach(model.order, id: \.self) { id in
                 if let spec = model.spec(id) {
-                    let isActive = model.presented.contains(id)
+                    let isActive = model.isExpanded(id)
                     MinimizedPanelChip(systemImage: spec.systemImage, isActive: isActive) {
                         model.railToggle(id)
                     }

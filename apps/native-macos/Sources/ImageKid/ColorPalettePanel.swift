@@ -4,33 +4,48 @@ import UniformTypeIdentifiers
 import ImageKidKit
 
 struct ColorPalettePanel: View {
+    @EnvironmentObject private var library: ColorLibrary
     @ObservedObject var session: ImageSession
     @Binding var offset: CGSize
     let onClose: () -> Void
 
     @State private var expandedColorIDs: Set<UUID> = []
+    @State private var detailColorID: UUID?
+    @State private var panelSize = CGSize(width: 320, height: 460)
+    @State private var extractCount = 6
+    @State private var swipeOffsets: [UUID: CGFloat] = [:]
 
     var body: some View {
         FloatingToolPanel(
             title: "Picked Colours",
             systemImage: "paintpalette",
-            width: 320,
             offset: $offset,
-            onClose: onClose
+            onClose: onClose,
+            resizable: true,
+            size: $panelSize,
+            contentPadding: 0
         ) {
             VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Text("\(session.sampledColors.count) saved")
+                HStack(spacing: 8) {
+                    Text("\(session.sampledColors.count)")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.white.opacity(0.58))
                     Spacer()
-                    Button {
-                        session.extractPalette()
+                    Menu {
+                        ForEach([4, 6, 8, 12, 16], id: \.self) { count in
+                            Button("Extract \(count) colours") {
+                                extractCount = count
+                                session.extractPalette(count: count)
+                            }
+                        }
                     } label: {
                         Label("Extract", systemImage: "wand.and.stars")
+                    } primaryAction: {
+                        session.extractPalette(count: extractCount)
                     }
-                    .buttonStyle(.borderless)
-                    .help("Extract dominant colours from the image")
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .help("Extract up to \(extractCount) dominant colours from the image")
                     if !session.sampledColors.isEmpty {
                         Button(session.selectedColorIDs.count == session.sampledColors.count ? "None" : "All") {
                             toggleAll()
@@ -38,6 +53,8 @@ struct ColorPalettePanel: View {
                         .buttonStyle(.borderless)
                     }
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
 
                 if session.sampledColors.isEmpty {
                     VStack(spacing: 12) {
@@ -50,22 +67,24 @@ struct ColorPalettePanel: View {
                             .foregroundStyle(.white.opacity(0.58))
                     }
                     .frame(maxWidth: .infinity, minHeight: 150)
+                    .padding(.horizontal, 16)
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 8) {
                             ForEach(session.sampledColors) { sample in
-                                colorRow(sample)
+                                swipeableRow(sample)
                             }
                         }
+                        .padding(.horizontal, 16)
+                        .thinScrollbars()
                     }
-                    .frame(maxHeight: 390)
+                    .frame(maxHeight: .infinity)
                 }
 
-                Rectangle()
-                    .fill(.white.opacity(0.09))
-                    .frame(height: 1)
-
                 VStack(spacing: 9) {
+                    Rectangle()
+                        .fill(.white.opacity(0.09))
+                        .frame(height: 1)
                     Menu {
                         Button("HEX list") { copySelected(format: .hex) }
                         Button("RGB list") { copySelected(format: .rgb) }
@@ -89,6 +108,22 @@ struct ColorPalettePanel: View {
                     .menuStyle(.button)
                     .disabled(selectedSamples.isEmpty)
 
+                    Menu {
+                        Button("New swatch set") {
+                            library.createSet(name: "Palette", colors: selectedSamples.map(\.color))
+                        }
+                        ForEach(library.sets) { set in
+                            Button("Add to \(set.name)") {
+                                for sample in selectedSamples { library.addColor(sample.color, to: set.id) }
+                            }
+                        }
+                    } label: {
+                        Label("Selected to Swatches", systemImage: "swatchpalette")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .menuStyle(.button)
+                    .disabled(selectedSamples.isEmpty)
+
                     Button(role: .destructive) {
                         session.removeSamples(session.selectedColorIDs)
                     } label: {
@@ -98,8 +133,56 @@ struct ColorPalettePanel: View {
                     .buttonStyle(.bordered)
                     .disabled(selectedSamples.isEmpty)
                 }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
             }
             .darkPanelControl()
+        }
+    }
+
+    /// A colour row that can be swiped left to delete.
+    private func swipeableRow(_ sample: SampledColor) -> some View {
+        let dx = swipeOffsets[sample.id] ?? 0
+        return ZStack {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.red.opacity(0.85))
+                .overlay(alignment: .trailing) {
+                    Image(systemName: "trash")
+                        .foregroundStyle(.white)
+                        .padding(.trailing, 20)
+                }
+            colorRow(sample)
+                .background(
+                    Color(red: 0.10, green: 0.10, blue: 0.11),
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                )
+                .offset(x: dx)
+                .highPriorityGesture(
+                    DragGesture(minimumDistance: 14)
+                        .onChanged { value in
+                            if value.translation.width < 0 {
+                                swipeOffsets[sample.id] = max(value.translation.width, -130)
+                            }
+                        }
+                        .onEnded { value in
+                            if value.translation.width < -70 {
+                                withAnimation(.easeOut(duration: 0.16)) { swipeOffsets[sample.id] = -420 }
+                                session.removeSamples([sample.id])
+                            } else {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                                    swipeOffsets[sample.id] = 0
+                                }
+                            }
+                        }
+                )
+        }
+        .contextMenu {
+            Menu("Add to Swatches") {
+                ForEach(library.sets) { set in
+                    Button(set.name) { library.addColor(sample.color, to: set.id) }
+                }
+            }
+            Button("Remove", role: .destructive) { session.removeSamples([sample.id]) }
         }
     }
 
@@ -133,64 +216,73 @@ struct ColorPalettePanel: View {
                 Spacer()
 
                 Button {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        toggleExpanded(sample.id)
-                    }
+                    detailColorID = (detailColorID == sample.id) ? nil : sample.id
                 } label: {
-                    Image(systemName: expandedColorIDs.contains(sample.id) ? "chevron.up" : "chevron.down")
+                    Image(systemName: "info.circle")
                         .frame(width: 26, height: 26)
                         .background(.white.opacity(0.08), in: Circle())
                 }
                 .buttonStyle(.plain)
-                .help(expandedColorIDs.contains(sample.id) ? "Collapse Colour Details" : "Expand Colour Details")
-                .accessibilityLabel(expandedColorIDs.contains(sample.id) ? "Collapse Colour Details" : "Expand Colour Details")
+                .help("Colour details")
+                .accessibilityLabel("Colour details")
+                .popover(
+                    isPresented: Binding(
+                        get: { detailColorID == sample.id },
+                        set: { if !$0 { detailColorID = nil } }
+                    ),
+                    arrowEdge: .leading
+                ) {
+                    colorDetail(sample)
+                        .frame(width: 250)
+                        .padding(14)
+                }
             }
             .padding(10)
-
-            if expandedColorIDs.contains(sample.id) {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("Adjust")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.62))
-                        Spacer()
-                        ColorPicker(
-                            "Adjust colour",
-                            selection: colorBinding(for: sample.id),
-                            supportsOpacity: true
-                        )
-                        .labelsHidden()
-                    }
-
-                    valueRow("HEX", sample.hex)
-                    valueRow("RGB", sample.rgb)
-                    valueRow("RGBA", sample.rgba)
-                    valueRow("HSL", sample.hsl)
-                    valueRow("SwiftUI", sample.swiftUIColor)
-
-                    Button(role: .destructive) {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            removeSample(sample.id)
-                        }
-                    } label: {
-                        Label("Remove Colour", systemImage: "trash")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .padding(.top, 2)
-                }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 12)
-            }
         }
         .background(.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func colorDetail(_ sample: SampledColor) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color(nsColor: sample.sRGB))
+                    .frame(width: 44, height: 32)
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(.primary.opacity(0.2)))
+                Spacer()
+                ColorPicker("Adjust", selection: colorBinding(for: sample.id), supportsOpacity: true)
+                    .labelsHidden()
+            }
+            valueRow("HEX", sample.hex)
+            valueRow("RGB", sample.rgb)
+            valueRow("RGBA", sample.rgba)
+            valueRow("HSL", sample.hsl)
+            valueRow("SwiftUI", sample.swiftUIColor)
+            Divider()
+            HStack {
+                Menu("Add to Swatches") {
+                    ForEach(library.sets) { set in
+                        Button(set.name) { library.addColor(sample.color, to: set.id) }
+                    }
+                }
+                Spacer()
+                Button(role: .destructive) {
+                    detailColorID = nil
+                    session.removeSamples([sample.id])
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+            }
+        }
     }
 
     private func valueRow(_ label: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(label)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.52))
+                .foregroundStyle(.secondary)
                 .frame(width: 48, alignment: .leading)
             Text(value)
                 .font(.caption.monospaced())

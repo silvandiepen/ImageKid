@@ -1,10 +1,12 @@
 import AppKit
 import SwiftUI
 import ImageKidKit
+import UniformTypeIdentifiers
 
 struct ImageWorkspaceView: View {
     @EnvironmentObject private var appModel: AppModel
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var library: ColorLibrary
     @ObservedObject var session: ImageSession
     @ObservedObject var panelDock: PanelDockModel<DockablePanel>
     private let showsBackgroundRefinementControls = false
@@ -18,7 +20,17 @@ struct ImageWorkspaceView: View {
     @State private var didCaptureBackgroundUndo = false
     @State private var isViewportToolbarCollapsed = false
     @State private var panelOffset: CGSize = .zero
+    @State private var gridPanelOffset: CGSize = .zero
+    @State private var lastMaskPoint: CGPoint?
+    @State private var maskBrushCursor: CGPoint?
+    /// Set when a new text item is created so its default "Text" is selected.
+    @State private var pendingTextSelectAll = false
+    /// Live brush-stroke points (view space) accumulated during a drag; rasterised
+    /// into the mask once on release so painting stays fast.
+    @State private var maskStrokeViewPoints: [CGPoint] = []
     @State private var progressBarOffset: CGSize = .zero
+    @State private var editingTextID: UUID?
+    @FocusState private var inlineTextFocused: Bool
 
     var body: some View {
         GeometryReader { proxy in
@@ -41,24 +53,28 @@ struct ImageWorkspaceView: View {
 
                 canvasBorder(in: imageRect)
 
-                Image(nsImage: workingImage)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: imageRect.width, height: imageRect.height)
-                    .clipShape(
-                        RoundedRectangle(
-                            cornerRadius: imageCornerRadius(for: imageRect),
-                            style: .continuous
+                if !session.baseUnlocked {
+                    Image(nsImage: workingImage)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: imageRect.width, height: imageRect.height)
+                        .clipShape(
+                            RoundedRectangle(
+                                cornerRadius: imageCornerRadius(for: imageRect),
+                                style: .continuous
+                            )
                         )
-                    )
-                    .scaleEffect(
-                        x: rotatePreviewActive && session.rotationFlipHorizontal ? -1 : 1,
-                        y: rotatePreviewActive && session.rotationFlipVertical ? -1 : 1
-                    )
-                    .rotationEffect(rotatePreviewActive ? .degrees(session.rotationDraft) : .zero)
-                    .position(x: imageRect.midX, y: imageRect.midY)
+                        .scaleEffect(
+                            x: rotatePreviewActive && session.rotationFlipHorizontal ? -1 : 1,
+                            y: rotatePreviewActive && session.rotationFlipVertical ? -1 : 1
+                        )
+                        .rotationEffect(rotatePreviewActive ? .degrees(session.rotationDraft) : .zero)
+                        .position(x: imageRect.midX, y: imageRect.midY)
+                }
 
                 imageLayers(in: imageRect)
+                maskEditOverlay(in: imageRect)
+                gridOverlay(in: imageRect, canvas: bounds)
                 annotations(in: imageRect)
                 imageSelection(in: imageRect)
                 draftDrawing(in: imageRect)
@@ -73,8 +89,10 @@ struct ImageWorkspaceView: View {
 
                 if appModel.activeTool == .resize {
                     ResizeOverlay(
+                        fullRect: imageRect,
                         imageRect: resizeDisplayRect(in: imageRect),
-                        size: session.draftOutputSize ?? session.effectivePixelSize
+                        size: session.draftOutputSize ?? session.effectivePixelSize,
+                        previewImage: session.baseUnlocked ? nil : workingImage
                     )
                 }
 
@@ -82,6 +100,17 @@ struct ImageWorkspaceView: View {
                     .fill(.clear)
                     .contentShape(Rectangle())
                     .gesture(interactionGesture(in: imageRect))
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active(let location): maskBrushCursor = location
+                        case .ended: maskBrushCursor = nil
+                        }
+                    }
+                    .simultaneousGesture(
+                        SpatialTapGesture(count: 2).onEnded { value in
+                            beginTextEditing(at: value.location, imageRect: imageRect)
+                        }
+                    )
                     .contextMenu {
                         if appModel.activeTool == .select {
                             Button("Copy Image") { appModel.copyImageSelectionToClipboard() }
@@ -96,6 +125,10 @@ struct ImageWorkspaceView: View {
                             Button("Export…") { appModel.requestExport() }
                         }
                     }
+
+                inlineTextEditor(in: imageRect)
+
+                brushCursorOverlay(in: imageRect)
 
                 TrackpadGestureMonitor(
                     onPan: { delta in
@@ -124,9 +157,8 @@ struct ImageWorkspaceView: View {
                 progressOverlay
             }
             .clipped()
-            .dropDestination(for: String.self) { payloads, _ in
-                guard let payload = payloads.first else { return false }
-                return appModel.addDraggedImageAsLayer(payload, into: session)
+            .onDrop(of: [UTType.fileURL.identifier, UTType.plainText.identifier], isTargeted: nil) { providers in
+                handleCanvasDrop(providers)
             }
             .onHover { inside in
                 withAnimation(.easeOut(duration: 0.15)) {
@@ -149,7 +181,10 @@ struct ImageWorkspaceView: View {
                 if tool == .rotate {
                     session.beginRotation()
                 }
-                if tool != .view {
+                // Canvas-level tools drop any annotation selection; View and
+                // Select keep it (Select is where you edit the selected item,
+                // and newly-placed text switches to Select while staying selected).
+                if tool != .view && tool != .select {
                     session.selectedAnnotationID = nil
                 }
             }
@@ -179,7 +214,36 @@ struct ImageWorkspaceView: View {
                             applyRotate()
                             return true
                         }
+                        if session.isEditingMask {
+                            session.endMaskEdit()
+                            return true
+                        }
+                        // Enter confirms/deselects a selected layer or annotation.
+                        if session.selectedLayerID != nil || session.selectedAnnotationID != nil {
+                            session.selectedLayerID = nil
+                            session.selectedLayerIDs = []
+                            session.selectedAnnotationID = nil
+                            return true
+                        }
                         return false
+                    },
+                    onKey: { chars in
+                        guard session.isEditingMask else { return false }
+                        switch chars.lowercased() {
+                        case "x":
+                            session.maskBrushReveal.toggle()
+                            return true
+                        case "[":
+                            let delta = max(2, (session.maskBrushSize * 0.15).rounded())
+                            session.maskBrushSize = max(4, session.maskBrushSize - delta)
+                            return true
+                        case "]":
+                            let delta = max(2, (session.maskBrushSize * 0.15).rounded())
+                            session.maskBrushSize = min(400, session.maskBrushSize + delta)
+                            return true
+                        default:
+                            return false
+                        }
                     }
                 )
                 .frame(width: 0, height: 0)
@@ -191,10 +255,21 @@ struct ImageWorkspaceView: View {
     private var toolPanels: some View {
         ZStack(alignment: .topLeading) {
             // Right-side, tool-driven context panels.
-            VStack {
+            VStack(spacing: 12) {
                 HStack(alignment: .top) {
                     Spacer()
                     rightToolPanels
+                }
+                if session.showGridPanel {
+                    HStack(alignment: .top) {
+                        Spacer()
+                        GridControls(
+                            session: session,
+                            offset: $gridPanelOffset,
+                            onClose: { session.showGridPanel = false }
+                        )
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                    }
                 }
                 Spacer()
             }
@@ -202,17 +277,42 @@ struct ImageWorkspaceView: View {
             .padding(.trailing, 18)
             .animation(.easeOut(duration: 0.18), value: appModel.activeTool)
             .animation(.easeOut(duration: 0.18), value: session.selectedAnnotationID)
+            .animation(.easeOut(duration: 0.18), value: session.showGridPanel)
 
             // Movable, minimizable dockable panels + their minimized icon rail.
             dockablePanelsLayer
-                .padding(.top, 54)
-                .padding(.leading, 18)
+                .padding(.top, 15)
+                .padding(.leading, 15)
         }
     }
 
     @ViewBuilder
     private var rightToolPanels: some View {
-        if appModel.activeTool == .pickColor {
+        if session.isEditingMask {
+            MaskEditControls(
+                session: session,
+                offset: $panelOffset,
+                onDone: { session.endMaskEdit() }
+            )
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+        } else if let layerID = session.selectedLayerID,
+                  appModel.activeTool == .view || appModel.activeTool == .select {
+            TransformControls(
+                session: session,
+                layerID: layerID,
+                offset: $panelOffset,
+                onClose: { session.selectedLayerID = nil; session.selectedLayerIDs = [] }
+            )
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+        } else if appModel.activeTool == .select, session.hasImageSelection, session.selectedAnnotationID == nil {
+            SelectionPanel(
+                session: session,
+                appModel: appModel,
+                offset: $panelOffset,
+                onClose: { session.selectionRect = nil }
+            )
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+        } else if appModel.activeTool == .pickColor {
             ColorPalettePanel(
                 session: session,
                 offset: $panelOffset,
@@ -234,7 +334,7 @@ struct ImageWorkspaceView: View {
                 isApplying: appModel.isApplyingResize,
                 onCancel: cancelResize,
                 onApply: applyResize,
-                onEnhance: { appModel.requestEnhance() }
+                onSmartUpscale: { appModel.smartUpscale($0) }
             )
             .transition(.move(edge: .trailing).combined(with: .opacity))
         } else if appModel.activeTool == .rotate {
@@ -277,7 +377,44 @@ struct ImageWorkspaceView: View {
 
     @ViewBuilder
     private var dockablePanelsLayer: some View {
-        DockablePanelsLayer(appModel: appModel, session: session, panelDock: panelDock)
+        DockablePanelsLayer(
+            appModel: appModel,
+            session: session,
+            panelDock: panelDock,
+            onPickSwatch: { applySwatchColor($0) }
+        )
+    }
+
+    /// Finder files → open as new images; an internal Files-row drag → add as a layer.
+    private func handleCanvasDrop(_ providers: [NSItemProvider]) -> Bool {
+        let fileProviders = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
+        if !fileProviders.isEmpty {
+            for provider in fileProviders {
+                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                    let url: URL? = (item as? URL) ?? (item as? Data).flatMap { URL(dataRepresentation: $0, relativeTo: nil) }
+                    if let url { Task { @MainActor in appModel.load(url) } }
+                }
+            }
+            return true
+        }
+        for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
+            provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { item, _ in
+                let text = (item as? String) ?? (item as? Data).flatMap { String(data: $0, encoding: .utf8) }
+                if let text { Task { @MainActor in appModel.addDraggedImageAsLayer(text, into: session) } }
+            }
+            return true
+        }
+        return false
+    }
+
+    /// Apply a swatch colour: it becomes the foreground (default stroke/text)
+    /// colour and recolours the selected annotation.
+    private func applySwatchColor(_ color: NSColor) {
+        library.foreground = color
+        session.drawingStrokeColor = color
+        if let id = session.selectedAnnotationID {
+            session.updateAnnotation(id: id) { $0.strokeColor = color }
+        }
     }
 
     private var controls: some View {
@@ -307,7 +444,13 @@ struct ImageWorkspaceView: View {
             ViewportToolbar(
                 session: session,
                 displayedScale: displayedScale,
-                isCollapsed: $isViewportToolbarCollapsed
+                isCollapsed: $isViewportToolbarCollapsed,
+                onEditSize: {
+                    session.selectedLayerID = nil
+                    session.selectedLayerIDs = []
+                    session.selectedAnnotationID = nil
+                    appModel.activeTool = .resize
+                }
             )
             .padding(.top, 10)
             Spacer()
@@ -418,19 +561,167 @@ struct ImageWorkspaceView: View {
         ForEach(session.imageLayers) { layer in
             if session.isLayerEffectivelyVisible(layer), let displayedFrame = displayedAnnotationFrame(layer.frame) {
                 let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
-                Image(nsImage: layer.renderedImage)
+                // Show the full (unmasked) image while editing its mask.
+                let displayImage = session.maskEditLayerID == layer.id ? layer.image : layer.renderedImage
+                Image(nsImage: displayImage)
                     .resizable()
                     .interpolation(.high)
                     .frame(width: rect.width, height: rect.height)
                     .opacity(layer.opacity)
+                    .scaleEffect(x: layer.flipH ? -1 : 1, y: layer.flipV ? -1 : 1)
+                    .rotationEffect(.degrees(layer.rotation))
                     .position(x: rect.midX, y: rect.midY)
                     .allowsHitTesting(false)
 
                 if session.selectedLayerID == layer.id {
-                    selectionOverlay(for: rect)
+                    rotatedLayerSelectionOverlay(for: rect, rotation: layer.rotation)
                         .allowsHitTesting(false)
                 }
             }
+        }
+    }
+
+    private func rotatedLayerSelectionOverlay(for rect: CGRect, rotation: Double) -> some View {
+        let corners = [
+            CGPoint(x: 0, y: 0), CGPoint(x: rect.width, y: 0),
+            CGPoint(x: 0, y: rect.height), CGPoint(x: rect.width, y: rect.height)
+        ]
+        return ZStack {
+            Rectangle()
+                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
+            ForEach(Array(corners.enumerated()), id: \.offset) { _, point in
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(Color.white)
+                    .frame(width: 12, height: 12)
+                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.accentColor, lineWidth: 2))
+                    .position(point)
+            }
+        }
+        .frame(width: rect.width, height: rect.height)
+        .rotationEffect(.degrees(rotation))
+        .position(x: rect.midX, y: rect.midY)
+    }
+
+    /// Map a screen point back into a layer's un-rotated space for hit-testing.
+    private func unrotatePoint(_ point: CGPoint, around center: CGPoint, degrees: Double) -> CGPoint {
+        guard degrees != 0 else { return point }
+        let a = -degrees * .pi / 180
+        let dx = point.x - center.x, dy = point.y - center.y
+        return CGPoint(
+            x: center.x + dx * cos(a) - dy * sin(a),
+            y: center.y + dx * sin(a) + dy * cos(a)
+        )
+    }
+
+    @ViewBuilder
+    private func gridOverlay(in imageRect: CGRect, canvas canvasBounds: CGRect) -> some View {
+        // Always show the grid while snapping so the user sees what they snap to.
+        if session.showGrid || session.snapToGrid {
+            let workingSize = session.effectivePixelSize
+            let step = session.gridSizePx * imageRect.width / max(workingSize.width, 1)
+            if step > 3 {
+                let base = Color(nsColor: session.gridColor)
+                let subdivisions = max(1, session.gridSubdivisions)
+                let subStep = step / CGFloat(subdivisions)
+                Canvas { context, _ in
+                    // Lines span the whole canvas but stay anchored (phase-aligned)
+                    // to the image's grid origin so they line up with the pixels.
+                    func verticalLines(spacing: CGFloat) -> Path {
+                        var p = Path()
+                        let offset = (imageRect.minX - canvasBounds.minX).truncatingRemainder(dividingBy: spacing)
+                        var x = canvasBounds.minX + offset - spacing
+                        while x <= canvasBounds.maxX + 0.5 {
+                            if x >= canvasBounds.minX - 0.5 {
+                                p.move(to: CGPoint(x: x, y: canvasBounds.minY))
+                                p.addLine(to: CGPoint(x: x, y: canvasBounds.maxY))
+                            }
+                            x += spacing
+                        }
+                        return p
+                    }
+                    func horizontalLines(spacing: CGFloat) -> Path {
+                        var p = Path()
+                        let offset = (imageRect.minY - canvasBounds.minY).truncatingRemainder(dividingBy: spacing)
+                        var y = canvasBounds.minY + offset - spacing
+                        while y <= canvasBounds.maxY + 0.5 {
+                            if y >= canvasBounds.minY - 0.5 {
+                                p.move(to: CGPoint(x: canvasBounds.minX, y: y))
+                                p.addLine(to: CGPoint(x: canvasBounds.maxX, y: y))
+                            }
+                            y += spacing
+                        }
+                        return p
+                    }
+
+                    // Finer subdivision lines first (fainter), main grid on top.
+                    if subdivisions > 1 && subStep > 2 {
+                        var subPath = verticalLines(spacing: subStep)
+                        subPath.addPath(horizontalLines(spacing: subStep))
+                        context.stroke(subPath, with: .color(base.opacity(session.gridOpacity * 0.45)), lineWidth: 0.5)
+                    }
+
+                    var path = verticalLines(spacing: step)
+                    path.addPath(horizontalLines(spacing: step))
+                    context.stroke(path, with: .color(base.opacity(session.gridOpacity)), lineWidth: 0.6)
+                }
+                .allowsHitTesting(false)
+            }
+        }
+    }
+
+    /// Live brush ring at the cursor + a preview of the in-progress stroke.
+    @ViewBuilder
+    private func brushCursorOverlay(in imageRect: CGRect) -> some View {
+        if session.isEditingMask, !session.maskWandMode,
+           let layer = session.maskEditLayer, let mask = layer.mask,
+           let displayedFrame = displayedAnnotationFrame(layer.frame) {
+            let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
+            let scale = rect.width / max(mask.size.width, 1)
+            let w = max(session.maskBrushSize * scale, 4)
+            let h = max(w * session.maskBrushRoundness, 4)
+            // Blue = reveal, red = hide, so the two modes are easy to tell apart.
+            let ringColor: Color = session.maskBrushReveal ? .blue : .red
+
+            // Live preview of the stroke; rasterised to black/white on release.
+            if maskStrokeViewPoints.count > 1 {
+                Path { p in
+                    p.move(to: maskStrokeViewPoints[0])
+                    for pt in maskStrokeViewPoints.dropFirst() { p.addLine(to: pt) }
+                }
+                .stroke(ringColor.opacity(0.55 * session.maskBrushOpacity),
+                        style: StrokeStyle(lineWidth: w, lineCap: .round, lineJoin: .round))
+                .allowsHitTesting(false)
+            }
+
+            if let cursor = maskBrushCursor {
+                Ellipse()
+                    .stroke(Color.black.opacity(0.7), lineWidth: 2.5)
+                    .frame(width: w, height: h)
+                    .rotationEffect(.degrees(session.maskBrushAngle))
+                    .position(cursor)
+                    .allowsHitTesting(false)
+                Ellipse()
+                    .stroke(ringColor.opacity(0.9), lineWidth: 1)
+                    .frame(width: w, height: h)
+                    .rotationEffect(.degrees(session.maskBrushAngle))
+                    .position(cursor)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func maskEditOverlay(in imageRect: CGRect) -> some View {
+        if let layer = session.maskEditLayer, let mask = layer.mask,
+           let displayedFrame = displayedAnnotationFrame(layer.frame) {
+            let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
+            // Show the black/white mask over the layer at the chosen opacity.
+            Image(nsImage: mask)
+                .resizable()
+                .frame(width: rect.width, height: rect.height)
+                .opacity(session.maskViewOpacity)
+                .position(x: rect.midX, y: rect.midY)
+                .allowsHitTesting(false)
         }
     }
 
@@ -440,16 +731,81 @@ struct ImageWorkspaceView: View {
             if annotation.isVisible, let displayedFrame = displayedAnnotationFrame(annotation.frame) {
                 let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
 
-                annotationContent(annotation)
-                    .frame(width: rect.width, height: rect.height)
-                    .position(x: rect.midX, y: rect.midY)
-                    .opacity(annotation.opacity)
+                if editingTextID != annotation.id {
+                    let m = drawableMargin(annotation)
+                    annotationContent(annotation)
+                        .frame(width: rect.width + 2 * m, height: rect.height + 2 * m)
+                        .position(x: rect.midX, y: rect.midY)
+                        .blendMode(annotation.blendMode.swiftUI)
+                        .opacity(annotation.opacity)
+                }
 
                 if session.selectedAnnotationID == annotation.id {
-                    selectionOverlay(for: rect)
+                    selectionOverlay(for: rect, annotation: annotation)
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func inlineTextEditor(in imageRect: CGRect) -> some View {
+        if let id = editingTextID,
+           let annotation = session.annotations.first(where: { $0.id == id }),
+           let displayedFrame = displayedAnnotationFrame(annotation.frame) {
+            let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
+            TextEditor(text: inlineTextBinding(id))
+                .font(annotationFont(annotation))
+                .foregroundStyle(Color(nsColor: annotation.strokeColor))
+                .multilineTextAlignment(textAlignment(annotation.textAlignment))
+                .scrollContentBackground(.hidden)
+                .scrollDisabled(true)
+                .focused($inlineTextFocused)
+                .padding(0)
+                .frame(width: max(rect.width, 24), height: max(rect.height, 24))
+                .background(Color.accentColor.opacity(0.10))
+                .overlay(RoundedRectangle(cornerRadius: 2).stroke(Color.accentColor, lineWidth: 1))
+                .position(x: rect.midX, y: rect.midY)
+                .onExitCommand { endTextEditing() }
+                .background(TextSelectAllHelper(trigger: $pendingTextSelectAll))
+        }
+    }
+
+    private func inlineTextBinding(_ id: UUID) -> Binding<String> {
+        Binding(
+            get: { session.annotations.first(where: { $0.id == id })?.textValue ?? "" },
+            set: { value in session.updateAnnotation(id: id) { $0.textValue = value } }
+        )
+    }
+
+    private func beginTextEditing(at point: CGPoint, imageRect: CGRect) {
+        guard let hit = session.annotations.reversed().first(where: { annotation in
+            guard annotation.isText, annotation.isVisible,
+                  let frame = displayedAnnotationFrame(annotation.frame) else { return false }
+            return GeometryMapper.viewRect(from: frame, in: imageRect).insetBy(dx: -6, dy: -6).contains(point)
+        }) else { return }
+        appModel.activeTool = .select
+        session.selectedAnnotationID = hit.id
+        session.selectedLayerID = nil
+        editingTextID = hit.id
+        inlineTextFocused = true
+    }
+
+    private func endTextEditing() {
+        editingTextID = nil
+        inlineTextFocused = false
+    }
+
+    /// Map a view location to a normalised point (0…1, top-left) inside the
+    /// currently mask-editing layer's own image space.
+    private func maskSourcePoint(_ location: CGPoint, imageRect: CGRect) -> CGPoint? {
+        guard let layer = session.maskEditLayer,
+              let displayedFrame = displayedAnnotationFrame(layer.frame) else { return nil }
+        let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
+        guard rect.width > 0, rect.height > 0 else { return nil }
+        return CGPoint(
+            x: min(max((location.x - rect.minX) / rect.width, 0), 1),
+            y: min(max((location.y - rect.minY) / rect.height, 0), 1)
+        )
     }
 
     @ViewBuilder
@@ -468,10 +824,22 @@ struct ImageWorkspaceView: View {
                 )
 
         case .rectangle, .ellipse, .line, .arrow, .freehand:
+            // The Canvas is enlarged by a margin on all sides so a wide, outset,
+            // or round-capped stroke isn't clipped at the shape's frame edge.
+            let margin = drawableMargin(annotation)
             Canvas { context, size in
-                drawAnnotation(annotation, context: &context, size: size)
+                context.translateBy(x: margin, y: margin)
+                let inner = CGSize(width: max(0, size.width - 2 * margin),
+                                   height: max(0, size.height - 2 * margin))
+                drawAnnotation(annotation, context: &context, size: inner)
             }
         }
+    }
+
+    /// Extra room around a shape's canvas so its stroke (up to ~1× line width
+    /// beyond the edge with outset alignment + round caps) is never clipped.
+    private func drawableMargin(_ annotation: Annotation) -> CGFloat {
+        annotation.isText ? 0 : annotation.lineWidth * 1.5 + 2
     }
 
     @ViewBuilder
@@ -479,8 +847,9 @@ struct ImageWorkspaceView: View {
         if let draftAnnotation,
            let displayedFrame = displayedAnnotationFrame(draftAnnotation.frame) {
             let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
+            let m = drawableMargin(draftAnnotation)
             annotationContent(draftAnnotation)
-                .frame(width: rect.width, height: rect.height)
+                .frame(width: rect.width + 2 * m, height: rect.height + 2 * m)
                 .position(x: rect.midX, y: rect.midY)
                 .opacity(0.82)
         }
@@ -504,7 +873,7 @@ struct ImageWorkspaceView: View {
     }
 
     @ViewBuilder
-    private func selectionOverlay(for rect: CGRect) -> some View {
+    private func selectionOverlay(for rect: CGRect, annotation: Annotation? = nil) -> some View {
         Rectangle()
             .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
             .frame(width: rect.width, height: rect.height)
@@ -516,6 +885,17 @@ struct ImageWorkspaceView: View {
                 .frame(width: 12, height: 12)
                 .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.accentColor, lineWidth: 2))
                 .position(point)
+        }
+
+        // Corner-radius handle for rectangles: a small dot inset from the corner.
+        if let annotation, annotation.isRectangle {
+            let dot = cornerRadiusHandlePoint(rect: rect, radius: annotation.cornerRadius)
+            Circle()
+                .fill(Color.white)
+                .frame(width: 11, height: 11)
+                .overlay(Circle().stroke(Color.accentColor, lineWidth: 2))
+                .position(dot)
+                .help("Drag to round the corners")
         }
     }
 
@@ -588,6 +968,8 @@ struct ImageWorkspaceView: View {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 if dragMode == nil {
+                    // A click on the canvas (outside the inline editor) commits editing.
+                    if editingTextID != nil { editingTextID = nil }
                     dragMode = resolveDragMode(at: value.startLocation, imageRect: imageRect)
                 }
                 updateDrag(value, imageRect: imageRect)
@@ -600,20 +982,27 @@ struct ImageWorkspaceView: View {
                     session.record("Move", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
                 case .resizeAnnotation:
                     session.record("Resize annotation", systemImage: "arrow.up.left.and.arrow.down.right")
+                case .cornerRadius:
+                    session.record("Corner radius", systemImage: "square.dashed")
                 case .moveLayer:
                     session.record("Move layer", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
                 case .resizeLayer:
                     session.record("Resize layer", systemImage: "arrow.up.left.and.arrow.down.right")
+                case .rotateLayer:
+                    session.record("Rotate layer", systemImage: "rotate.right")
                 default:
                     break
                 }
                 dragMode = nil
                 draftAnnotation = nil
                 draftFreehandPoints = []
+                lastMaskPoint = nil
+                maskStrokeViewPoints = []
             }
     }
 
     private func resolveDragMode(at point: CGPoint, imageRect: CGRect) -> DragMode {
+        if session.isEditingMask { return .maskEdit }
         switch appModel.activeTool {
         case .view:
             return resolveViewDragMode(at: point, imageRect: imageRect)
@@ -627,6 +1016,10 @@ struct ImageWorkspaceView: View {
                     }
                     return .resizeSelection(handle: handle, start: selectionRect)
                 }
+            }
+
+            if let mode = selectedShapeCornerRadiusMode(at: point, imageRect: imageRect) {
+                return mode
             }
 
             if let selectedID = session.selectedAnnotationID,
@@ -644,9 +1037,7 @@ struct ImageWorkspaceView: View {
 
             if let annotation = hitAnnotation(at: point, imageRect: imageRect) {
                 session.selectionRect = nil
-                session.selectedAnnotationID = annotation.id
-                session.selectedLayerID = nil
-                return .moveAnnotation(id: annotation.id, start: annotation.frame)
+                return annotationMoveMode(annotation)
             }
 
             if let mode = layerMoveMode(at: point, imageRect: imageRect) {
@@ -696,6 +1087,10 @@ struct ImageWorkspaceView: View {
     }
 
     private func resolveViewDragMode(at point: CGPoint, imageRect: CGRect) -> DragMode {
+            if let mode = selectedShapeCornerRadiusMode(at: point, imageRect: imageRect) {
+                return mode
+            }
+
             if let selectedID = session.selectedAnnotationID,
                let selected = session.annotations.first(where: { $0.id == selectedID }),
                let displayed = displayedAnnotationFrame(selected.frame) {
@@ -710,9 +1105,7 @@ struct ImageWorkspaceView: View {
             }
 
             if let annotation = hitAnnotation(at: point, imageRect: imageRect) {
-                session.selectedAnnotationID = annotation.id
-                session.selectedLayerID = nil
-                return .moveAnnotation(id: annotation.id, start: annotation.frame)
+                return annotationMoveMode(annotation)
             }
 
             if let mode = layerMoveMode(at: point, imageRect: imageRect) {
@@ -740,25 +1133,38 @@ struct ImageWorkspaceView: View {
         case .draw:
             updateDraftDrawing(value, imageRect: imageRect)
 
+        case .maskEdit:
+            // Accumulate the stroke; it's rasterised into the mask on release so
+            // dragging stays smooth even on large masks.
+            if !session.maskWandMode {
+                maskStrokeViewPoints.append(value.location)
+            }
+
         case .placeText:
             break
 
         case .moveAnnotation(let id, let start):
             let delta = sourceTranslation(value.translation, imageRect: imageRect)
             session.updateAnnotation(id: id) { annotation in
-                annotation.frame = movedRect(start, by: delta)
+                annotation.frame = session.gridSnapped(movedRect(start, by: delta))
             }
 
         case .resizeAnnotation(let id, let corner, let start):
             let delta = sourceTranslation(value.translation, imageRect: imageRect)
             session.updateAnnotation(id: id) { annotation in
-                annotation.frame = resizedRect(start, handle: corner.boxHandle, delta: delta)
+                annotation.frame = session.gridSnapped(resizedRect(start, handle: corner.boxHandle, delta: delta), keepSize: false)
             }
+
+        case .cornerRadius(let id, let rect):
+            // Drag diagonally inward from the top-left corner to grow the radius.
+            let maxD = min(rect.width, rect.height) / 2
+            let newRadius = min(max(min(value.location.x - rect.minX, value.location.y - rect.minY), 0), maxD)
+            session.updateAnnotation(id: id) { $0.cornerRadius = newRadius }
 
         case .moveLayer(let id, let start):
             let delta = sourceTranslation(value.translation, imageRect: imageRect)
             session.updateImageLayer(id: id) { layer in
-                layer.frame = movedRect(start, by: delta)
+                layer.frame = session.gridSnapped(movedRect(start, by: delta))
             }
 
         case .resizeLayer(let id, let corner, let start):
@@ -767,16 +1173,22 @@ struct ImageWorkspaceView: View {
                 layer.frame = resizedRect(start, handle: corner.boxHandle, delta: delta)
             }
 
+        case .rotateLayer(let id, let center, let startAngle, let startRotation):
+            let angle = atan2(value.location.y - center.y, value.location.x - center.x)
+            var degrees = startRotation + Double((angle - startAngle) * 180 / .pi)
+            if NSEvent.modifierFlags.contains(.shift) { degrees = (degrees / 15).rounded() * 15 }
+            session.updateImageLayer(id: id) { $0.rotation = degrees }
+
         case .moveSelection(let start):
             let delta = normalizedDisplayTranslation(value.translation, imageRect: imageRect)
-            session.selectionRect = movedRect(start, by: delta)
+            session.selectionRect = session.gridSnappedDisplayNormalized(movedRect(start, by: delta), keepSize: true)
 
         case .resizeSelection(let handle, let start):
             let delta = normalizedDisplayTranslation(value.translation, imageRect: imageRect)
-            session.selectionRect = resizedRect(start, handle: handle, delta: delta)
+            session.selectionRect = session.gridSnappedDisplayNormalized(resizedRect(start, handle: handle, delta: delta))
 
         case .crop(let handle, let start):
-            let displayedRect: CGRect
+            var displayedRect: CGRect
             if handle == .new {
                 guard let newRect = GeometryMapper.normalizedRect(
                     from: value.startLocation,
@@ -784,12 +1196,14 @@ struct ImageWorkspaceView: View {
                     in: imageRect
                 ) else { return }
                 displayedRect = cropRectApplyingRatio(newRect, handle: .bottomRight)
+                displayedRect = session.gridSnappedDisplayNormalized(displayedRect)
             } else {
                 let delta = normalizedDisplayTranslation(value.translation, imageRect: imageRect)
                 let changed = handle == .inside
                     ? movedRect(start, by: delta)
                     : resizedRect(start, handle: handle, delta: delta)
                 displayedRect = cropRectApplyingRatio(changed, handle: handle)
+                displayedRect = session.gridSnappedDisplayNormalized(displayedRect, keepSize: handle == .inside)
             }
 
             session.draftCropRect = WorkingImageGeometry.sourceRect(
@@ -810,7 +1224,8 @@ struct ImageWorkspaceView: View {
             ) else {
                 return
             }
-            session.selectionRect = GeometryMapper.clampedNormalizedRect(selection, minimumSize: 0.001)
+            let snapped = session.gridSnappedDisplayNormalized(selection)
+            session.selectionRect = GeometryMapper.clampedNormalizedRect(snapped, minimumSize: 0.001)
 
         case .refineBackground:
             backgroundBrushLocation = value.location
@@ -849,7 +1264,16 @@ struct ImageWorkspaceView: View {
             }
             appModel.activeTool = .select
 
-        case .pan, .moveAnnotation, .resizeAnnotation, .moveLayer, .resizeLayer, .moveSelection, .resizeSelection, .crop, .resizeCanvas:
+        case .maskEdit:
+            if session.maskWandMode, let point = maskSourcePoint(value.location, imageRect: imageRect) {
+                session.floodHideMask(atNormalized: point)
+            } else {
+                let normalized = maskStrokeViewPoints.compactMap { maskSourcePoint($0, imageRect: imageRect) }
+                session.applyMaskStroke(normalizedPoints: normalized)
+                maskStrokeViewPoints = []
+            }
+
+        case .pan, .moveAnnotation, .resizeAnnotation, .cornerRadius, .moveLayer, .resizeLayer, .rotateLayer, .moveSelection, .resizeSelection, .crop, .resizeCanvas:
             break
         }
     }
@@ -860,7 +1284,8 @@ struct ImageWorkspaceView: View {
                 points: draftFreehandPoints,
                 start: value.startLocation,
                 location: value.location,
-                inside: imageRect
+                inside: imageRect,
+                minimumDistance: 1.5 + CGFloat(session.drawingSmoothing) * 12
             )
             return
         }
@@ -895,16 +1320,39 @@ struct ImageWorkspaceView: View {
 
         guard let annotation else { return }
         session.annotations.append(annotation)
-        session.selectedAnnotationID = nil
         session.record("Add \(session.drawingMode.label.lowercased())", systemImage: session.drawingMode.symbolName)
+        // Select the shape just drawn so it can be adjusted immediately.
+        // Freehand keeps the brush active for continued drawing.
+        if session.drawingMode != .freehand {
+            session.selectedAnnotationID = annotation.id
+            appModel.activeTool = .select
+        } else {
+            session.selectedAnnotationID = nil
+        }
+    }
+
+    /// Snap a view-space point to the nearest (sub)grid intersection, using the
+    /// same anchor/step as the canvas grid overlay. No-op unless snapping is on.
+    private func snappedDrawPoint(_ point: CGPoint, imageRect: CGRect) -> CGPoint {
+        guard session.snapToGrid else { return point }
+        let workingSize = session.effectivePixelSize
+        let step = session.gridSizePx * imageRect.width / max(workingSize.width, 1)
+        guard step > 1 else { return point }
+        let spacing = step / CGFloat(max(1, session.gridSubdivisions))
+        return CGPoint(
+            x: imageRect.minX + ((point.x - imageRect.minX) / spacing).rounded() * spacing,
+            y: imageRect.minY + ((point.y - imageRect.minY) / spacing).rounded() * spacing
+        )
     }
 
     private func makeShapeAnnotation(
         mode: DrawingMode,
-        start: CGPoint,
-        end: CGPoint,
+        start rawStart: CGPoint,
+        end rawEnd: CGPoint,
         imageRect: CGRect
     ) -> Annotation? {
+        let start = snappedDrawPoint(rawStart, imageRect: imageRect)
+        let end = snappedDrawPoint(rawEnd, imageRect: imageRect)
         guard
             let startDisplay = GeometryMapper.normalizedPoint(start, in: imageRect),
             let endDisplay = GeometryMapper.normalizedPoint(end, in: imageRect),
@@ -942,9 +1390,16 @@ struct ImageWorkspaceView: View {
                 fromDisplayNormalized: displayFrame,
                 cropRect: session.cropRect
             ),
-            strokeColor: session.drawingStrokeColor,
+            strokeColor: library.foreground,
             fillColor: mode.supportsFill ? session.drawingFillColor : nil,
             lineWidth: session.drawingLineWidth,
+            strokeStyle: session.drawingStrokeStyle,
+            strokeAlignment: session.drawingStrokeAlignment,
+            cornerRadius: mode == .rectangle ? session.drawingCornerRadius : 0,
+            dashLength: session.drawingDashLength,
+            dashGap: session.drawingDashGap,
+            dashOffset: session.drawingDashOffset,
+            blendMode: session.drawingBlendMode,
             opacity: session.drawingOpacity
         )
     }
@@ -953,34 +1408,19 @@ struct ImageWorkspaceView: View {
         let displayPoints = points.compactMap { GeometryMapper.normalizedPoint($0, in: imageRect) }
         guard displayPoints.count > 1 else { return nil }
 
-        let minX = displayPoints.map(\.x).min() ?? 0
-        let maxX = displayPoints.map(\.x).max() ?? 0
-        let minY = displayPoints.map(\.y).min() ?? 0
-        let maxY = displayPoints.map(\.y).max() ?? 0
-        let displayFrame = GeometryMapper.clampedNormalizedRect(
-            CGRect(
-                x: minX,
-                y: minY,
-                width: max(maxX - minX, 0.002),
-                height: max(maxY - minY, 0.002)
-            ),
-            minimumSize: 0.002
-        )
-        let localPoints = displayPoints.map { point in
-            CGPoint(
-                x: (point.x - displayFrame.minX) / max(displayFrame.width, 0.001),
-                y: (point.y - displayFrame.minY) / max(displayFrame.height, 0.001)
-            )
-        }
-
+        // Store points in full display-normalised coordinates over a full-canvas
+        // frame. Normalising into a tight bounding box (as shapes do) distorts a
+        // freehand stroke because the points then get re-stretched to the box's
+        // aspect ratio on render; a full-canvas frame renders exactly where drawn.
         return Annotation(
-            kind: .freehand(points: localPoints),
+            kind: .freehand(points: displayPoints),
             frame: WorkingImageGeometry.sourceRect(
-                fromDisplayNormalized: displayFrame,
+                fromDisplayNormalized: CGRect(x: 0, y: 0, width: 1, height: 1),
                 cropRect: session.cropRect
             ),
-            strokeColor: session.drawingStrokeColor,
+            strokeColor: library.foreground,
             lineWidth: session.drawingLineWidth,
+            strokeStyle: session.drawingStrokeStyle,
             opacity: session.drawingOpacity
         )
     }
@@ -1001,12 +1441,17 @@ struct ImageWorkspaceView: View {
                 fromDisplayNormalized: displayFrame,
                 cropRect: session.cropRect
             ),
-            strokeColor: session.autoContrastColor
+            strokeColor: library.foreground
         )
         session.annotations.append(annotation)
         session.selectedAnnotationID = annotation.id
         session.record("Add text", systemImage: "textformat")
-        appModel.activeTool = .view
+        appModel.activeTool = .select
+        // Immediately edit the new text in place, with the default "Text" selected
+        // so the first keystroke replaces it.
+        editingTextID = annotation.id
+        inlineTextFocused = true
+        pendingTextSelectAll = true
     }
 
     private func updateLiveSample(at point: CGPoint, imageRect: CGRect) {
@@ -1079,28 +1524,83 @@ struct ImageWorkspaceView: View {
     private func hitLayer(at point: CGPoint, imageRect: CGRect) -> ImageLayer? {
         session.imageLayers.reversed().first { layer in
             guard session.isLayerEffectivelyVisible(layer), let displayed = displayedAnnotationFrame(layer.frame) else { return false }
-            return GeometryMapper.viewRect(from: displayed, in: imageRect).contains(point)
+            let rect = GeometryMapper.viewRect(from: displayed, in: imageRect)
+            let center = CGPoint(x: rect.midX, y: rect.midY)
+            return rect.contains(unrotatePoint(point, around: center, degrees: layer.rotation))
         }
     }
 
-    /// Resize handle for the currently-selected image layer, if grabbed.
+    /// Resize handle (on a corner) or rotate (just outside a corner) for the
+    /// currently-selected image layer.
     private func selectedLayerResizeMode(at point: CGPoint, imageRect: CGRect) -> DragMode? {
         guard let selectedID = session.selectedLayerID,
               let selected = session.imageLayers.first(where: { $0.id == selectedID }),
               let displayed = displayedAnnotationFrame(selected.frame) else { return nil }
         let rect = GeometryMapper.viewRect(from: displayed, in: imageRect)
-        if let corner = cornerHandle(at: point, rect: rect) {
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let local = unrotatePoint(point, around: center, degrees: selected.rotation)
+        if let corner = cornerHandle(at: local, rect: rect) {
             return .resizeLayer(id: selectedID, corner: corner, start: selected.frame)
+        }
+        // Rotate ring: just beyond a corner dot.
+        let corners = [
+            CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY),
+            CGPoint(x: rect.minX, y: rect.maxY), CGPoint(x: rect.maxX, y: rect.maxY)
+        ]
+        let nearest = corners.map { hypot($0.x - local.x, $0.y - local.y) }.min() ?? .infinity
+        if nearest > 11, nearest < 36 {
+            let startAngle = atan2(point.y - center.y, point.x - center.x)
+            return .rotateLayer(id: selectedID, center: center, startAngle: startAngle, startRotation: selected.rotation)
+        }
+        return nil
+    }
+
+    /// The on-canvas radius handle for a selected rectangle: a dot inset from the
+    /// top-left corner that drags the corner radius.
+    private func cornerRadiusHandlePoint(rect: CGRect, radius: CGFloat) -> CGPoint {
+        let maxD = min(rect.width, rect.height) / 2
+        let d = min(max(radius, 16), max(maxD, 16))
+        return CGPoint(x: rect.minX + d, y: rect.minY + d)
+    }
+
+    private func selectedShapeCornerRadiusMode(at point: CGPoint, imageRect: CGRect) -> DragMode? {
+        guard let id = session.selectedAnnotationID,
+              let annotation = session.annotations.first(where: { $0.id == id }),
+              annotation.isRectangle,
+              let displayed = displayedAnnotationFrame(annotation.frame) else { return nil }
+        let rect = GeometryMapper.viewRect(from: displayed, in: imageRect)
+        let dot = cornerRadiusHandlePoint(rect: rect, radius: annotation.cornerRadius)
+        if hypot(dot.x - point.x, dot.y - point.y) <= 11 {
+            return .cornerRadius(id: id, rect: rect)
         }
         return nil
     }
 
     private func layerMoveMode(at point: CGPoint, imageRect: CGRect) -> DragMode? {
         guard let layer = hitLayer(at: point, imageRect: imageRect) else { return nil }
+        session.selectionRect = nil
+        // Option-drag duplicates the layer and drags the copy.
+        if NSEvent.modifierFlags.contains(.option),
+           let copyID = session.duplicateImageLayer(id: layer.id, offset: 0),
+           let copy = session.imageLayers.first(where: { $0.id == copyID }) {
+            return .moveLayer(id: copyID, start: copy.frame)
+        }
         session.selectedLayerID = layer.id
         session.selectedAnnotationID = nil
-        session.selectionRect = nil
         return .moveLayer(id: layer.id, start: layer.frame)
+    }
+
+    /// Move-drag for an annotation; Option-drag duplicates it and drags the copy.
+    private func annotationMoveMode(_ annotation: Annotation) -> DragMode {
+        if NSEvent.modifierFlags.contains(.option),
+           let copyID = session.duplicateAnnotation(id: annotation.id, offset: 0),
+           let copy = session.annotations.first(where: { $0.id == copyID }) {
+            session.selectedLayerID = nil
+            return .moveAnnotation(id: copyID, start: copy.frame)
+        }
+        session.selectedAnnotationID = annotation.id
+        session.selectedLayerID = nil
+        return .moveAnnotation(id: annotation.id, start: annotation.frame)
     }
 
     private func displayedAnnotationFrame(_ sourceFrame: CGRect) -> CGRect? {
@@ -1356,33 +1856,52 @@ struct ImageWorkspaceView: View {
         }
     }
 
+    private func roundedRectPath(_ rect: CGRect, radius: CGFloat) -> Path {
+        guard radius > 0 else { return Path(rect) }
+        let r = min(radius, min(abs(rect.width), abs(rect.height)) / 2)
+        return Path(roundedRect: rect, cornerRadius: r, style: .continuous)
+    }
+
     private func drawAnnotation(
         _ annotation: Annotation,
         context: inout GraphicsContext,
         size: CGSize
     ) {
         let stroke = GraphicsContext.Shading.color(Color(nsColor: annotation.strokeColor))
+        let dash = annotation.effectiveDash(lineWidth: annotation.lineWidth)
         let style = StrokeStyle(
             lineWidth: annotation.lineWidth,
             lineCap: .round,
-            lineJoin: .round
+            lineJoin: .round,
+            dash: dash,
+            dashPhase: annotation.dashOffset
+        )
+        let lw = annotation.lineWidth
+        let baseRect = CGRect(origin: .zero, size: size)
+        let strokeRect = baseRect.insetBy(
+            dx: -annotation.strokeAlignment.edgeShift * lw,
+            dy: -annotation.strokeAlignment.edgeShift * lw
         )
 
         switch annotation.kind {
         case .rectangle:
-            let path = Path(CGRect(origin: .zero, size: size))
+            let radius = annotation.cornerRadius
+            let fillPath = roundedRectPath(baseRect, radius: radius)
             if let fill = annotation.fillColor {
-                context.fill(path, with: .color(Color(nsColor: fill)))
+                context.fill(fillPath, with: .color(Color(nsColor: fill)))
             }
-            context.stroke(path, with: stroke, style: style)
+            let strokeRadius = max(0, radius + annotation.strokeAlignment.edgeShift * lw)
+            context.stroke(roundedRectPath(strokeRect, radius: strokeRadius), with: stroke, style: style)
 
         case .ellipse:
-            var path = Path()
-            path.addEllipse(in: CGRect(origin: .zero, size: size))
             if let fill = annotation.fillColor {
-                context.fill(path, with: .color(Color(nsColor: fill)))
+                var fillPath = Path()
+                fillPath.addEllipse(in: baseRect)
+                context.fill(fillPath, with: .color(Color(nsColor: fill)))
             }
-            context.stroke(path, with: stroke, style: style)
+            var strokePath = Path()
+            strokePath.addEllipse(in: strokeRect)
+            context.stroke(strokePath, with: stroke, style: style)
 
         case .line(let start, let end):
             var path = Path()
@@ -1504,14 +2023,17 @@ struct ImageWorkspaceView: View {
         case placeText
         case moveAnnotation(id: UUID, start: CGRect)
         case resizeAnnotation(id: UUID, corner: AnnotationCorner, start: CGRect)
+        case cornerRadius(id: UUID, rect: CGRect)
         case moveLayer(id: UUID, start: CGRect)
         case resizeLayer(id: UUID, corner: AnnotationCorner, start: CGRect)
+        case rotateLayer(id: UUID, center: CGPoint, startAngle: CGFloat, startRotation: Double)
         case moveSelection(start: CGRect)
         case resizeSelection(handle: BoxHandle, start: CGRect)
         case crop(handle: BoxHandle, start: CGRect)
         case resizeCanvas(handle: BoxHandle, start: CGSize, rect: CGRect)
         case selectRegion
         case refineBackground
+        case maskEdit
     }
 
     private enum AnnotationCorner {
@@ -1554,6 +2076,9 @@ private struct DockablePanelsLayer: View {
     let appModel: AppModel
     let session: ImageSession
     @ObservedObject var panelDock: PanelDockModel<DockablePanel>
+    let onPickSwatch: (NSColor) -> Void
+
+    @EnvironmentObject private var library: ColorLibrary
 
     /// Live translation of a dragged stack head, so its followers move
     /// along frame-by-frame. Solo drags never touch this state.
@@ -1561,8 +2086,25 @@ private struct DockablePanelsLayer: View {
     @State private var stackDragTranslation: CGSize = .zero
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            PanelDockRail(model: panelDock)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Button {
+                    appModel.isShowingNewFile = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 16, weight: .bold))
+                        .frame(width: 38, height: 38)
+                        .background(Color.accentColor.opacity(0.9), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                        .foregroundStyle(.white)
+                }
+                .buttonStyle(.plain)
+                .help("New File")
+
+                PanelDockRail(model: panelDock, axis: .horizontal)
+
+                ForegroundBackgroundChips(library: library, session: session)
+                    .padding(.leading, 4)
+            }
 
             ZStack(alignment: .topLeading) {
                 if panelDock.isExpanded(.files) {
@@ -1576,6 +2118,7 @@ private struct DockablePanelsLayer: View {
                         onDragChanged: { dragChanged(.files, translation: $0) },
                         onDragEnded: { _ in dragEnded(.files) }
                     )
+                    .transition(panelCollapse)
                 }
                 if panelDock.isExpanded(.layers) {
                     LayersPanel(
@@ -1589,6 +2132,7 @@ private struct DockablePanelsLayer: View {
                         onDragChanged: { dragChanged(.layers, translation: $0) },
                         onDragEnded: { _ in dragEnded(.layers) }
                     )
+                    .transition(panelCollapse)
                 }
                 if panelDock.isExpanded(.history) {
                     HistoryPanel(
@@ -1601,9 +2145,30 @@ private struct DockablePanelsLayer: View {
                         onDragChanged: { dragChanged(.history, translation: $0) },
                         onDragEnded: { _ in dragEnded(.history) }
                     )
+                    .transition(panelCollapse)
+                }
+                if panelDock.isExpanded(.swatches) {
+                    SwatchesPanel(
+                        offset: offsetBinding(.swatches),
+                        size: panelDock.sizeBinding(.swatches),
+                        onMinimize: { panelDock.minimize(.swatches) },
+                        onPick: onPickSwatch,
+                        stackEdges: panelDock.stackEdges(of: .swatches),
+                        isStackFollower: panelDock.isStackFollower(.swatches),
+                        onDragChanged: { dragChanged(.swatches, translation: $0) },
+                        onDragEnded: { _ in dragEnded(.swatches) }
+                    )
+                    .transition(panelCollapse)
                 }
             }
+            .animation(.spring(response: 0.34, dampingFraction: 0.82), value: panelDock.presented)
+            .animation(.spring(response: 0.34, dampingFraction: 0.82), value: panelDock.minimized)
         }
+    }
+
+    /// Panels collapse toward their top-left corner (where the rail buttons sit).
+    private var panelCollapse: AnyTransition {
+        .scale(scale: 0.06, anchor: .topLeading).combined(with: .opacity)
     }
 
     /// Followers rest flush under their stack head (plus the head's live
@@ -1641,5 +2206,23 @@ private struct DockablePanelsLayer: View {
         stackDragTranslation = .zero
         // Stick detection against the settled, grid-snapped positions.
         panelDock.snapReleased(id)
+    }
+}
+
+/// Selects all text in the focused NSTextView when triggered — used so a newly
+/// created text item's default "Text" is highlighted for immediate replacement.
+private struct TextSelectAllHelper: NSViewRepresentable {
+    @Binding var trigger: Bool
+
+    func makeNSView(context: Context) -> NSView { NSView(frame: .zero) }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard trigger else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            if let textView = nsView.window?.firstResponder as? NSTextView {
+                textView.selectAll(nil)
+            }
+            trigger = false
+        }
     }
 }

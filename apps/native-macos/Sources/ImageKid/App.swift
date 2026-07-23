@@ -58,6 +58,7 @@ final class AppModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var isShowingResize = false
     @Published var isShowingExport = false
+    @Published var isShowingNewFile = false
     @Published var isShowingPromptEdit = false
     @Published var isShowingEnhance = false
     @Published var isRemovingBackground = false
@@ -139,7 +140,7 @@ final class AppModel: ObservableObject {
 
     var canDeleteSelection: Bool {
         if case .image(let session) = media {
-            return session.selectedAnnotationID != nil || session.hasImageSelection
+            return session.selectedLayerID != nil || session.selectedAnnotationID != nil || session.hasImageSelection
         }
         return false
     }
@@ -166,12 +167,46 @@ final class AppModel: ObservableObject {
 
     func openPanel() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.image, .movie]
+        var types: [UTType] = [.image, .movie]
+        if let ik = UTType(filenameExtension: ImageKidDocument.fileExtension) { types.insert(ik, at: 0) }
+        panel.allowedContentTypes = types
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
 
         guard panel.runModal() == .OK else { return }
         load(panel.urls)
+    }
+
+    /// Pixel size of an image currently on the clipboard, if any.
+    func clipboardImageSize() -> CGSize? {
+        guard let image = NSImage(pasteboard: .general) else { return nil }
+        if let rep = image.representations.first, rep.pixelsWide > 0, rep.pixelsHigh > 0 {
+            return CGSize(width: rep.pixelsWide, height: rep.pixelsHigh)
+        }
+        return image.size == .zero ? nil : image.size
+    }
+
+    /// Create a fresh blank document of the given pixel size and background.
+    /// The canvas base is always transparent; a chosen colour becomes its own
+    /// full-canvas layer so it can be edited or removed like any other layer.
+    func newDocument(width: Int, height: Int, background: NewFileBackground) {
+        let size = CGSize(width: max(1, min(width, 16384)), height: max(1, min(height, 16384)))
+        let base = NSImage.blankCanvas(pixelSize: size, fill: nil)
+        let session = ImageSession(sourceURL: nil, sourceImage: base)
+        if let fill = background.fillColor {
+            let colorImage = NSImage.blankCanvas(pixelSize: size, fill: fill)
+            session.imageLayers.append(
+                ImageLayer(name: background.label, image: colorImage, frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+            )
+        }
+        session.isDirty = true
+        session.seedHistory()
+        let item = WorkspaceItem(media: .image(session))
+        items.append(item)
+        selectedItemID = item.id
+        selectedItemIDs = [item.id]
+        activeTool = .view
+        isShowingNewFile = false
     }
 
     func load(_ url: URL) {
@@ -184,6 +219,10 @@ final class AppModel: ObservableObject {
 
         for url in urls {
             do {
+                if url.pathExtension.lowercased() == ImageKidDocument.fileExtension {
+                    if let id = openImageKidDocument(url) { firstLoadedID = firstLoadedID ?? id }
+                    continue
+                }
                 let media = try MediaLoader.load(url: url)
                 let item = WorkspaceItem(media: media)
                 items.append(item)
@@ -198,6 +237,86 @@ final class AppModel: ObservableObject {
             selectedItemID = firstLoadedID
             selectedItemIDs = [firstLoadedID]
             activeTool = .view
+        }
+    }
+
+    // MARK: - Work files (.imagekid)
+
+    var canSaveDocument: Bool {
+        if case .image = media { return true }
+        return false
+    }
+
+    @discardableResult
+    private func openImageKidDocument(_ url: URL) -> UUID? {
+        do {
+            let data = try Data(contentsOf: url)
+            let document = try ImageKidDocument.decoded(from: data)
+            guard let session = document.makeSession() else {
+                errorMessage = "This ImageKid file could not be opened."
+                return nil
+            }
+            session.documentURL = url
+            let item = WorkspaceItem(media: .image(session))
+            items.append(item)
+            NSDocumentController.shared.noteNewRecentDocumentURL(url)
+            return item.id
+        } catch {
+            errorMessage = "Could not open the ImageKid file: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    /// Save to the session's existing document URL, or prompt for one.
+    func saveDocument() {
+        guard case .image(let session) = media else { return }
+        if let url = session.documentURL {
+            writeDocument(session, to: url)
+        } else {
+            saveDocumentAs()
+        }
+    }
+
+    func saveDocumentAs() {
+        guard case .image(let session) = media else { return }
+        let panel = NSSavePanel()
+        if let type = UTType(filenameExtension: ImageKidDocument.fileExtension) {
+            panel.allowedContentTypes = [type]
+        }
+        let base = session.documentURL?.deletingPathExtension().lastPathComponent
+            ?? session.sourceURL?.deletingPathExtension().lastPathComponent
+            ?? "Untitled"
+        panel.nameFieldStringValue = "\(base).\(ImageKidDocument.fileExtension)"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        writeDocument(session, to: url)
+    }
+
+    /// Save every open document that already has a file; prompt for the current
+    /// one if it has never been saved.
+    func saveAllDocuments() {
+        for item in items {
+            if case .image(let session) = item.media, let url = session.documentURL {
+                writeDocument(session, to: url)
+            }
+        }
+        if case .image(let session) = media, session.documentURL == nil {
+            saveDocumentAs()
+        }
+    }
+
+    private func writeDocument(_ session: ImageSession, to url: URL) {
+        guard let document = ImageKidDocument(session: session) else {
+            errorMessage = "Could not prepare the ImageKid file."
+            return
+        }
+        do {
+            let data = try document.encoded()
+            try data.write(to: url, options: .atomic)
+            session.documentURL = url
+            session.isDirty = false
+            NSDocumentController.shared.noteNewRecentDocumentURL(url)
+        } catch {
+            errorMessage = "Could not save: \(error.localizedDescription)"
         }
     }
 
@@ -455,6 +574,13 @@ final class AppModel: ObservableObject {
             return
         }
 
+        if session.isEditingMask { return }
+
+        if let layerID = session.selectedLayerID {
+            session.removeImageLayer(id: layerID)
+            return
+        }
+
         if let selectedAnnotationID = session.selectedAnnotationID {
             session.removeAnnotation(id: selectedAnnotationID)
             return
@@ -525,6 +651,31 @@ final class AppModel: ObservableObject {
             cropRect: session.cropRect
         )
         activeTool = .crop
+    }
+
+    /// Fill the current selection with a colour (as a filled rectangle shape).
+    func fillSelection(with color: NSColor) {
+        guard case .image(let session) = media,
+              let selectionRect = session.selectionRect,
+              session.hasImageSelection else {
+            return
+        }
+        let frame = WorkingImageGeometry.sourceRect(
+            fromDisplayNormalized: selectionRect,
+            cropRect: session.cropRect
+        )
+        let fill = Annotation(
+            kind: .rectangle,
+            frame: frame,
+            strokeColor: .clear,
+            fillColor: color,
+            lineWidth: 0
+        )
+        session.annotations.append(fill)
+        session.record("Fill selection", systemImage: "paintbrush.fill")
+        session.selectionRect = nil
+        session.selectedAnnotationID = fill.id
+        activeTool = .select
     }
 
     func copyCurrentImageToClipboard() {
@@ -810,6 +961,12 @@ final class AppModel: ObservableObject {
             return
         }
         isShowingEnhance = true
+    }
+
+    /// Direct Smart Upscale from the Resize panel — uses the saved quality grade.
+    func smartUpscale(_ size: EnhanceSize) {
+        let quality = EnhanceQuality(rawValue: UserDefaults.standard.string(forKey: "enhanceQuality") ?? "") ?? .high
+        applyEnhance(quality: quality, size: size)
     }
 
     /// Magic ▸ Enhance Image. Improves detail (and optionally enlarges) with the
@@ -1099,6 +1256,12 @@ final class AppModel: ObservableObject {
             return
         }
 
+        // If an image layer is selected, mask *that* layer instead of the base.
+        if session.selectedLayerID != nil {
+            removeBackgroundFromSelectedLayer()
+            return
+        }
+
         if session.backgroundRemovedImage != nil {
             session.restoreBackground()
             if activeTool == .refineBackground {
@@ -1227,9 +1390,15 @@ struct AppCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
+            Button("New…") { currentAppModel?.isShowingNewFile = true }
+                .keyboardShortcut("n")
+                .disabled(currentAppModel == nil)
+
             Button("Open…") { currentAppModel?.openPanel() }
                 .keyboardShortcut("o")
                 .disabled(currentAppModel == nil)
+
+            Divider()
 
             Button("Close Image") { currentAppModel?.closeSelectedItem() }
                 .keyboardShortcut("w")
@@ -1364,6 +1533,53 @@ struct AppCommands: Commands {
             .keyboardShortcut("y", modifiers: [.command, .shift])
             .disabled(currentAppModel?.imageSession == nil)
 
+            Button((currentAppModel?.panelDock.presented.contains(.swatches) == true ? "Hide" : "Show") + " Swatches") {
+                currentAppModel?.panelDock.toggle(.swatches)
+            }
+            .keyboardShortcut("w", modifiers: [.command, .shift])
+            .disabled(currentAppModel?.imageSession == nil)
+
+            Divider()
+
+            Button((currentAppModel?.imageSession?.showGrid == true ? "Hide" : "Show") + " Grid") {
+                currentAppModel?.imageSession?.showGrid.toggle()
+            }
+            .keyboardShortcut("'", modifiers: .command)
+            .disabled(currentAppModel?.imageSession == nil)
+
+            Button((currentAppModel?.imageSession?.snapToGrid == true ? "Disable" : "Enable") + " Snap to Grid") {
+                currentAppModel?.imageSession?.snapToGrid.toggle()
+            }
+            .keyboardShortcut("'", modifiers: [.command, .shift])
+            .disabled(currentAppModel?.imageSession == nil)
+
+            Button((currentAppModel?.imageSession?.showGridPanel == true ? "Hide" : "Show") + " Grid Settings…") {
+                currentAppModel?.imageSession?.showGridPanel.toggle()
+            }
+            .disabled(currentAppModel?.imageSession == nil)
+
+            Divider()
+
+            Button(currentAppModel?.isWorkspaceSidebarCollapsed == true ? "Show Files Sheet" : "Minimize Files Sheet") {
+                currentAppModel?.toggleFilesSheet()
+            }
+            .keyboardShortcut("1", modifiers: [.command, .option])
+            .disabled(currentAppModel?.canToggleFilesSheet != true)
+
+            Divider()
+
+            Button("Zoom In") { currentAppModel?.zoomIn() }
+                .keyboardShortcut("+")
+                .disabled(currentAppModel == nil)
+
+            Button("Zoom Out") { currentAppModel?.zoomOut() }
+                .keyboardShortcut("-")
+                .disabled(currentAppModel == nil)
+
+            Button("Fit to Window") { currentAppModel?.resetView() }
+                .keyboardShortcut("0", modifiers: [])
+                .disabled(currentAppModel == nil)
+
             Divider()
         }
 
@@ -1394,41 +1610,22 @@ struct AppCommands: Commands {
                 .disabled(currentAppModel == nil)
         }
 
-        CommandMenu("View") {
-            Button(currentAppModel?.isWorkspaceSidebarCollapsed == true ? "Show Files Sheet" : "Minimize Files Sheet") {
-                currentAppModel?.toggleFilesSheet()
-            }
-            .keyboardShortcut("1", modifiers: [.command, .option])
-            .disabled(currentAppModel?.canToggleFilesSheet != true)
-
-            Divider()
-
-            Button("Zoom In") { currentAppModel?.zoomIn() }
-                .keyboardShortcut("+")
-                .disabled(currentAppModel == nil)
-
-            Button("Zoom Out") { currentAppModel?.zoomOut() }
-                .keyboardShortcut("-")
-                .disabled(currentAppModel == nil)
-
-            Divider()
-
-            Button("Fit to Window") { currentAppModel?.resetView() }
-                .keyboardShortcut("0", modifiers: [])
-                .disabled(currentAppModel == nil)
-        }
-
         CommandGroup(replacing: .saveItem) {
-            Button("Save") { currentAppModel?.saveImage() }
+            Button("Save") { currentAppModel?.saveDocument() }
                 .keyboardShortcut("s")
-                .disabled(currentAppModel == nil)
+                .disabled(currentAppModel?.canSaveDocument != true)
 
-            Button("Save All") { currentAppModel?.saveAllImages() }
+            Button("Save As…") { currentAppModel?.saveDocumentAs() }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .disabled(currentAppModel?.canSaveDocument != true)
+
+            Button("Save All") { currentAppModel?.saveAllDocuments() }
                 .keyboardShortcut("s", modifiers: [.command, .option])
                 .disabled(currentAppModel == nil)
 
+            Divider()
+
             Button("Export…") { currentAppModel?.requestExport() }
-                .keyboardShortcut("s", modifiers: [.command, .shift])
                 .disabled(currentAppModel == nil)
         }
     }
@@ -1487,6 +1684,7 @@ struct AppWindowRoot: View {
 struct ImageKidApp: App {
     @NSApplicationDelegateAdaptor(ImageKidApplicationDelegate.self) private var applicationDelegate
     @StateObject private var settings = AppSettings()
+    @StateObject private var colorLibrary = ColorLibrary()
     private let quickActionLaunch: Result<QuickActionLaunch?, Error>
     private let quickActionModel: QuickActionModel?
 
@@ -1524,6 +1722,7 @@ struct ImageKidApp: App {
             case .success(nil):
                 AppWindowRoot()
                     .environmentObject(settings)
+                    .environmentObject(colorLibrary)
             case .failure(let error):
                 QuickActionErrorView(message: error.localizedDescription)
                     .preferredColorScheme(settings.appearanceMode.colorScheme)

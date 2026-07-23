@@ -65,6 +65,19 @@ public enum Tool: String, CaseIterable, Identifiable {
     }
 }
 
+enum MaskViewMode: String, CaseIterable, Identifiable {
+    case overlay
+    case blackWhite
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .overlay: "Overlay"
+        case .blackWhite: "Black & White"
+        }
+    }
+}
+
 enum BackgroundRefinementMode: String, CaseIterable, Identifiable {
     case keep
     case remove
@@ -308,6 +321,121 @@ enum AnnotationTextAlignment: String, CaseIterable, Identifiable {
     }
 }
 
+/// Stroke line style for shapes and lines.
+enum ShapeStrokeStyle: String, CaseIterable, Identifiable, Hashable {
+    case solid, dashed, dotted
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .solid: return "Solid"
+        case .dashed: return "Dashed"
+        case .dotted: return "Dotted"
+        }
+    }
+    /// Dash pattern scaled to the stroke width (empty = solid line).
+    func dashPattern(lineWidth: CGFloat) -> [CGFloat] {
+        let w = max(lineWidth, 1)
+        switch self {
+        case .solid: return []
+        case .dashed: return [w * 3, w * 2.2]
+        case .dotted: return [w * 0.05, w * 1.8]
+        }
+    }
+}
+
+/// Blend mode for how a shape composites over the layers beneath it.
+enum ShapeBlendMode: String, CaseIterable, Identifiable, Hashable {
+    case normal, multiply, screen, overlay, darken, lighten
+    case colorDodge, colorBurn, softLight, hardLight
+    case difference, exclusion, hue, saturation, color, luminosity
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .normal: return "Normal"
+        case .multiply: return "Multiply"
+        case .screen: return "Screen"
+        case .overlay: return "Overlay"
+        case .darken: return "Darken"
+        case .lighten: return "Lighten"
+        case .colorDodge: return "Color Dodge"
+        case .colorBurn: return "Color Burn"
+        case .softLight: return "Soft Light"
+        case .hardLight: return "Hard Light"
+        case .difference: return "Difference"
+        case .exclusion: return "Exclusion"
+        case .hue: return "Hue"
+        case .saturation: return "Saturation"
+        case .color: return "Color"
+        case .luminosity: return "Luminosity"
+        }
+    }
+
+    var swiftUI: BlendMode {
+        switch self {
+        case .normal: return .normal
+        case .multiply: return .multiply
+        case .screen: return .screen
+        case .overlay: return .overlay
+        case .darken: return .darken
+        case .lighten: return .lighten
+        case .colorDodge: return .colorDodge
+        case .colorBurn: return .colorBurn
+        case .softLight: return .softLight
+        case .hardLight: return .hardLight
+        case .difference: return .difference
+        case .exclusion: return .exclusion
+        case .hue: return .hue
+        case .saturation: return .saturation
+        case .color: return .color
+        case .luminosity: return .luminosity
+        }
+    }
+
+    var cg: CGBlendMode {
+        switch self {
+        case .normal: return .normal
+        case .multiply: return .multiply
+        case .screen: return .screen
+        case .overlay: return .overlay
+        case .darken: return .darken
+        case .lighten: return .lighten
+        case .colorDodge: return .colorDodge
+        case .colorBurn: return .colorBurn
+        case .softLight: return .softLight
+        case .hardLight: return .hardLight
+        case .difference: return .difference
+        case .exclusion: return .exclusion
+        case .hue: return .hue
+        case .saturation: return .saturation
+        case .color: return .color
+        case .luminosity: return .luminosity
+        }
+    }
+}
+
+/// Where a shape's stroke sits relative to its edge.
+enum StrokeAlignment: String, CaseIterable, Identifiable, Hashable {
+    case inset, center, outset
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .inset: return "Inside"
+        case .center: return "Center"
+        case .outset: return "Outside"
+        }
+    }
+    /// How far (in stroke-width multiples) to shift the stroke path outward.
+    var edgeShift: CGFloat {
+        switch self {
+        case .inset: return -0.5
+        case .center: return 0
+        case .outset: return 0.5
+        }
+    }
+}
+
 struct Annotation: Identifiable {
     enum Kind {
         case rectangle
@@ -324,6 +452,16 @@ struct Annotation: Identifiable {
     var strokeColor: NSColor
     var fillColor: NSColor?
     var lineWidth: CGFloat
+    var strokeStyle: ShapeStrokeStyle
+    var strokeAlignment: StrokeAlignment
+    /// Corner radius for rectangles, in source pixels (0 = square corners).
+    var cornerRadius: CGFloat
+    /// Custom dash: length of a dash and the gap after it, in source pixels.
+    /// When dashLength <= 0 the strokeStyle preset is used instead.
+    var dashLength: CGFloat
+    var dashGap: CGFloat
+    var dashOffset: CGFloat
+    var blendMode: ShapeBlendMode
     var opacity: Double
     var fontFamily: String
     var fontSize: CGFloat
@@ -340,6 +478,13 @@ struct Annotation: Identifiable {
         strokeColor: NSColor = .systemRed,
         fillColor: NSColor? = nil,
         lineWidth: CGFloat = 3,
+        strokeStyle: ShapeStrokeStyle = .solid,
+        strokeAlignment: StrokeAlignment = .center,
+        cornerRadius: CGFloat = 0,
+        dashLength: CGFloat = 0,
+        dashGap: CGFloat = 0,
+        dashOffset: CGFloat = 0,
+        blendMode: ShapeBlendMode = .normal,
         opacity: Double = 1,
         fontFamily: String = "",
         fontSize: CGFloat = 48,
@@ -355,6 +500,13 @@ struct Annotation: Identifiable {
         self.strokeColor = strokeColor
         self.fillColor = fillColor
         self.lineWidth = lineWidth
+        self.strokeStyle = strokeStyle
+        self.strokeAlignment = strokeAlignment
+        self.cornerRadius = cornerRadius
+        self.dashLength = dashLength
+        self.dashGap = dashGap
+        self.dashOffset = dashOffset
+        self.blendMode = blendMode
         self.opacity = opacity
         self.fontFamily = fontFamily
         self.fontSize = fontSize
@@ -363,6 +515,15 @@ struct Annotation: Identifiable {
         self.textAlignment = textAlignment
         self.customName = customName
         self.isVisible = isVisible
+    }
+
+    /// The dash pattern to render with: custom (dashLength/dashGap scaled by the
+    /// given render scale) when set, otherwise the strokeStyle preset.
+    func effectiveDash(lineWidth: CGFloat, scale: CGFloat = 1) -> [CGFloat] {
+        if dashLength > 0 {
+            return [dashLength * scale, max(dashGap, 0) * scale]
+        }
+        return strokeStyle.dashPattern(lineWidth: lineWidth)
     }
 
     var textValue: String? {
@@ -382,6 +543,19 @@ struct Annotation: Identifiable {
     }
 
     var isDrawable: Bool { !isText }
+
+    /// Rectangle or ellipse — shapes that can be filled.
+    var isFillable: Bool {
+        switch kind {
+        case .rectangle, .ellipse: return true
+        default: return false
+        }
+    }
+
+    var isRectangle: Bool {
+        if case .rectangle = kind { return true }
+        return false
+    }
 
     var drawingMode: DrawingMode? {
         switch kind {
@@ -420,6 +594,10 @@ struct ImageLayer: Identifiable {
     var frame: CGRect
     var opacity: Double
     var isVisible: Bool
+    /// Rotation in degrees, clockwise, about the layer's centre.
+    var rotation: Double
+    var flipH: Bool
+    var flipV: Bool
     /// Non-destructive alpha mask (white = keep, black = hide). Applied to the
     /// layer image when `isMaskEnabled` is true; the original pixels are kept.
     var mask: NSImage?
@@ -432,6 +610,9 @@ struct ImageLayer: Identifiable {
         frame: CGRect,
         opacity: Double = 1,
         isVisible: Bool = true,
+        rotation: Double = 0,
+        flipH: Bool = false,
+        flipV: Bool = false,
         mask: NSImage? = nil,
         isMaskEnabled: Bool = true
     ) {
@@ -441,6 +622,9 @@ struct ImageLayer: Identifiable {
         self.frame = frame
         self.opacity = opacity
         self.isVisible = isVisible
+        self.rotation = rotation
+        self.flipH = flipH
+        self.flipV = flipV
         self.mask = mask
         self.isMaskEnabled = isMaskEnabled
     }
@@ -477,6 +661,10 @@ final class ImageSession: ObservableObject {
     let sourceURL: URL?
     let sourceImage: NSImage
 
+    /// URL of the saved .imagekid work file, if this session was opened from or
+    /// saved to one.
+    @Published var documentURL: URL?
+
     @Published var zoom: CGFloat = 1
     @Published var pan: CGSize = .zero
     @Published var viewportMode: ViewportMode = .contain
@@ -489,9 +677,38 @@ final class ImageSession: ObservableObject {
     @Published var annotations: [Annotation] = []
     @Published var imageLayers: [ImageLayer] = []
     @Published var layerGroups: [LayerGroup] = []
+    /// When true the base image has been promoted to a normal (movable/rotatable)
+    /// layer and the canvas base is transparent.
+    @Published var baseUnlocked = false
     @Published var selectedAnnotationID: UUID?
     @Published var selectedLayerID: UUID?
     @Published var selectedLayerIDs: Set<UUID> = []
+
+    // Mask editing (for the selected image layer's mask).
+    @Published var maskEditLayerID: UUID?
+    @Published var maskViewMode: MaskViewMode = .blackWhite
+    /// How strongly the black/white mask is shown over the layer while editing
+    /// (1 = solid B/W, 0 = just the image).
+    @Published var maskViewOpacity: Double = 1
+    @Published var maskBrushReveal = false
+    @Published var maskBrushSize: CGFloat = 48
+    @Published var maskBrushSoftness: CGFloat = 0.4
+    /// Distance between dabs along a stroke as a fraction of the brush diameter
+    /// (0.02 = dense/smooth, 1.0 = widely spaced dabs).
+    @Published var maskBrushSpacing: CGFloat = 0.15
+    @Published var maskBrushOpacity: Double = 1
+    /// Brush height as a fraction of its width (1 = circle, <1 = ellipse).
+    @Published var maskBrushRoundness: CGFloat = 1
+    /// Brush rotation in degrees (only visible when roundness < 1).
+    @Published var maskBrushAngle: Double = 0
+    @Published var maskWandMode = false
+    @Published var maskWandTolerance: CGFloat = 0.15
+
+    var isEditingMask: Bool { maskEditLayerID != nil }
+    var maskEditLayer: ImageLayer? {
+        guard let id = maskEditLayerID else { return nil }
+        return imageLayers.first(where: { $0.id == id })
+    }
     @Published var selectionRect: CGRect?
     @Published var sampledColors: [SampledColor] = []
     @Published var selectedColorIDs: Set<UUID> = []
@@ -501,7 +718,16 @@ final class ImageSession: ObservableObject {
     @Published var drawingStrokeColor: NSColor = .systemRed
     @Published var drawingFillColor: NSColor?
     @Published var drawingLineWidth: CGFloat = 4
+    @Published var drawingStrokeStyle: ShapeStrokeStyle = .solid
+    @Published var drawingStrokeAlignment: StrokeAlignment = .center
+    @Published var drawingCornerRadius: CGFloat = 0
+    @Published var drawingDashLength: CGFloat = 0
+    @Published var drawingDashGap: CGFloat = 0
+    @Published var drawingDashOffset: CGFloat = 0
+    @Published var drawingBlendMode: ShapeBlendMode = .normal
     @Published var drawingOpacity: Double = 1
+    /// Freehand brush smoothing (0 = raw, 1 = heavily smoothed sampling).
+    @Published var drawingSmoothing: Double = 0.3
     @Published var backgroundRemovedImage: NSImage?
     @Published var backgroundRefinementUndoImage: NSImage?
     @Published var backgroundRefinementMode: BackgroundRefinementMode = .remove
@@ -518,6 +744,58 @@ final class ImageSession: ObservableObject {
     @Published var rotationFillColor: NSColor = .white
 
     @Published var isDirty = false
+
+    // Grid overlay + snapping.
+    @Published var showGrid = false
+    @Published var snapToGrid = false
+    @Published var gridSizePx: CGFloat = 64
+    /// Grid line colour (hex). Default subtle white.
+    @Published var gridColorHex: String = "#FFFFFF"
+    /// Grid line opacity, 0…1.
+    @Published var gridOpacity: Double = 0.18
+    /// Number of finer subdivisions drawn between the main grid lines (1 = none).
+    @Published var gridSubdivisions: Int = 1
+    /// Whether the floating Grid settings panel is showing.
+    @Published var showGridPanel = false
+
+    var gridColor: NSColor { ColorHex.color(from: gridColorHex) ?? .white }
+
+    /// Snap a normalised source-space frame to the grid.
+    /// - Parameter keepSize: snap only the origin (moves); otherwise snap all edges (resizes).
+    func gridSnapped(_ frame: CGRect, keepSize: Bool = true) -> CGRect {
+        guard snapToGrid, gridSizePx > 0 else { return frame }
+        let px = pixelSize
+        let gx = gridSizePx / max(px.width, 1)
+        let gy = gridSizePx / max(px.height, 1)
+        let minX = (frame.minX / gx).rounded() * gx
+        let minY = (frame.minY / gy).rounded() * gy
+        if keepSize {
+            return CGRect(x: minX, y: minY, width: frame.width, height: frame.height)
+        }
+        let maxX = (frame.maxX / gx).rounded() * gx
+        let maxY = (frame.maxY / gy).rounded() * gy
+        return CGRect(x: minX, y: minY, width: max(maxX - minX, gx), height: max(maxY - minY, gy))
+    }
+
+    /// Snap a rect expressed in normalised display space (0…1 over the displayed
+    /// image) to the visible grid. Used for the selection and crop regions so
+    /// they line up with the same grid lines shown on the canvas.
+    /// - Parameter keepSize: snap only the origin (for moves); otherwise snap all edges.
+    func gridSnappedDisplayNormalized(_ rect: CGRect, keepSize: Bool = false) -> CGRect {
+        guard snapToGrid, gridSizePx > 0 else { return rect }
+        let px = effectivePixelSize
+        let sx = gridSizePx / max(px.width, 1)
+        let sy = gridSizePx / max(px.height, 1)
+        guard sx > 0, sy > 0 else { return rect }
+        let minX = (rect.minX / sx).rounded() * sx
+        let minY = (rect.minY / sy).rounded() * sy
+        if keepSize {
+            return CGRect(x: minX, y: minY, width: rect.width, height: rect.height)
+        }
+        let maxX = (rect.maxX / sx).rounded() * sx
+        let maxY = (rect.maxY / sy).rounded() * sy
+        return CGRect(x: minX, y: minY, width: max(maxX - minX, sx), height: max(maxY - minY, sy))
+    }
 
     // MARK: - Undo / Redo
 
@@ -536,6 +814,7 @@ final class ImageSession: ObservableObject {
         var sampledColors: [SampledColor]
         var selectedColorIDs: Set<UUID>
         var backgroundRemovedImage: NSImage?
+        var baseUnlocked: Bool
     }
 
     struct HistoryEntry: Identifiable {
@@ -568,7 +847,8 @@ final class ImageSession: ObservableObject {
             selectedLayerID: selectedLayerID,
             sampledColors: sampledColors,
             selectedColorIDs: selectedColorIDs,
-            backgroundRemovedImage: backgroundRemovedImage
+            backgroundRemovedImage: backgroundRemovedImage,
+            baseUnlocked: baseUnlocked
         )
     }
 
@@ -585,6 +865,7 @@ final class ImageSession: ObservableObject {
         sampledColors = snapshot.sampledColors
         selectedColorIDs = snapshot.selectedColorIDs
         backgroundRemovedImage = snapshot.backgroundRemovedImage
+        baseUnlocked = snapshot.baseUnlocked
     }
 
     /// Seed the timeline with the opened image as the first step.
@@ -744,6 +1025,33 @@ final class ImageSession: ObservableObject {
         record(annotations[index].isVisible ? "Show layer" : "Hide layer", systemImage: "eye")
     }
 
+    /// Resize a text annotation's box to fit its content at the current font.
+    func fitAnnotationToText(id: UUID) {
+        guard let index = annotations.firstIndex(where: { $0.id == id }),
+              case .text(let text) = annotations[index].kind else { return }
+        let a = annotations[index]
+        let content = text.isEmpty ? " " : text
+        let baseFont = NSFont(name: a.fontFamily, size: max(a.fontSize, 1))
+            ?? NSFont.systemFont(ofSize: max(a.fontSize, 1), weight: a.fontWeight.appKitWeight)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = a.textAlignment.paragraphAlignment
+        paragraph.lineHeightMultiple = max(a.lineHeight, 0.01)
+        let attrs: [NSAttributedString.Key: Any] = [.font: baseFont, .paragraphStyle: paragraph]
+        let bounds = (content as NSString).boundingRect(
+            with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: attrs
+        )
+        let pad = max(a.fontSize * 0.18, 4)
+        let px = pixelSize
+        let w = min((bounds.width + pad * 2) / max(px.width, 1), 1)
+        let h = min((bounds.height + pad * 2) / max(px.height, 1), 1)
+        var frame = a.frame
+        frame.size = CGSize(width: max(w, 0.01), height: max(h, 0.01))
+        annotations[index].frame = GeometryMapper.clampedNormalizedRect(frame)
+        record("Fit to text", systemImage: "arrow.down.right.and.arrow.up.left")
+    }
+
     func renameAnnotation(id: UUID, to name: String) {
         guard let index = annotations.firstIndex(where: { $0.id == id }) else { return }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -760,35 +1068,64 @@ final class ImageSession: ObservableObject {
 
     /// Duplicate an annotation, offset slightly so it is visible, and select the copy.
     @discardableResult
-    func duplicateAnnotation(id: UUID) -> UUID? {
+    func duplicateAnnotation(id: UUID, offset: CGFloat = 0.02) -> UUID? {
         guard let index = annotations.firstIndex(where: { $0.id == id }) else { return nil }
-        var copy = annotations[index]
-        let offset: CGFloat = 0.02
-        copy = Annotation(
+        let src = annotations[index]
+        let copy = Annotation(
             id: UUID(),
-            kind: copy.kind,
+            kind: src.kind,
             frame: CGRect(
-                x: min(copy.frame.minX + offset, 1 - copy.frame.width),
-                y: min(copy.frame.minY + offset, 1 - copy.frame.height),
-                width: copy.frame.width,
-                height: copy.frame.height
+                x: min(max(src.frame.minX + offset, 0), max(0, 1 - src.frame.width)),
+                y: min(max(src.frame.minY + offset, 0), max(0, 1 - src.frame.height)),
+                width: src.frame.width,
+                height: src.frame.height
             ),
-            strokeColor: copy.strokeColor,
-            fillColor: copy.fillColor,
-            lineWidth: copy.lineWidth,
-            opacity: copy.opacity,
-            fontFamily: copy.fontFamily,
-            fontSize: copy.fontSize,
-            fontWeight: copy.fontWeight,
-            lineHeight: copy.lineHeight,
-            textAlignment: copy.textAlignment,
-            customName: copy.customName,
-            isVisible: copy.isVisible
+            strokeColor: src.strokeColor,
+            fillColor: src.fillColor,
+            lineWidth: src.lineWidth,
+            strokeStyle: src.strokeStyle,
+            strokeAlignment: src.strokeAlignment,
+            cornerRadius: src.cornerRadius,
+            dashLength: src.dashLength,
+            dashGap: src.dashGap,
+            dashOffset: src.dashOffset,
+            blendMode: src.blendMode,
+            opacity: src.opacity,
+            fontFamily: src.fontFamily,
+            fontSize: src.fontSize,
+            fontWeight: src.fontWeight,
+            lineHeight: src.lineHeight,
+            textAlignment: src.textAlignment,
+            customName: src.customName,
+            isVisible: src.isVisible
         )
         annotations.insert(copy, at: index + 1)
         selectedAnnotationID = copy.id
         record("Duplicate", systemImage: "plus.square.on.square")
         return copy.id
+    }
+
+    /// Duplicate an image layer, returning the new layer's id.
+    @discardableResult
+    func duplicateImageLayer(id: UUID, offset: CGFloat = 0.02) -> UUID? {
+        guard let index = imageLayers.firstIndex(where: { $0.id == id }) else { return nil }
+        let src = imageLayers[index]
+        let newLayer = ImageLayer(
+            id: UUID(), name: src.name + " copy", image: src.image,
+            frame: CGRect(
+                x: min(max(src.frame.minX + offset, 0), max(0, 1 - src.frame.width)),
+                y: min(max(src.frame.minY + offset, 0), max(0, 1 - src.frame.height)),
+                width: src.frame.width, height: src.frame.height
+            ),
+            opacity: src.opacity, isVisible: src.isVisible,
+            rotation: src.rotation, flipH: src.flipH, flipV: src.flipV,
+            mask: src.mask, isMaskEnabled: src.isMaskEnabled
+        )
+        imageLayers.insert(newLayer, at: index + 1)
+        selectedLayerID = newLayer.id
+        selectedLayerIDs = [newLayer.id]
+        record("Duplicate layer", systemImage: "plus.square.on.square")
+        return newLayer.id
     }
 
     /// Reorder an annotation in the draw stack. Later entries render on top.
@@ -821,6 +1158,31 @@ final class ImageSession: ObservableObject {
         record("Reorder layer", systemImage: "square.3.layers.3d")
     }
 
+    /// Drag-reorder in the Layers panel's visual (front-to-back) order: move the
+    /// dragged annotation so it takes the target's slot.
+    func reorderAnnotationVisual(moving sourceID: UUID, onto targetID: UUID) {
+        guard sourceID != targetID else { return }
+        var visual = Array(annotations.reversed())
+        guard let from = visual.firstIndex(where: { $0.id == sourceID }) else { return }
+        let moved = visual.remove(at: from)
+        guard let targetIdx = visual.firstIndex(where: { $0.id == targetID }) else { return }
+        visual.insert(moved, at: targetIdx)
+        annotations = Array(visual.reversed())
+        record("Reorder layer", systemImage: "arrow.up.arrow.down")
+    }
+
+    /// Drag-reorder image layers in the Layers panel's visual (front-to-back) order.
+    func reorderImageLayerVisual(moving sourceID: UUID, onto targetID: UUID) {
+        guard sourceID != targetID else { return }
+        var visual = Array(imageLayers.reversed())
+        guard let from = visual.firstIndex(where: { $0.id == sourceID }) else { return }
+        let moved = visual.remove(at: from)
+        guard let targetIdx = visual.firstIndex(where: { $0.id == targetID }) else { return }
+        visual.insert(moved, at: targetIdx)
+        imageLayers = Array(visual.reversed())
+        record("Reorder layer", systemImage: "arrow.up.arrow.down")
+    }
+
     // MARK: - Image layers
 
     /// Add a placed image as a new layer, centred and scaled to ~half the canvas.
@@ -850,6 +1212,25 @@ final class ImageSession: ObservableObject {
         guard let index = imageLayers.firstIndex(where: { $0.id == id }) else { return }
         update(&imageLayers[index])
         isDirty = true
+    }
+
+    /// Promote the locked base image to a normal, transformable layer at the
+    /// bottom of the stack; the canvas base becomes transparent.
+    @discardableResult
+    func unlockBackground() -> UUID? {
+        guard !baseUnlocked else { return nil }
+        let layer = ImageLayer(
+            name: "Background",
+            image: workingSourceImage,
+            frame: CGRect(x: 0, y: 0, width: 1, height: 1)
+        )
+        imageLayers.insert(layer, at: 0)
+        baseUnlocked = true
+        selectedLayerID = layer.id
+        selectedLayerIDs = [layer.id]
+        selectedAnnotationID = nil
+        record("Unlock background", systemImage: "lock.open")
+        return layer.id
     }
 
     func removeImageLayer(id: UUID) {
@@ -942,12 +1323,140 @@ final class ImageSession: ObservableObject {
         record("Remove mask", systemImage: "trash")
     }
 
+    // MARK: - Mask editing
+
+    /// Enter mask-edit mode for a layer, creating an empty (fully-revealed) mask
+    /// if the layer doesn't have one yet.
+    func beginMaskEdit(layerID: UUID) {
+        guard let index = imageLayers.firstIndex(where: { $0.id == layerID }) else { return }
+        if imageLayers[index].mask == nil {
+            imageLayers[index].mask = MaskPainter.fullMask(size: imageLayers[index].image.size)
+        }
+        imageLayers[index].isMaskEnabled = true
+        selectedLayerID = layerID
+        maskEditLayerID = layerID
+    }
+
+    func endMaskEdit() { maskEditLayerID = nil }
+
+    /// Paint a soft dab into the editing layer's mask (live, unrecorded).
+    func paintMaskDab(atNormalized point: CGPoint) {
+        guard let id = maskEditLayerID,
+              let index = imageLayers.firstIndex(where: { $0.id == id }),
+              let mask = imageLayers[index].mask else { return }
+        imageLayers[index].mask = MaskPainter.paint(
+            on: mask, atNormalized: point,
+            diameter: maskBrushSize, softness: maskBrushSoftness,
+            reveal: maskBrushReveal, opacity: maskBrushOpacity,
+            roundness: maskBrushRoundness, angle: maskBrushAngle
+        )
+        isDirty = true
+    }
+
+    /// Rasterise a whole accumulated brush stroke into the mask in one pass
+    /// (called on release), spacing dabs by `maskBrushSpacing × diameter`.
+    /// Records a single undo step.
+    func applyMaskStroke(normalizedPoints path: [CGPoint]) {
+        guard !path.isEmpty,
+              let id = maskEditLayerID,
+              let index = imageLayers.firstIndex(where: { $0.id == id }),
+              let mask = imageLayers[index].mask else { return }
+        let size = mask.size
+        let stepPx = max(maskBrushSpacing, 0.02) * max(maskBrushSize, 1)
+
+        // Interpolate dabs along every segment of the accumulated path.
+        var dabs: [CGPoint] = [path[0]]
+        for i in 1..<path.count {
+            let a = path[i - 1], b = path[i]
+            let dxPx = (b.x - a.x) * size.width
+            let dyPx = (b.y - a.y) * size.height
+            let distPx = (dxPx * dxPx + dyPx * dyPx).squareRoot()
+            let steps = max(1, Int((distPx / max(stepPx, 1)).rounded(.up)))
+            for s in 1...steps {
+                let t = CGFloat(s) / CGFloat(steps)
+                dabs.append(CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t))
+            }
+        }
+
+        imageLayers[index].mask = MaskPainter.paintStroke(
+            on: mask, normalizedPoints: dabs,
+            diameter: maskBrushSize, softness: maskBrushSoftness,
+            reveal: maskBrushReveal, opacity: maskBrushOpacity,
+            roundness: maskBrushRoundness, angle: maskBrushAngle
+        )
+        record(maskBrushReveal ? "Reveal mask" : "Hide mask", systemImage: "paintbrush.pointed")
+    }
+
+    /// Flood-hide a connected region in the editing layer's mask (magic wand).
+    func floodHideMask(atNormalized point: CGPoint) {
+        guard let id = maskEditLayerID,
+              let index = imageLayers.firstIndex(where: { $0.id == id }),
+              let mask = imageLayers[index].mask else { return }
+        if let updated = MaskPainter.floodHide(
+            mask: mask, layerImage: imageLayers[index].image,
+            atNormalized: point, tolerance: maskWandTolerance
+        ) {
+            imageLayers[index].mask = updated
+            record("Erase region", systemImage: "wand.and.stars")
+        }
+    }
+
+    func recordMaskEdit() {
+        record("Edit mask", systemImage: "paintbrush.pointed")
+    }
+
     func moveImageLayer(id: UUID, forward: Bool) {
         guard let index = imageLayers.firstIndex(where: { $0.id == id }) else { return }
         let target = forward ? index + 1 : index - 1
         guard target >= 0, target < imageLayers.count else { return }
         imageLayers.swapAt(index, target)
         record(forward ? "Bring layer forward" : "Send layer backward", systemImage: "square.3.layers.3d")
+    }
+
+    // MARK: - Layer transform
+
+    func rotateLayer90(id: UUID, clockwise: Bool) {
+        guard let i = imageLayers.firstIndex(where: { $0.id == id }) else { return }
+        imageLayers[i].rotation += clockwise ? 90 : -90
+        record("Rotate layer", systemImage: "rotate.right")
+    }
+
+    func flipLayer(id: UUID, horizontal: Bool) {
+        guard let i = imageLayers.firstIndex(where: { $0.id == id }) else { return }
+        if horizontal { imageLayers[i].flipH.toggle() } else { imageLayers[i].flipV.toggle() }
+        record(horizontal ? "Flip layer horizontally" : "Flip layer vertically",
+               systemImage: horizontal ? "arrow.left.and.right.righttriangle.left.righttriangle.right" : "arrow.up.and.down.righttriangle.up.righttriangle.down")
+    }
+
+    func setLayerRotation(id: UUID, degrees: Double) {
+        guard let i = imageLayers.firstIndex(where: { $0.id == id }) else { return }
+        imageLayers[i].rotation = degrees
+        isDirty = true
+    }
+
+    func resetLayerTransform(id: UUID) {
+        guard let i = imageLayers.firstIndex(where: { $0.id == id }) else { return }
+        imageLayers[i].rotation = 0
+        imageLayers[i].flipH = false
+        imageLayers[i].flipV = false
+        record("Reset transform", systemImage: "arrow.counterclockwise")
+    }
+
+    func scaleLayer(id: UUID, factor: CGFloat) {
+        guard let i = imageLayers.firstIndex(where: { $0.id == id }) else { return }
+        var f = imageLayers[i].frame
+        let cx = f.midX, cy = f.midY
+        let w = min(max(f.width * factor, 0.02), 1)
+        let h = min(max(f.height * factor, 0.02), 1)
+        f = CGRect(x: cx - w / 2, y: cy - h / 2, width: w, height: h)
+        imageLayers[i].frame = GeometryMapper.clampedNormalizedRect(f)
+        record("Resize layer", systemImage: "arrow.up.left.and.arrow.down.right")
+    }
+
+    func fitLayerToCanvas(id: UUID) {
+        guard let i = imageLayers.firstIndex(where: { $0.id == id }) else { return }
+        imageLayers[i].frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+        record("Fit layer to canvas", systemImage: "arrow.up.left.and.arrow.down.right")
     }
 
     func applyDraftCrop() {

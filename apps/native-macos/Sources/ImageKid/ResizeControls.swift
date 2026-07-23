@@ -7,13 +7,13 @@ struct ResizeControls: View {
     let isApplying: Bool
     let onCancel: () -> Void
     let onApply: () -> Void
-    let onEnhance: () -> Void
+    let onSmartUpscale: (EnhanceSize) -> Void
 
     @State private var customPercent = 100
 
     var body: some View {
         FloatingToolPanel(
-            title: "Resize",
+            title: "Image Size",
             systemImage: "arrow.up.left.and.arrow.down.right",
             width: 310,
             offset: $offset,
@@ -21,7 +21,12 @@ struct ResizeControls: View {
         ) {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 12) {
-                    field("Resize") {
+                    Text("Resamples the whole document — canvas and every layer scale together.")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.5))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    field("New size") {
                         HStack(spacing: 8) {
                             TextField("Width", value: widthBinding, format: .number)
                                 .textFieldStyle(.roundedBorder)
@@ -56,11 +61,6 @@ struct ResizeControls: View {
                         }
                     }
 
-                    Text("Drag edges or corners on the image to set the output size.")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.55))
-                        .fixedSize(horizontal: false, vertical: true)
-
                     Button {
                         session.setDraftOutputSize(session.croppedPixelSize)
                     } label: {
@@ -76,17 +76,16 @@ struct ResizeControls: View {
 
                     Divider().overlay(.white.opacity(0.12))
 
-                    field("Upscale") {
-                        Button {
-                            onEnhance()
-                        } label: {
-                            Label("Upscale with AI…", systemImage: "wand.and.stars")
-                                .frame(maxWidth: .infinity)
+                    field("Smart Upscale") {
+                        HStack(spacing: 7) {
+                            Button("Enhance") { onSmartUpscale(.same) }
+                            Button("2×") { onSmartUpscale(.x2) }
+                            Button("4×") { onSmartUpscale(.x4) }
                         }
                         .buttonStyle(.bordered)
                         .disabled(isApplying)
 
-                        Text("Enlarge with more detail using the on-device Best Quality engine.")
+                        Text("Enlarge with more detail on-device.")
                             .font(.caption2)
                             .foregroundStyle(.white.opacity(0.5))
                             .fixedSize(horizontal: false, vertical: true)
