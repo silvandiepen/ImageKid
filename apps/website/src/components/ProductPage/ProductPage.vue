@@ -2,7 +2,10 @@
   <article :class="[bemm(), `product-page--${data.id}`]" :style="{ '--app-accent': data.accent }">
     <section :class="bemm('hero')">
       <div :class="bemm('hero-copy')">
-        <p :class="bemm('eyebrow')">{{ data.eyebrow }}</p>
+        <div :class="bemm('eyebrow-row')">
+          <p :class="bemm('eyebrow')">{{ data.eyebrow }}</p>
+          <span v-if="status" :class="bemm('status')">{{ status }}</span>
+        </div>
         <div :class="bemm('identity')">
           <img :class="bemm('hero-icon')" :src="data.icon" :alt="`${data.name} app icon`" width="72" height="72" />
           <h1 :class="bemm('title')">{{ data.tagline }}</h1>
@@ -101,10 +104,11 @@ import { computed } from "vue";
 import { Button } from "@sil/ui";
 import { useBemm } from "bemm";
 import { RouterLink } from "vue-router";
-import { otherApps } from "../../data/apps";
+import { otherApps, appById } from "../../data/apps";
 import type { ProductPageData } from "./ProductPage.model";
 
 const props = defineProps<{ data: ProductPageData }>();
 const bemm = useBemm("product-page", { includeBaseClass: true });
 const siblings = computed(() => otherApps(props.data.id));
+const status = computed(() => appById(props.data.id)?.status ?? "");
 </script>

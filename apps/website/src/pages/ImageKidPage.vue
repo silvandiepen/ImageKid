@@ -17,7 +17,7 @@ const data: ProductPageData = {
   tagline: "Everyday image editing, done on your device.",
   lead:
     "Open a picture and get straight to work: cut out the background, sharpen and enlarge it, crop, annotate, and export — without an account, a subscription, or an upload step. The heavy AI runs on-device, so your files stay yours.",
-  chips: ["macOS 14 · iPadOS · iOS 17", "Universal purchase", "Local-first processing"],
+  chips: ["macOS 14 · iPadOS · iOS 17", "One app, all your devices", "Local-first processing"],
   actions: [
     { label: "Explore the features", to: "/features", variant: "primary" },
     { label: "Read the privacy note", to: "/privacy", variant: "outline" }

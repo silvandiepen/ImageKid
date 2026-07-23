@@ -17,7 +17,7 @@ const data: ProductPageData = {
   tagline: "Transparent cut-outs, a folder at a time.",
   lead:
     "ImageKid Cutout removes backgrounds from a whole batch on your Mac and writes clean transparent PNGs. Perfect for product shots, portraits, icons, and generated assets — no service fees, no uploads.",
-  chips: ["macOS", "On-device", "One-time purchase"],
+  chips: ["macOS", "On-device", "No subscription"],
   actions: [
     { label: "Get notified", to: "mailto:hello@hakobs.com?subject=ImageKid%20Cutout", variant: "primary", external: true },
     { label: "See ImageKid", to: "/imagekid", variant: "outline" }
@@ -29,7 +29,7 @@ const data: ProductPageData = {
     { title: "Built-in or Best Quality", description: "Apple Vision removal is always available; an optional on-device Core ML model handles hair and tricky edges." },
     { title: "Transparent PNGs", description: "Outputs PNGs with a real alpha channel so your cut-outs drop straight onto any background." },
     { title: "Safe output", description: "Writes to a sibling ImageKid Cutouts folder with collision-safe names. Originals are left untouched." },
-    { title: "Serial & predictable", description: "One image at a time to stay light on memory and heat, with per-file errors, cancel, and retry." },
+    { title: "Serial & predictable", description: "One image at a time to stay light on memory and heat, with per-file errors and cancel." },
     { title: "Shared model cache", description: "Best-quality models live in the shared ImageKid App Group, downloaded once across the family." }
   ],
   sections: [
