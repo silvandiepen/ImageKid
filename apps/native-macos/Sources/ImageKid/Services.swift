@@ -610,16 +610,30 @@ enum ImageRenderer {
 
         switch annotation.kind {
         case .rectangle:
-            let radius = annotation.cornerRadius * lineScale
             let shift = -annotation.strokeAlignment.edgeShift * lineWidth
             let strokeRect = rect.insetBy(dx: shift, dy: shift)
-            let strokeRadius = max(0, radius + annotation.strokeAlignment.edgeShift * lineWidth)
-            if let fill = annotation.fillColor {
-                fill.setFill()
-                roundedOutputPath(rect, radius: radius).fill()
+            if let radii = annotation.cornerRadii, radii.count == 4 {
+                let s = lineScale
+                let sh = annotation.strokeAlignment.edgeShift * lineWidth
+                if let fill = annotation.fillColor {
+                    fill.setFill()
+                    perCornerOutputPath(rect, tl: radii[0] * s, tr: radii[1] * s, br: radii[2] * s, bl: radii[3] * s).fill()
+                }
+                let strokePath = perCornerOutputPath(
+                    strokeRect,
+                    tl: max(0, radii[0] * s + sh), tr: max(0, radii[1] * s + sh),
+                    br: max(0, radii[2] * s + sh), bl: max(0, radii[3] * s + sh)
+                )
+                stroke(strokePath, annotation: annotation, lineWidth: lineWidth, scale: lineScale)
+            } else {
+                let radius = annotation.cornerRadius * lineScale
+                let strokeRadius = max(0, radius + annotation.strokeAlignment.edgeShift * lineWidth)
+                if let fill = annotation.fillColor {
+                    fill.setFill()
+                    roundedOutputPath(rect, radius: radius).fill()
+                }
+                stroke(roundedOutputPath(strokeRect, radius: strokeRadius), annotation: annotation, lineWidth: lineWidth, scale: lineScale)
             }
-            let path = roundedOutputPath(strokeRect, radius: strokeRadius)
-            stroke(path, annotation: annotation, lineWidth: lineWidth, scale: lineScale)
 
         case .ellipse:
             let shift = -annotation.strokeAlignment.edgeShift * lineWidth
@@ -701,6 +715,14 @@ enum ImageRenderer {
         return NSBezierPath(roundedRect: rect, xRadius: r, yRadius: r)
     }
 
+    /// Per-corner rounded rectangle for the (y-up) export context.
+    private static func perCornerOutputPath(_ rect: CGRect, tl: CGFloat, tr: CGFloat, br: CGFloat, bl: CGFloat) -> NSBezierPath {
+        let cg = GeometryMapper.roundedRectPath(
+            rect, topLeft: tl, topRight: tr, bottomRight: br, bottomLeft: bl, flipped: true
+        )
+        return NSBezierPath(cgPath: cg)
+    }
+
     /// Stroke a shape/line path with the annotation's dash and colour.
     private static func stroke(_ path: NSBezierPath, annotation: Annotation, lineWidth: CGFloat, scale: CGFloat) {
         path.lineWidth = lineWidth
@@ -767,6 +789,37 @@ enum ImageRenderError: LocalizedError {
         case .renderFailed: "The image could not be rendered."
         case .encodeFailed: "The image could not be encoded."
         case .upscaleRuntimeMissing: "Best Quality is not ready yet. Turn it on in Settings > Upscale."
+        }
+    }
+}
+
+extension NSBezierPath {
+    /// Build an NSBezierPath from a CGPath (AppKit has no such initializer).
+    convenience init(cgPath: CGPath) {
+        self.init()
+        cgPath.applyWithBlock { elementPtr in
+            let element = elementPtr.pointee
+            let points = element.points
+            switch element.type {
+            case .moveToPoint:
+                self.move(to: points[0])
+            case .addLineToPoint:
+                self.line(to: points[0])
+            case .addQuadCurveToPoint:
+                let start = self.currentPoint
+                let control = points[0], end = points[1]
+                let c1 = CGPoint(x: start.x + 2.0 / 3.0 * (control.x - start.x),
+                                 y: start.y + 2.0 / 3.0 * (control.y - start.y))
+                let c2 = CGPoint(x: end.x + 2.0 / 3.0 * (control.x - end.x),
+                                 y: end.y + 2.0 / 3.0 * (control.y - end.y))
+                self.curve(to: end, controlPoint1: c1, controlPoint2: c2)
+            case .addCurveToPoint:
+                self.curve(to: points[2], controlPoint1: points[0], controlPoint2: points[1])
+            case .closeSubpath:
+                self.close()
+            @unknown default:
+                break
+            }
         }
     }
 }

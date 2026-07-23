@@ -73,6 +73,7 @@ public struct IKAnnotation: Codable {
     public var strokeStyle: String
     public var strokeAlignment: String
     public var cornerRadius: CGFloat
+    public var cornerRadii: [CGFloat]?
     public var dashLength: CGFloat
     public var dashGap: CGFloat
     public var dashOffset: CGFloat
@@ -97,6 +98,7 @@ public struct IKAnnotation: Codable {
         strokeStyle = a.strokeStyle.rawValue
         strokeAlignment = a.strokeAlignment.rawValue
         cornerRadius = a.cornerRadius
+        cornerRadii = a.cornerRadii
         dashLength = a.dashLength
         dashGap = a.dashGap
         dashOffset = a.dashOffset
@@ -123,6 +125,7 @@ public struct IKAnnotation: Codable {
             strokeStyle: ShapeStrokeStyle(rawValue: strokeStyle) ?? .solid,
             strokeAlignment: StrokeAlignment(rawValue: strokeAlignment) ?? .center,
             cornerRadius: cornerRadius,
+            cornerRadii: cornerRadii,
             dashLength: dashLength,
             dashGap: dashGap,
             dashOffset: dashOffset,

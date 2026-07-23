@@ -105,6 +105,9 @@ public struct Annotation: Identifiable {
     public var strokeAlignment: StrokeAlignment
     /// Corner radius for rectangles, in source pixels (0 = square corners).
     public var cornerRadius: CGFloat
+    /// Per-corner radii in source pixels, order [topLeft, topRight, bottomRight,
+    /// bottomLeft]. When nil, `cornerRadius` is used uniformly.
+    public var cornerRadii: [CGFloat]?
     /// Custom dash: length of a dash and the gap after it, in source pixels.
     /// When dashLength <= 0 the strokeStyle preset is used instead.
     public var dashLength: CGFloat
@@ -132,6 +135,7 @@ public struct Annotation: Identifiable {
         strokeStyle: ShapeStrokeStyle = .solid,
         strokeAlignment: StrokeAlignment = .center,
         cornerRadius: CGFloat = 0,
+        cornerRadii: [CGFloat]? = nil,
         dashLength: CGFloat = 0,
         dashGap: CGFloat = 0,
         dashOffset: CGFloat = 0,
@@ -155,6 +159,7 @@ public struct Annotation: Identifiable {
         self.strokeStyle = strokeStyle
         self.strokeAlignment = strokeAlignment
         self.cornerRadius = cornerRadius
+        self.cornerRadii = cornerRadii
         self.dashLength = dashLength
         self.dashGap = dashGap
         self.dashOffset = dashOffset

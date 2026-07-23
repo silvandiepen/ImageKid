@@ -312,7 +312,15 @@ struct DrawingInspector: View {
                 }
                 if selected.isRectangle {
                     field("Rounded corners") {
-                        labeledSlider(value: cornerRadiusBinding, range: 0...400, step: 1, suffix: "px")
+                        labeledSlider(value: uniformCornerBinding, range: 0...400, step: 1, suffix: "all")
+                        HStack(spacing: 8) {
+                            cornerField("TL", perCornerBinding(0))
+                            cornerField("TR", perCornerBinding(1))
+                        }
+                        HStack(spacing: 8) {
+                            cornerField("BL", perCornerBinding(3))
+                            cornerField("BR", perCornerBinding(2))
+                        }
                     }
                 }
                 field("Alignment") {
@@ -325,6 +333,47 @@ struct DrawingInspector: View {
             .padding(14)
         }
         .frame(width: 268, height: 380)
+    }
+
+    private func cornerField(_ label: String, _ value: Binding<Double>) -> some View {
+        HStack(spacing: 5) {
+            Text(label).font(.system(.caption2, design: .monospaced)).foregroundStyle(.white.opacity(0.55)).frame(width: 20, alignment: .leading)
+            TextField(label, value: value, format: .number)
+                .textFieldStyle(.roundedBorder)
+        }
+    }
+
+    /// Uniform radius: sets all four and clears any per-corner override.
+    private var uniformCornerBinding: Binding<Double> {
+        Binding(
+            get: { Double(selectedDrawable?.cornerRadius ?? 0) },
+            set: { value in
+                guard let id = selectedDrawable?.id else { return }
+                session.updateAnnotation(id: id) {
+                    $0.cornerRadius = CGFloat(value)
+                    $0.cornerRadii = nil
+                }
+            }
+        )
+    }
+
+    private func perCornerBinding(_ index: Int) -> Binding<Double> {
+        Binding(
+            get: {
+                guard let a = selectedDrawable else { return 0 }
+                if let radii = a.cornerRadii, radii.count == 4 { return Double(radii[index]) }
+                return Double(a.cornerRadius)
+            },
+            set: { value in
+                guard let a = selectedDrawable else { return }
+                session.updateAnnotation(id: a.id) { annotation in
+                    var radii = annotation.cornerRadii ?? Array(repeating: annotation.cornerRadius, count: 4)
+                    if radii.count != 4 { radii = Array(repeating: annotation.cornerRadius, count: 4) }
+                    radii[index] = max(0, CGFloat(value))
+                    annotation.cornerRadii = radii
+                }
+            }
+        )
     }
 
     private func labeledSlider(value: Binding<Double>, range: ClosedRange<Double>, step: Double, suffix: String, percent: Bool = false) -> some View {

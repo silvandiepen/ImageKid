@@ -1255,7 +1255,7 @@ struct ImageWorkspaceView: View {
             // Drag diagonally inward from the top-left corner to grow the radius.
             let maxD = min(rect.width, rect.height) / 2
             let newRadius = min(max(min(value.location.x - rect.minX, value.location.y - rect.minY), 0), maxD)
-            session.updateAnnotation(id: id) { $0.cornerRadius = newRadius }
+            session.updateAnnotation(id: id) { $0.cornerRadius = newRadius; $0.cornerRadii = nil }
 
         case .moveLayer(let id, let start):
             let delta = sourceTranslation(value.translation, imageRect: imageRect)
@@ -2024,13 +2024,27 @@ struct ImageWorkspaceView: View {
 
         switch annotation.kind {
         case .rectangle:
-            let radius = annotation.cornerRadius
-            let fillPath = roundedRectPath(baseRect, radius: radius)
+            let fillPath: Path
+            let strokePath: Path
+            if let radii = annotation.cornerRadii, radii.count == 4 {
+                let shift = annotation.strokeAlignment.edgeShift * lw
+                fillPath = Path(GeometryMapper.roundedRectPath(
+                    baseRect, topLeft: radii[0], topRight: radii[1], bottomRight: radii[2], bottomLeft: radii[3]
+                ))
+                strokePath = Path(GeometryMapper.roundedRectPath(
+                    strokeRect,
+                    topLeft: max(0, radii[0] + shift), topRight: max(0, radii[1] + shift),
+                    bottomRight: max(0, radii[2] + shift), bottomLeft: max(0, radii[3] + shift)
+                ))
+            } else {
+                let radius = annotation.cornerRadius
+                fillPath = roundedRectPath(baseRect, radius: radius)
+                strokePath = roundedRectPath(strokeRect, radius: max(0, radius + annotation.strokeAlignment.edgeShift * lw))
+            }
             if let fill = annotation.fillColor {
                 context.fill(fillPath, with: .color(Color(nsColor: fill)))
             }
-            let strokeRadius = max(0, radius + annotation.strokeAlignment.edgeShift * lw)
-            context.stroke(roundedRectPath(strokeRect, radius: strokeRadius), with: stroke, style: style)
+            context.stroke(strokePath, with: stroke, style: style)
 
         case .ellipse:
             if let fill = annotation.fillColor {

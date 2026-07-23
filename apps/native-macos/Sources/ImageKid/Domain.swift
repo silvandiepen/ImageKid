@@ -703,6 +703,7 @@ final class ImageSession: ObservableObject {
             strokeStyle: src.strokeStyle,
             strokeAlignment: src.strokeAlignment,
             cornerRadius: src.cornerRadius,
+            cornerRadii: src.cornerRadii,
             dashLength: src.dashLength,
             dashGap: src.dashGap,
             dashOffset: src.dashOffset,

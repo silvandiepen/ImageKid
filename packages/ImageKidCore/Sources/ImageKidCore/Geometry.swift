@@ -55,6 +55,38 @@ public enum GeometryMapper {
         return CGRect(x: x, y: y, width: width, height: height)
     }
 
+    /// A rounded-rectangle path with independent corner radii (visual order
+    /// top-left, top-right, bottom-right, bottom-left). Pass `flipped: true` for
+    /// a bottom-left-origin (y-up) context like the AppKit export renderer, so
+    /// the visual "top" corners map to the larger-y edge.
+    public static func roundedRectPath(
+        _ rect: CGRect,
+        topLeft: CGFloat, topRight: CGFloat, bottomRight: CGFloat, bottomLeft: CGFloat,
+        flipped: Bool = false
+    ) -> CGPath {
+        let maxR = min(abs(rect.width), abs(rect.height)) / 2
+        func clamp(_ r: CGFloat) -> CGFloat { min(max(r, 0), maxR) }
+        let tl = clamp(topLeft), tr = clamp(topRight), br = clamp(bottomRight), bl = clamp(bottomLeft)
+
+        let topY = flipped ? rect.maxY : rect.minY
+        let bottomY = flipped ? rect.minY : rect.maxY
+        let leftX = rect.minX, rightX = rect.maxX
+
+        let topLeftCorner = CGPoint(x: leftX, y: topY)
+        let topRightCorner = CGPoint(x: rightX, y: topY)
+        let bottomRightCorner = CGPoint(x: rightX, y: bottomY)
+        let bottomLeftCorner = CGPoint(x: leftX, y: bottomY)
+
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: (leftX + rightX) / 2, y: topY))
+        path.addArc(tangent1End: topRightCorner, tangent2End: bottomRightCorner, radius: tr)
+        path.addArc(tangent1End: bottomRightCorner, tangent2End: bottomLeftCorner, radius: br)
+        path.addArc(tangent1End: bottomLeftCorner, tangent2End: topLeftCorner, radius: bl)
+        path.addArc(tangent1End: topLeftCorner, tangent2End: topRightCorner, radius: tl)
+        path.closeSubpath()
+        return path
+    }
+
     public static func applyingAspectRatio(_ ratio: CGFloat?, to rect: CGRect, anchor: CGPoint = .zero) -> CGRect {
         guard let ratio, ratio > 0 else { return clampedNormalizedRect(rect) }
         var result = rect
