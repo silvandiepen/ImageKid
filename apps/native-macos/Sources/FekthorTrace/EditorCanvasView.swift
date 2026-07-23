@@ -46,6 +46,10 @@ struct EditorCanvasView: View {
     var snapToPoints: Bool = false
 
     @State private var activeAnchor: (path: Int, index: Int)? = nil
+    /// Hold-Z scrubby zoom: Z arms it (`zoomScrub`); a drag then zooms by its
+    /// horizontal delta from the grab point (`zoomDragStart`).
+    @State private var zoomScrub = false
+    @State private var zoomDragStart: (location: CGPoint, zoom: CGFloat)? = nil
     @State private var draggingAnchor: (path: Int, index: Int)? = nil
     @State private var draggingHandle: (segment: Int, kind: Editing.HandleKind)? = nil
     @State private var draggingBody = false
@@ -125,15 +129,36 @@ struct EditorCanvasView: View {
                     )
             }
             .clipped()
-            // Arrow keys nudge the selected point. Focus follows a click on
-            // the canvas, so selecting a point makes the keys live.
-            .focusable()
-            .onKeyPress(.upArrow) { nudgeActiveAnchor(dx: 0, dy: -1) ? .handled : .ignored }
-            .onKeyPress(.downArrow) { nudgeActiveAnchor(dx: 0, dy: 1) ? .handled : .ignored }
-            .onKeyPress(.leftArrow) { nudgeActiveAnchor(dx: -1, dy: 0) ? .handled : .ignored }
-            .onKeyPress(.rightArrow) { nudgeActiveAnchor(dx: 1, dy: 0) ? .handled : .ignored }
+            // Arrow keys nudge the selected point; hold Z and drag to zoom.
+            // Driven by a window keyDown/keyUp monitor (SwiftUI focus is
+            // unreliable on the gesture-driven canvas — the tool shortcuts use
+            // the same mechanism).
+            .background(
+                CanvasKeyMonitor(onKeyDown: handleCanvasKeyDown, onKeyUp: handleCanvasKeyUp)
+            )
         }
         .frame(minWidth: 300, minHeight: 340)
+    }
+
+    /// Window keyDown while the canvas is on screen. Returns true to consume.
+    /// Arrow keys nudge the selected point (⇧ = 10×); Z arms scrubby zoom.
+    private func handleCanvasKeyDown(_ e: NSEvent) -> Bool {
+        guard e.modifierFlags.intersection([.command, .option, .control]).isEmpty
+        else { return false }
+        switch e.keyCode {
+        case 126: return nudgeActiveAnchor(dx: 0, dy: -1)  // up arrow
+        case 125: return nudgeActiveAnchor(dx: 0, dy: 1)  // down arrow
+        case 123: return nudgeActiveAnchor(dx: -1, dy: 0)  // left arrow
+        case 124: return nudgeActiveAnchor(dx: 1, dy: 0)  // right arrow
+        case 6:  // Z
+            zoomScrub = true
+            return true
+        default: return false
+        }
+    }
+
+    private func handleCanvasKeyUp(_ e: NSEvent) {
+        if e.keyCode == 6 { zoomScrub = false }  // Z released
     }
 
     /// Move the selected point by one step in the given direction. With grid
@@ -974,6 +999,11 @@ struct EditorCanvasView: View {
     /// gradient annotator → Bézier handle → anchor → transform handle →
     /// selected body → marquee (Select tool), or a shape-drawing start.
     private func beginDrag(_ v: DragGesture.Value, in size: CGSize) {
+        // Hold-Z scrubby zoom takes over the whole drag.
+        if zoomScrub {
+            zoomDragStart = (v.startLocation, zoom)
+            return
+        }
         // Free Distort owns the canvas: corner drags only, everything else
         // is inert until Return commits or Esc cancels.
         if let d = session.distort {
@@ -1122,6 +1152,13 @@ struct EditorCanvasView: View {
     }
 
     private func continueDrag(_ v: DragGesture.Value, in size: CGSize) {
+        if let zd = zoomDragStart {
+            // Rightward drag zooms in, leftward out (Photoshop-style scrubby
+            // zoom); exponential so it feels even at any zoom level.
+            let dx = Double(v.location.x - zd.location.x)
+            zoom = min(64, max(0.05, zd.zoom * CGFloat(exp(dx * 0.006))))
+            return
+        }
         if session.distort != nil {
             if let corner = distortCorner {
                 session.distortDrag(
@@ -1200,6 +1237,10 @@ struct EditorCanvasView: View {
             gestureBegan = false
             snapMagnets = []
             activeMagnet = nil
+        }
+        if zoomDragStart != nil {
+            zoomDragStart = nil
+            return
         }
         if session.distort != nil {
             distortCorner = nil
@@ -1797,5 +1838,64 @@ struct EditorCanvasView: View {
             items.append(("Delete \(session.selection.count) Node(s)", { session.deleteSelection() }))
         }
         return items
+    }
+}
+
+/// Window-level key monitor for the editor canvas. SwiftUI `.onKeyPress`
+/// needs the view to hold keyboard focus, which the gesture-driven canvas
+/// does not reliably keep, so — like `ToolShortcutMonitor` — this installs a
+/// local keyDown/keyUp monitor while on screen. `onKeyDown` returns true to
+/// consume the event (arrow-key nudges, arming Z-zoom); typing in a text
+/// field and menu-equivalent chords are always passed through untouched.
+private struct CanvasKeyMonitor: NSViewRepresentable {
+    var onKeyDown: (NSEvent) -> Bool
+    var onKeyUp: (NSEvent) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = MonitorView()
+        view.onKeyDown = onKeyDown
+        view.onKeyUp = onKeyUp
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let view = nsView as? MonitorView else { return }
+        view.onKeyDown = onKeyDown
+        view.onKeyUp = onKeyUp
+    }
+
+    final class MonitorView: NSView {
+        var onKeyDown: ((NSEvent) -> Bool)?
+        var onKeyUp: ((NSEvent) -> Void)?
+        private var downMonitor: Any?
+        private var upMonitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            teardown()
+            guard window != nil else { return }
+            downMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, event.window === self.window else { return event }
+                // Never steal keystrokes from a field editor (panel text fields).
+                if let responder = self.window?.firstResponder, responder is NSText {
+                    return event
+                }
+                return (self.onKeyDown?(event) ?? false) ? nil : event
+            }
+            upMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { [weak self] event in
+                guard let self, event.window === self.window else { return event }
+                self.onKeyUp?(event)
+                return event
+            }
+        }
+
+        private func teardown() {
+            if let downMonitor { NSEvent.removeMonitor(downMonitor) }
+            if let upMonitor { NSEvent.removeMonitor(upMonitor) }
+            downMonitor = nil
+            upMonitor = nil
+        }
+
+        deinit { teardown() }
     }
 }
