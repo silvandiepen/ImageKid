@@ -102,6 +102,7 @@ struct IPadPanelsLayer: View {
                 if dock.isExpanded(.annotate) {
                     panel(
                         .annotate,
+                        in: geo.size,
                         title: isTextTool ? "Text" : "Draw",
                         systemImage: annotateIcon
                     ) {
@@ -122,12 +123,12 @@ struct IPadPanelsLayer: View {
                     }
                 }
                 if dock.isExpanded(.colours) {
-                    panel(.colours) {
+                    panel(.colours, in: geo.size) {
                         ColourSampleControls(model: model, current: currentSample, onSave: onSaveSample)
                     }
                 }
                 if dock.isExpanded(.mask) {
-                    panel(.mask) {
+                    panel(.mask, in: geo.size) {
                         MaskControls(
                             hasMask: maskHasMask,
                             isBusy: isBusy,
@@ -142,7 +143,7 @@ struct IPadPanelsLayer: View {
                     }
                 }
                 if dock.isExpanded(.layers) {
-                    panel(.layers) {
+                    panel(.layers, in: geo.size) {
                         LayersPanelContent(
                             annotations: $annotations,
                             layers: $layers,
@@ -152,7 +153,7 @@ struct IPadPanelsLayer: View {
                     }
                 }
                 if dock.isExpanded(.history) {
-                    panel(.history) {
+                    panel(.history, in: geo.size) {
                         HistoryPanelContent(model: model)
                     }
                 }
@@ -207,6 +208,7 @@ struct IPadPanelsLayer: View {
     /// wired for magnetic stacking and the minimize chip rail.
     private func panel<Content: View>(
         _ id: IPadDockPanel,
+        in dockSize: CGSize,
         title: String? = nil,
         systemImage: String? = nil,
         @ViewBuilder content: () -> Content
@@ -214,16 +216,17 @@ struct IPadPanelsLayer: View {
         FloatingToolPanel(
             title: title ?? id.spec.title,
             systemImage: systemImage ?? id.spec.systemImage,
-            offset: offsetBinding(id),
+            offset: offsetBinding(id, in: dockSize),
             onMinimize: { dock.minimize(id) },
             resizable: true,
             size: dock.sizeBinding(id),
             minSize: dock.minSize,
             maxSize: dock.maxSize,
             stackEdges: dock.stackEdges(of: id),
+            dockEdges: dock.dockEdges(of: id, in: dockSize),
             isStackFollower: dock.isStackFollower(id),
-            onDragChanged: { dragChanged(id, translation: $0) },
-            onDragEnded: { _ in dragEnded(id) }
+            onDragChanged: { dragChanged(id, translation: $0, in: dockSize) },
+            onDragEnded: { _ in dragEnded(id, in: dockSize) }
         ) {
             content()
                 .darkPanelControl()
@@ -236,11 +239,12 @@ struct IPadPanelsLayer: View {
     }
 
     /// Followers rest flush under their stack head (plus the head's live
-    /// drag translation); heads and unstacked panels use their stored spot.
-    private func offsetBinding(_ id: IPadDockPanel) -> Binding<CGSize> {
+    /// drag translation); heads and unstacked panels use their stored spot,
+    /// resolved edge-relative to the current canvas.
+    private func offsetBinding(_ id: IPadDockPanel, in dockSize: CGSize) -> Binding<CGSize> {
         Binding(
             get: {
-                var origin = dock.displayPosition(id)
+                var origin = dock.displayPosition(id, in: dockSize)
                 if let head = stackDragHead, id != head,
                     dock.stacks.head(of: dock.stackKey(id)) == dock.stackKey(head)
                 {
@@ -249,14 +253,28 @@ struct IPadPanelsLayer: View {
                 }
                 return origin
             },
-            set: { dock.setPosition(id, to: $0) })
+            set: { settle(id, at: $0, in: dockSize) })
     }
 
-    private func dragChanged(_ id: IPadDockPanel, translation: CGSize) {
+    /// Commit a released panel: grid-snap, clamp inside the canvas (keeping its
+    /// header and ≥80pt reachable), then stick it flush when it landed within
+    /// 14pt of an edge — the same sticking the macOS dock panels use.
+    private func settle(_ id: IPadDockPanel, at position: CGSize, in dockSize: CGSize) {
+        let size = dock.size(id)
+        let grid = IPadDockPanel.gridStep
+        let point = CGPoint(
+            x: (position.width / grid).rounded() * grid,
+            y: (position.height / grid).rounded() * grid)
+        let clamped = PanelPlacement.clamped(point, panelSize: size, dock: dockSize)
+        let x = PanelPlacement.edgeStuckX(clamped.x, panelWidth: size.width, dockWidth: dockSize.width)
+        dock.setPosition(id, to: CGSize(width: x, height: clamped.y), in: dockSize)
+    }
+
+    private func dragChanged(_ id: IPadDockPanel, translation: CGSize, in dockSize: CGSize) {
         if dock.isStackFollower(id) {
             // Taking a follower by the header detaches it — it moves alone
             // and the panels below close up.
-            dock.detachForDrag(id)
+            dock.detachForDrag(id, in: dockSize)
         } else if !dock.stacks.followers(of: dock.stackKey(id)).isEmpty {
             // Moving the top one moves the bottom one(s) along, live.
             stackDragHead = id
@@ -264,11 +282,11 @@ struct IPadPanelsLayer: View {
         }
     }
 
-    private func dragEnded(_ id: IPadDockPanel) {
+    private func dragEnded(_ id: IPadDockPanel, in dockSize: CGSize) {
         stackDragHead = nil
         stackDragTranslation = .zero
-        // Stick detection against the settled, grid-snapped positions.
-        dock.snapReleased(id)
+        // Stick detection against the settled, edge-stuck positions.
+        dock.snapReleased(id, in: dockSize)
     }
 
     /// The trailing-edge panels can't have a static default position (the
@@ -278,10 +296,10 @@ struct IPadPanelsLayer: View {
     private func seedDefaultPositions(in size: CGSize) {
         guard size.width > 0 else { return }
         let railClearance: CGFloat = 64
-        for id in [IPadDockPanel.layers, .history] where dock.positions[id] == nil {
+        for id in [IPadDockPanel.layers, .history] where !dock.hasPlacement(id) {
             let x = max(0, size.width - id.spec.defaultSize.width - railClearance)
             let y: CGFloat = id == .history ? 440 : 0
-            dock.setPosition(id, to: CGSize(width: x, height: min(y, max(0, size.height - 200))))
+            dock.setPosition(id, to: CGSize(width: x, height: min(y, max(0, size.height - 200))), in: size)
         }
     }
 }

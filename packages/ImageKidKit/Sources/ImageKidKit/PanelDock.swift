@@ -371,6 +371,13 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
 
     private func panelWidth(_ id: ID) -> CGFloat { size(id).width }
 
+    /// Whether the panel has a resting spot yet — an edge anchor or a legacy
+    /// absolute position. False means it still sits at its spec default, so a
+    /// host can seed a first-run spot without clobbering a user's placement.
+    public func hasPlacement(_ id: ID) -> Bool {
+        anchors[id] != nil || positions[id] != nil
+    }
+
     /// Where the panel rests in the CURRENT dock: its stored anchor resolved
     /// against this dock width (right-anchored panels ride the right edge) and
     /// clamped in-bounds. Falls back to any pre-anchor absolute spot, then the
