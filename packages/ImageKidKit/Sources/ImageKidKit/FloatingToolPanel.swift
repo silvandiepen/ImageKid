@@ -16,6 +16,7 @@ public struct FloatingToolPanel<Content: View>: View {
     let maxSize: CGSize
     let cornerRadius: CGFloat
     let stackEdges: (topFlat: Bool, bottomFlat: Bool)
+    let dockEdges: (leadingFlat: Bool, trailingFlat: Bool)
     let isStackFollower: Bool
     let onDragChanged: ((CGSize) -> Void)?
     let onDragEnded: ((CGSize) -> Void)?
@@ -40,6 +41,7 @@ public struct FloatingToolPanel<Content: View>: View {
         maxSize: CGSize = CGSize(width: 520, height: 900),
         cornerRadius: CGFloat = 28,
         stackEdges: (topFlat: Bool, bottomFlat: Bool) = (false, false),
+        dockEdges: (leadingFlat: Bool, trailingFlat: Bool) = (false, false),
         isStackFollower: Bool = false,
         onDragChanged: ((CGSize) -> Void)? = nil,
         onDragEnded: ((CGSize) -> Void)? = nil,
@@ -58,6 +60,7 @@ public struct FloatingToolPanel<Content: View>: View {
         self.maxSize = maxSize
         self.cornerRadius = cornerRadius
         self.stackEdges = stackEdges
+        self.dockEdges = dockEdges
         self.isStackFollower = isStackFollower
         self.onDragChanged = onDragChanged
         self.onDragEnded = onDragEnded
@@ -105,14 +108,16 @@ public struct FloatingToolPanel<Content: View>: View {
     private var isStacked: Bool { stackEdges.topFlat || stackEdges.bottomFlat }
 
     /// The chrome shape: the normal corner radius, except on edges that sit
-    /// on a stick line between stacked panels, which flatten to 4pt so the
-    /// stack reads as one fused column.
+    /// on a stick line — between stacked panels (top/bottom) or flush against
+    /// a dock edge (leading/trailing) — which flatten to 4pt so the stack
+    /// reads as one fused column and an edge-stuck panel reads as docked.
     private var chromeShape: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(
-            topLeadingRadius: stackEdges.topFlat ? 4 : cornerRadius,
-            bottomLeadingRadius: stackEdges.bottomFlat ? 4 : cornerRadius,
-            bottomTrailingRadius: stackEdges.bottomFlat ? 4 : cornerRadius,
-            topTrailingRadius: stackEdges.topFlat ? 4 : cornerRadius,
+        func radius(_ flat: Bool) -> CGFloat { flat ? 4 : cornerRadius }
+        return UnevenRoundedRectangle(
+            topLeadingRadius: radius(stackEdges.topFlat || dockEdges.leadingFlat),
+            bottomLeadingRadius: radius(stackEdges.bottomFlat || dockEdges.leadingFlat),
+            bottomTrailingRadius: radius(stackEdges.bottomFlat || dockEdges.trailingFlat),
+            topTrailingRadius: radius(stackEdges.topFlat || dockEdges.trailingFlat),
             style: .continuous)
     }
 
