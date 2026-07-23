@@ -2211,63 +2211,77 @@ private struct DockablePanelsLayer: View {
                     .padding(.leading, 4)
             }
 
-            ZStack(alignment: .topLeading) {
-                if panelDock.isExpanded(.files) {
-                    FilesPanel(
-                        appModel: appModel,
-                        offset: offsetBinding(.files),
-                        size: panelDock.sizeBinding(.files),
-                        onMinimize: { panelDock.minimize(.files) },
-                        stackEdges: panelDock.stackEdges(of: .files),
-                        isStackFollower: panelDock.isStackFollower(.files),
-                        onDragChanged: { dragChanged(.files, translation: $0) },
-                        onDragEnded: { _ in dragEnded(.files) }
-                    )
-                    .transition(panelCollapse)
+            GeometryReader { geo in
+                let dock = geo.size
+                ZStack(alignment: .topLeading) {
+                    if panelDock.isExpanded(.files) {
+                        FilesPanel(
+                            appModel: appModel,
+                            offset: offsetBinding(.files, in: dock),
+                            size: panelDock.sizeBinding(.files),
+                            onMinimize: { panelDock.minimize(.files) },
+                            stackEdges: panelDock.stackEdges(of: .files),
+                            dockEdges: panelDock.dockEdges(of: .files, in: dock),
+                            isStackFollower: panelDock.isStackFollower(.files),
+                            onDragChanged: { dragChanged(.files, translation: $0, in: dock) },
+                            onDragEnded: { _ in dragEnded(.files, in: dock) }
+                        )
+                        .transition(panelCollapse)
+                    }
+                    if panelDock.isExpanded(.layers) {
+                        LayersPanel(
+                            session: session,
+                            appModel: appModel,
+                            offset: offsetBinding(.layers, in: dock),
+                            size: panelDock.sizeBinding(.layers),
+                            onMinimize: { panelDock.minimize(.layers) },
+                            stackEdges: panelDock.stackEdges(of: .layers),
+                            dockEdges: panelDock.dockEdges(of: .layers, in: dock),
+                            isStackFollower: panelDock.isStackFollower(.layers),
+                            onDragChanged: { dragChanged(.layers, translation: $0, in: dock) },
+                            onDragEnded: { _ in dragEnded(.layers, in: dock) }
+                        )
+                        .transition(panelCollapse)
+                    }
+                    if panelDock.isExpanded(.history) {
+                        HistoryPanel(
+                            session: session,
+                            offset: offsetBinding(.history, in: dock),
+                            size: panelDock.sizeBinding(.history),
+                            onMinimize: { panelDock.minimize(.history) },
+                            stackEdges: panelDock.stackEdges(of: .history),
+                            dockEdges: panelDock.dockEdges(of: .history, in: dock),
+                            isStackFollower: panelDock.isStackFollower(.history),
+                            onDragChanged: { dragChanged(.history, translation: $0, in: dock) },
+                            onDragEnded: { _ in dragEnded(.history, in: dock) }
+                        )
+                        .transition(panelCollapse)
+                    }
+                    if panelDock.isExpanded(.swatches) {
+                        SwatchesPanel(
+                            offset: offsetBinding(.swatches, in: dock),
+                            size: panelDock.sizeBinding(.swatches),
+                            onMinimize: { panelDock.minimize(.swatches) },
+                            onPick: onPickSwatch,
+                            stackEdges: panelDock.stackEdges(of: .swatches),
+                            dockEdges: panelDock.dockEdges(of: .swatches, in: dock),
+                            isStackFollower: panelDock.isStackFollower(.swatches),
+                            onDragChanged: { dragChanged(.swatches, translation: $0, in: dock) },
+                            onDragEnded: { _ in dragEnded(.swatches, in: dock) }
+                        )
+                        .transition(panelCollapse)
+                    }
                 }
-                if panelDock.isExpanded(.layers) {
-                    LayersPanel(
-                        session: session,
-                        appModel: appModel,
-                        offset: offsetBinding(.layers),
-                        size: panelDock.sizeBinding(.layers),
-                        onMinimize: { panelDock.minimize(.layers) },
-                        stackEdges: panelDock.stackEdges(of: .layers),
-                        isStackFollower: panelDock.isStackFollower(.layers),
-                        onDragChanged: { dragChanged(.layers, translation: $0) },
-                        onDragEnded: { _ in dragEnded(.layers) }
-                    )
-                    .transition(panelCollapse)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .animation(.spring(response: 0.34, dampingFraction: 0.82), value: panelDock.presented)
+                .animation(.spring(response: 0.34, dampingFraction: 0.82), value: panelDock.minimized)
+                .onAppear {
+                    panelDock.migrateLegacyPositions(in: dock)
+                    placePending(in: dock)
                 }
-                if panelDock.isExpanded(.history) {
-                    HistoryPanel(
-                        session: session,
-                        offset: offsetBinding(.history),
-                        size: panelDock.sizeBinding(.history),
-                        onMinimize: { panelDock.minimize(.history) },
-                        stackEdges: panelDock.stackEdges(of: .history),
-                        isStackFollower: panelDock.isStackFollower(.history),
-                        onDragChanged: { dragChanged(.history, translation: $0) },
-                        onDragEnded: { _ in dragEnded(.history) }
-                    )
-                    .transition(panelCollapse)
-                }
-                if panelDock.isExpanded(.swatches) {
-                    SwatchesPanel(
-                        offset: offsetBinding(.swatches),
-                        size: panelDock.sizeBinding(.swatches),
-                        onMinimize: { panelDock.minimize(.swatches) },
-                        onPick: onPickSwatch,
-                        stackEdges: panelDock.stackEdges(of: .swatches),
-                        isStackFollower: panelDock.isStackFollower(.swatches),
-                        onDragChanged: { dragChanged(.swatches, translation: $0) },
-                        onDragEnded: { _ in dragEnded(.swatches) }
-                    )
-                    .transition(panelCollapse)
-                }
+                .onChange(of: dock) { panelDock.migrateLegacyPositions(in: dock) }
+                .onChange(of: panelDock.needsPlacement) { placePending(in: dock) }
             }
-            .animation(.spring(response: 0.34, dampingFraction: 0.82), value: panelDock.presented)
-            .animation(.spring(response: 0.34, dampingFraction: 0.82), value: panelDock.minimized)
         }
     }
 
@@ -2278,10 +2292,10 @@ private struct DockablePanelsLayer: View {
 
     /// Followers rest flush under their stack head (plus the head's live
     /// drag translation); heads and unstacked panels use their stored spot.
-    private func offsetBinding(_ id: DockablePanel) -> Binding<CGSize> {
+    private func offsetBinding(_ id: DockablePanel, in dock: CGSize) -> Binding<CGSize> {
         Binding(
             get: {
-                var origin = panelDock.displayPosition(id)
+                var origin = panelDock.displayPosition(id, in: dock)
                 if let head = stackDragHead, id != head,
                     panelDock.stacks.head(of: panelDock.stackKey(id))
                         == panelDock.stackKey(head)
@@ -2291,14 +2305,29 @@ private struct DockablePanelsLayer: View {
                 }
                 return origin
             },
-            set: { panelDock.setPosition(id, to: $0) })
+            set: { settle(id, at: $0, in: dock) })
     }
 
-    private func dragChanged(_ id: DockablePanel, translation: CGSize) {
+    /// Commit a released panel: grid-snap, clamp it inside the dock (keeping
+    /// its header and ≥80pt reachable), then stick it flush when it landed
+    /// within 14pt of a dock edge — all on release, so the live drag stays raw.
+    private func settle(_ id: DockablePanel, at position: CGSize, in dock: CGSize) {
+        let size = panelDock.size(id)
+        var point = CGPoint(x: position.width, y: position.height)
+        let grid = panelDock.gridStep
+        if grid > 0 {
+            point = CGPoint(x: (point.x / grid).rounded() * grid, y: (point.y / grid).rounded() * grid)
+        }
+        let clamped = PanelPlacement.clamped(point, panelSize: size, dock: dock)
+        let x = PanelPlacement.edgeStuckX(clamped.x, panelWidth: size.width, dockWidth: dock.width)
+        panelDock.setPosition(id, to: CGSize(width: x, height: clamped.y), in: dock)
+    }
+
+    private func dragChanged(_ id: DockablePanel, translation: CGSize, in dock: CGSize) {
         if panelDock.isStackFollower(id) {
             // Taking a follower by the header detaches it — it moves alone
             // and the panels below close up.
-            panelDock.detachForDrag(id)
+            panelDock.detachForDrag(id, in: dock)
         } else if !panelDock.stacks.followers(of: panelDock.stackKey(id)).isEmpty {
             // Moving the top one moves the bottom one(s) along, live.
             stackDragHead = id
@@ -2306,11 +2335,38 @@ private struct DockablePanelsLayer: View {
         }
     }
 
-    private func dragEnded(_ id: DockablePanel) {
+    private func dragEnded(_ id: DockablePanel, in dock: CGSize) {
         stackDragHead = nil
         stackDragTranslation = .zero
-        // Stick detection against the settled, grid-snapped positions.
-        panelDock.snapReleased(id)
+        // Stick detection against the settled positions.
+        panelDock.snapReleased(id, in: dock)
+    }
+
+    /// A freshly opened panel must not restore a stale spot that overlaps an
+    /// open panel or hangs off the dock: keep the stored spot when it's clean,
+    /// otherwise drop it into the next free slot of the emptier column.
+    private func placePending(in dock: CGSize) {
+        guard dock.width > 0 else { return }
+        for id in panelDock.takePendingPlacement() {
+            guard panelDock.isExpanded(id) else { continue }
+            let size = panelDock.size(id)
+            let others = panelDock.order
+                .filter { $0 != id && panelDock.isExpanded($0) }
+                .map { other -> CGRect in
+                    let origin = panelDock.displayPosition(other, in: dock)
+                    return CGRect(
+                        origin: CGPoint(x: origin.width, y: origin.height),
+                        size: panelDock.size(other))
+                }
+            let stored = panelDock.position(id, in: dock)
+            let frame = CGRect(origin: CGPoint(x: stored.width, y: stored.height), size: size)
+            let fits =
+                frame.minX >= 0 && frame.maxX <= dock.width && frame.minY >= 0
+                && frame.minY + PanelPlacement.headerHeight <= dock.height
+            if fits && !PanelPlacement.overlaps(frame, any: others) { continue }
+            let slot = PanelPlacement.openingSlot(panelSize: size, dock: dock, openFrames: others)
+            panelDock.setPosition(id, to: CGSize(width: slot.x, height: slot.y), in: dock)
+        }
     }
 }
 
