@@ -1320,6 +1320,49 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Image sessions for every currently-selected file (Batch Actions).
+    func selectedSessions() -> [ImageSession] {
+        let ids = selectedItemIDs.isEmpty ? Set([selectedItemID].compactMap { $0 }) : selectedItemIDs
+        return ids.compactMap { id in items.first(where: { $0.id == id }) }
+            .compactMap { item -> ImageSession? in
+                if case .image(let session) = item.media { return session }
+                return nil
+            }
+    }
+
+    /// Remove the background of every selected image, in sequence.
+    func batchRemoveBackground() {
+        let sessions = selectedSessions().filter { $0.backgroundRemovedImage == nil }
+        guard !sessions.isEmpty else { return }
+        isRemovingBackground = true
+        operationProgress = OperationProgress(
+            title: "Removing backgrounds",
+            detail: "\(sessions.count) image\(sessions.count == 1 ? "" : "s")",
+            startedAt: Date(),
+            fraction: nil
+        )
+        let engine = BackgroundRemovalEngine(
+            rawValue: UserDefaults.standard.string(forKey: "backgroundRemovalEngine")
+                ?? BackgroundRemovalEngine.builtIn.rawValue
+        ) ?? .builtIn
+        Task {
+            for session in sessions {
+                guard let source = session.sourceImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else { continue }
+                do {
+                    let output = try await Task.detached(priority: .userInitiated) {
+                        try await BackgroundRemovalService.removeBackground(from: source, engine: engine)
+                    }.value
+                    session.backgroundRemovedImage = NSImage(cgImage: output, size: CGSize(width: output.width, height: output.height))
+                    session.recordBackgroundRemoval()
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+            isRemovingBackground = false
+            operationProgress = nil
+        }
+    }
+
     var canRemoveBackgroundFromLayer: Bool {
         guard case .image(let session) = media else { return false }
         return session.selectedLayerID != nil && !isRemovingBackground
