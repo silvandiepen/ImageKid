@@ -44,7 +44,10 @@ public enum ExportRunner {
         profile: Workfile.ExportProfile, to doc: GraphicDocument, name: String,
         namedStyles: [NamedStyle] = []
     ) throws -> (fileName: String, document: GraphicDocument) {
-        var out = NamedStyles.strippingStyleClasses(doc, styles: namedStyles)
+        // Editor metadata (file-local swatches/styles) is an authoring aid;
+        // deliverables never carry it.
+        var out = FileMeta.removing(from: doc)
+        out = NamedStyles.strippingStyleClasses(out, styles: namedStyles)
         for action in try actions(of: profile) {
             out = action.applied(to: out)
         }

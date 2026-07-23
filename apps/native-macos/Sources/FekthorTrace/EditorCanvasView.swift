@@ -77,6 +77,27 @@ struct EditorCanvasView: View {
     /// The Free Distort corner being dragged (session.distort holds the
     /// originals/corners; this is only the gesture's pick).
     @State private var distortCorner: Int? = nil
+    /// In-flight corner-dot drag (live corner radius): the shape as it was
+    /// at drag start — every event re-fillets from this original so nothing
+    /// compounds — plus the picked corner's geometry. One undo step.
+    @State private var cornerDrag: CornerDrag? = nil
+
+    private struct CornerDrag {
+        var originals: [ShapeNode]
+        /// The picked dot's subpath, anchor index, anchor position and unit
+        /// interior bisector (the drag axis: distance along it = radius).
+        var path: Int
+        var index: Int
+        var anchor: Pt
+        var bisector: Pt
+        /// nil = round every corner (shape-level selection); a map = only
+        /// the picked corner (a specific point was selected).
+        var only: [Int: Set<Int>]?
+    }
+
+    /// Corner dots sit this far outside the anchor, along the interior
+    /// bisector (screen points).
+    private let cornerDotOffset: CGFloat = 11
     /// Snap-to-points candidates (doc space), collected ONCE at gesture
     /// start from the non-dragged shapes: anchors + bounds corners/centres.
     @State private var snapMagnets: [Pt] = []
@@ -142,6 +163,7 @@ struct EditorCanvasView: View {
             }
 
             drawAnchorsAndHandles(&ctx, doc: doc, t: t)
+            drawCornerDots(&ctx, doc: doc, t: t)
             drawSelectionChrome(&ctx, t: t)
             if let gh = gradientHandles(t: t) {
                 drawGradientChrome(gh, &ctx)
@@ -531,6 +553,42 @@ struct EditorCanvasView: View {
         }
     }
 
+    // MARK: - Live corner dots
+
+    /// The single selected shape's corner dots: one per fillet-able corner
+    /// anchor (line-line joints sharper than ~15°), offset INSIDE the
+    /// corner along the bisector — Illustrator's live-corner widgets.
+    /// Dragging one toward the interior rounds the corner(s) live.
+    private func cornerDots(of shape: ShapeNode, t: T)
+        -> [(path: Int, info: LiveCorners.CornerInfo, dot: CGPoint)]
+    {
+        let offset = Double(cornerDotOffset / t.s)
+        var out: [(Int, LiveCorners.CornerInfo, CGPoint)] = []
+        for (pi, rp) in Editing2.bakedPaths(of: shape).enumerated() {
+            for info in LiveCorners.cornerAnchors(of: rp) {
+                let p = Pt(
+                    info.position.x + info.bisector.x * offset,
+                    info.position.y + info.bisector.y * offset)
+                out.append(
+                    (pi, info, CGPoint(x: p.x * t.s + t.tx, y: p.y * t.s + t.ty)))
+            }
+        }
+        return out
+    }
+
+    /// Visually distinct from anchors: smaller, accent-filled circles.
+    private func drawCornerDots(_ ctx: inout GraphicsContext, doc: GraphicDocument, t: T) {
+        guard session.tool == .select, session.distort == nil,
+            let sel = single, let shape = doc.firstShape(id: sel)
+        else { return }
+        for (_, _, dot) in cornerDots(of: shape, t: t) {
+            let r: CGFloat = 2.75
+            let rect = CGRect(x: dot.x - r, y: dot.y - r, width: 2 * r, height: 2 * r)
+            ctx.fill(Path(ellipseIn: rect), with: .color(.fekthorAccent))
+            ctx.stroke(Path(ellipseIn: rect), with: .color(.white), lineWidth: 1)
+        }
+    }
+
     /// The selection transform frame: dashed bounding box (padded outward so
     /// its handles clear the shape's own anchors), 8 scale handles, and a
     /// rotate lollipop above the top edge.
@@ -903,6 +961,11 @@ struct EditorCanvasView: View {
                 }
             }
             distortCorner = best?.0
+            // Distort corners snap like anchors: to grid, and to other
+            // shapes' points when the magnet toggle is on.
+            if distortCorner != nil {
+                snapMagnets = collectMagnets(excluding: Set(d.originals.map(\.id)))
+            }
             return
         }
         if session.tool == .pen {
@@ -938,6 +1001,28 @@ struct EditorCanvasView: View {
                 session.beginGesture(label: gh.isRadial ? "Gradient radius" : "Gradient axis")
                 gradientDrag = GradientDragState(
                     shapeID: gh.shapeID, kind: .end, paint: gh.paint)
+                return
+            }
+        }
+        // Corner dots (single selection): smaller hit radius than anchors —
+        // the dot sits 11pt off the anchor, so the two never fight.
+        if let sel = single, let shape = doc.firstShape(id: sel), session.distort == nil {
+            var best: (path: Int, info: LiveCorners.CornerInfo, d: CGFloat)? = nil
+            for (pi, info, dot) in cornerDots(of: shape, t: t) {
+                let d = hypot(dot.x - v.startLocation.x, dot.y - v.startLocation.y)
+                if d <= hitRadius - 2, best == nil || d < best!.d {
+                    best = (pi, info, d)
+                }
+            }
+            if let hit = best {
+                session.beginGesture(label: "Corner radius")
+                // Selection rule: a selected POINT scopes the edit to the
+                // dragged corner; a plain shape selection rounds them all.
+                cornerDrag = CornerDrag(
+                    originals: selectedOriginals(),
+                    path: hit.path, index: hit.info.index,
+                    anchor: hit.info.position, bisector: hit.info.bisector,
+                    only: activeAnchor != nil ? [hit.path: [hit.info.index]] : nil)
                 return
             }
         }
@@ -983,6 +1068,9 @@ struct EditorCanvasView: View {
                 let p = handlePoint(h, in: view)
                 if hypot(p.x - v.startLocation.x, p.y - v.startLocation.y) <= hitRadius - 1 {
                     session.beginGesture(label: "Scale")
+                    // Scale drags snap the dragged handle to grid/points,
+                    // same rules as anchor drags (⌃ bypasses).
+                    snapMagnets = collectMagnets(excluding: session.selection)
                     transformDrag = TransformDrag(
                         kind: .scale(h), originals: selectedOriginals(), box: box)
                     return
@@ -1011,7 +1099,8 @@ struct EditorCanvasView: View {
         if session.distort != nil {
             if let corner = distortCorner {
                 session.distortDrag(
-                    corner: corner, to: snapped(docPoint(from: v.location, in: size)))
+                    corner: corner,
+                    to: pointOrGridSnapped(docPoint(from: v.location, in: size), in: size))
             }
             return
         }
@@ -1028,10 +1117,15 @@ struct EditorCanvasView: View {
             applyGradientDrag(gd, target: target, in: size)
             return
         }
+        if let cd = cornerDrag {
+            applyCornerDrag(cd, target: target, in: size)
+            return
+        }
         if let drag = transformDrag {
             let start = docPoint(from: v.startLocation, in: size)
             switch drag.kind {
-            case .scale(let h): applyScale(drag, handle: h, start: start, target: target)
+            case .scale(let h):
+                applyScale(drag, handle: h, start: start, target: target, in: size)
             case .rotate: applyRotate(drag, start: start, target: target)
             }
         } else if let h = draggingHandle, let sel = single, let active = activeAnchor {
@@ -1097,6 +1191,10 @@ struct EditorCanvasView: View {
             gradientDrag = nil
             return
         }
+        if cornerDrag != nil {
+            cornerDrag = nil
+            return
+        }
         if transformDrag != nil {
             transformDrag = nil
             return
@@ -1143,12 +1241,41 @@ struct EditorCanvasView: View {
         session.generation += 1
     }
 
+    // MARK: - Corner-dot drag (live corner radius)
+
+    /// Drag distance along the corner's bisector = radius: every event
+    /// re-fillets the ORIGINAL geometry with the new radius (dragging back
+    /// to the dot restores the sharp corner). Grid snap quantises the
+    /// radius so rounded corners land on grid-friendly values.
+    private func applyCornerDrag(_ cd: CornerDrag, target: Pt, in size: CGSize) {
+        let t = transform(doc: session.document, in: size)
+        let baseOffset = Double(cornerDotOffset / t.s)
+        let proj =
+            (target.x - cd.anchor.x) * cd.bisector.x + (target.y - cd.anchor.y) * cd.bisector.y
+        var radius = max(0, proj - baseOffset)
+        if let step = snapStep {
+            radius = (radius / step).rounded() * step
+        }
+        session.updateShapes(
+            cd.originals.map {
+                EditorSession.roundedShape($0, radius: radius, corners: cd.only)
+            })
+        session.status = String(
+            format: cd.only == nil ? "Corner radius %.1f (all corners)" : "Corner radius %.1f",
+            radius)
+    }
+
     // MARK: - Scale / rotate application
 
     /// Scale relative to the grab point so the geometry tracks the pointer
     /// exactly (the frame is padded, so the theoretical handle position
     /// would introduce a jump). ⇧ locks aspect, ⌥ scales from the centre.
-    private func applyScale(_ drag: TransformDrag, handle: BoxHandle, start: Pt, target: Pt) {
+    /// The dragged handle snaps to grid/points like an anchor (⌃ bypasses).
+    private func applyScale(
+        _ drag: TransformDrag, handle: BoxHandle, start: Pt, target rawTarget: Pt,
+        in size: CGSize
+    ) {
+        let target = pointOrGridSnapped(rawTarget, in: size)
         let box = drag.box
         let option = NSEvent.modifierFlags.contains(.option)
         let shift = NSEvent.modifierFlags.contains(.shift)

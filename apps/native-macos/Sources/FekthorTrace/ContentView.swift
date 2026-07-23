@@ -1389,10 +1389,18 @@ struct EditorWorkspaceView: View {
                     )
                 toolShelf
             }
+            // The zoom/scale pill floats top-centre of the canvas, like
+            // ImageKid's viewport toolbar — same dark glass as the tool
+            // shelf, non-draggable.
+            .overlay(alignment: .top) { zoomPill.padding(.top, 12) }
             // The style/combine palettes float above the canvas, inside the
             // window (ImageKid's panel mechanic) — draggable, closable,
-            // positions persisted.
-            .overlay(EditorPanelsLayer(session: session, workspace: workspace))
+            // positions persisted. The workspace session rides the
+            // environment so panel internals (swatch popovers) can read the
+            // shared swatches without threading it through every initializer.
+            .overlay(
+                EditorPanelsLayer(session: session, workspace: workspace)
+                    .environmentObject(workspace))
             Divider()
             HStack {
                 Text(session.status).foregroundStyle(.secondary).lineLimit(1)
@@ -1458,8 +1466,6 @@ struct EditorWorkspaceView: View {
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
-            zoomCluster
-            Divider().frame(height: 16)
             Button {
                 session.undo()
             } label: {
@@ -1606,18 +1612,25 @@ struct EditorWorkspaceView: View {
         .opacity(0)
     }
 
-    /// The top bar's compact zoom cluster: − / percent menu (50/100/200/
-    /// Fit) / + / fit, replacing the old floating bottom pill. ⌘− and ⌘=
-    /// keep working from here.
-    private var zoomCluster: some View {
+    /// The floating zoom/scale pill, top-centre of the canvas (ImageKid's
+    /// viewport-toolbar spot): − / percent menu (50/100/200/400/Fit) / + /
+    /// fit, on the same dark-glass chrome as the tool shelf. Non-draggable.
+    /// ⌘− and ⌘= keep working from here.
+    private var zoomPill: some View {
         HStack(spacing: 2) {
-            Button { zoom = max(0.2, zoom / 1.25) } label: { Image(systemName: "minus") }
-                .keyboardShortcut("-", modifiers: .command)
-                .help("Zoom out (⌘−)")
+            Button { zoom = max(0.2, zoom / 1.25) } label: {
+                Image(systemName: "minus")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .keyboardShortcut("-", modifiers: .command)
+            .help("Zoom out (⌘−)")
             Menu {
                 Button("50%") { zoom = 0.5 }
                 Button("100%") { zoom = 1 }
                 Button("200%") { zoom = 2 }
+                Button("400%") { zoom = 4 }
                 Divider()
                 Button("Fit") {
                     zoom = 1
@@ -1625,24 +1638,42 @@ struct EditorWorkspaceView: View {
                 }
             } label: {
                 Text("\(Int(zoom * 100))%")
-                    .font(.callout.monospacedDigit())
+                    .font(.caption.monospacedDigit().weight(.semibold))
                     .frame(width: 48)
+                    .contentShape(Rectangle())
             }
             .menuIndicator(.hidden)
+            .menuStyle(.borderlessButton)
             .fixedSize()
             .help("Zoom level")
-            Button { zoom = min(64, zoom * 1.25) } label: { Image(systemName: "plus") }
-                .keyboardShortcut("=", modifiers: .command)
-                .help("Zoom in (⌘+)")
+            Button { zoom = min(64, zoom * 1.25) } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .keyboardShortcut("=", modifiers: .command)
+            .help("Zoom in (⌘+)")
+            Divider().frame(height: 14)
             Button {
                 zoom = 1
                 offset = .zero
             } label: {
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 11, weight: .medium))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
             }
             .help("Fit (100%, centred)")
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.plain)
+        .foregroundStyle(.white)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(.ultraThinMaterial, in: Capsule())
+        .background(Color.black.opacity(0.80), in: Capsule())
+        .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
+        .shadow(color: .black.opacity(0.36), radius: 18, y: 8)
     }
 }
 

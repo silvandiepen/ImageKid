@@ -166,12 +166,20 @@ struct StrokePanelContent: View {
                 session: session, editKey: "stroke", hex: $hex,
                 get: { $0.stroke }, set: { $0.stroke = $1 })
             widthRow
-            KeywordPickerRow(
+            StrokeGlyphRow(
                 session: session, label: "Cap", name: "stroke-linecap", editKey: "cap",
-                options: [("butt", "Butt"), ("round", "Round"), ("square", "Square")])
-            KeywordPickerRow(
+                options: [
+                    ("butt", "Butt cap", .capButt),
+                    ("round", "Round cap", .capRound),
+                    ("square", "Square cap", .capSquare),
+                ])
+            StrokeGlyphRow(
                 session: session, label: "Join", name: "stroke-linejoin", editKey: "join",
-                options: [("miter", "Miter"), ("round", "Round"), ("bevel", "Bevel")])
+                options: [
+                    ("miter", "Miter join", .joinMiter),
+                    ("round", "Round join", .joinRound),
+                    ("bevel", "Bevel join", .joinBevel),
+                ])
             dashRow
         }
         .onAppear { sync() }
@@ -185,11 +193,8 @@ struct StrokePanelContent: View {
     private var widthRow: some View {
         HStack(spacing: 8) {
             Text("Width").font(.caption)
-            TextField("—", text: $widthText)
-                .textFieldStyle(.roundedBorder)
-                .font(.caption.monospaced())
+            NumericField(text: $widthText, range: 0...10000) { _ in commitWidth() }
                 .frame(width: 64)
-                .onSubmit { commitWidth() }
             if let unit = strokeWidthUnit {
                 Text(unit).font(.caption2).foregroundStyle(.secondary)
             }
@@ -320,16 +325,16 @@ private struct PaintControls: View {
             }
             HStack(spacing: 8) {
                 noneButton
-                ColorPicker(
-                    "",
-                    selection: Binding(
-                        get: { wellColor(summary) },
-                        set: { color in
-                            apply { set(&$0, paint(from: color)) }
-                        }),
-                    supportsOpacity: false
-                )
-                .labelsHidden()
+                // Swatch-first colour picking: the well opens the swatches
+                // popover (file-local / workspace / document), Custom…
+                // reaches the system picker.
+                SwatchColorWell(
+                    session: session,
+                    current: wellColor(summary),
+                    addableHex: currentHex(summary),
+                    onPick: { color in
+                        apply { set(&$0, paint(from: color)) }
+                    })
                 TextField("hex", text: $hex)
                     .textFieldStyle(.roundedBorder)
                     .font(.caption.monospaced())
@@ -370,6 +375,15 @@ private struct PaintControls: View {
         .help("No \(editKey)")
     }
 
+    /// The current colour's hex when the summary is a plain colour — the
+    /// swatch popover's "+ add to file swatches" source.
+    private func currentHex(_ summary: StyleSelection.PaintSummary) -> String? {
+        if case .color(let r, let g, let b) = summary {
+            return String(format: "#%02x%02x%02x", r, g, b)
+        }
+        return nil
+    }
+
     private func wellColor(_ summary: StyleSelection.PaintSummary) -> Color {
         if case .color(let r, let g, let b) = summary {
             return Color(red: Double(r) / 255, green: Double(g) / 255, blue: Double(b) / 255)
@@ -395,6 +409,106 @@ private struct PaintControls: View {
         let value = trimmed.hasPrefix("#") ? trimmed : "#" + trimmed
         guard let c = PaintValue.parseHex(value) else { return }
         apply { set(&$0, .color(r: c.r, g: c.g, b: c.b)) }
+    }
+}
+
+// MARK: - Cap / Join icon rows
+
+/// The tiny stroke-preview glyphs behind the Cap and Join buttons — drawn
+/// paths (like the Combine panel's drawn icons), not SF symbols: caps show
+/// a thick line ending at a hairline marker (butt flush, round bulging,
+/// square extending); joins show a thick chevron with the matching apex.
+enum StrokeGlyph {
+    case capButt, capRound, capSquare
+    case joinMiter, joinRound, joinBevel
+
+    func draw(in ctx: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+        let weight: CGFloat = 7
+        switch self {
+        case .capButt, .capRound, .capSquare:
+            let endX = w * 0.32
+            var line = Path()
+            line.move(to: CGPoint(x: endX, y: h / 2))
+            line.addLine(to: CGPoint(x: w - 4, y: h / 2))
+            var style = StrokeStyle(lineWidth: weight)
+            switch self {
+            case .capButt: style.lineCap = .butt
+            case .capRound: style.lineCap = .round
+            default: style.lineCap = .square
+            }
+            ctx.stroke(line, with: .color(.white.opacity(0.85)), style: style)
+            // Hairline marker on the geometric end, so the cap's overhang
+            // (or lack of it) reads at a glance.
+            var marker = Path()
+            marker.move(to: CGPoint(x: endX, y: 2))
+            marker.addLine(to: CGPoint(x: endX, y: h - 2))
+            ctx.stroke(marker, with: .color(.fekthorAccent), lineWidth: 1)
+        case .joinMiter, .joinRound, .joinBevel:
+            var chevron = Path()
+            chevron.move(to: CGPoint(x: 5, y: h - 4))
+            chevron.addLine(to: CGPoint(x: w / 2, y: 5))
+            chevron.addLine(to: CGPoint(x: w - 5, y: h - 4))
+            var style = StrokeStyle(lineWidth: weight, miterLimit: 10)
+            switch self {
+            case .joinMiter: style.lineJoin = .miter
+            case .joinRound: style.lineJoin = .round
+            default: style.lineJoin = .bevel
+            }
+            ctx.stroke(chevron, with: .color(.white.opacity(0.85)), style: style)
+        }
+    }
+}
+
+/// Cap and Join as icon rows instead of dropdowns: three glyph buttons,
+/// the active keyword highlighted; clicking the active one again clears
+/// the property (back to the SVG default). Mixed selections show none
+/// active until a click unifies them.
+private struct StrokeGlyphRow: View {
+    @ObservedObject var session: EditorSession
+    let label: String
+    let name: String
+    let editKey: String
+    let options: [(value: String, title: String, glyph: StrokeGlyph)]
+
+    var body: some View {
+        let current = StyleSelection(session: session).commonKeyword(name)
+        HStack(spacing: 8) {
+            Text(label).font(.caption)
+            HStack(spacing: 4) {
+                ForEach(options, id: \.value) { option in
+                    glyphButton(option, active: current == option.value)
+                }
+            }
+            Spacer()
+        }
+    }
+
+    private func glyphButton(
+        _ option: (value: String, title: String, glyph: StrokeGlyph), active: Bool
+    ) -> some View {
+        Button {
+            session.editSelectionStyle(editKey) { style in
+                if active {
+                    style.remove(name)
+                } else {
+                    style.set(name, .keyword(option.value))
+                }
+            }
+            session.endStyleEdit()
+        } label: {
+            Canvas { ctx, size in
+                option.glyph.draw(in: &ctx, size: size)
+            }
+            .frame(width: 34, height: 22)
+            .background(
+                .white.opacity(active ? 0.28 : 0.08),
+                in: RoundedRectangle(cornerRadius: 6))
+            .contentShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .help(option.title + (active ? " — click again for default" : ""))
     }
 }
 

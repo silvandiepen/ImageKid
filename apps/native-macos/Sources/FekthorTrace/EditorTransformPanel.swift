@@ -85,11 +85,8 @@ struct TransformPanelContent: View {
             Text("Rotate")
                 .font(.caption)
                 .frame(width: 44, alignment: .leading)
-            TextField("0", text: $rotateText)
-                .textFieldStyle(.roundedBorder)
-                .font(.caption.monospaced())
+            NumericField(placeholder: "0", text: $rotateText) { _ in commitRotate() }
                 .frame(width: 56)
-                .onSubmit { commitRotate() }
             Text("°  applies around the centre")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -101,19 +98,17 @@ struct TransformPanelContent: View {
             Text("Skew")
                 .font(.caption)
                 .frame(width: 44, alignment: .leading)
-            TextField("0", text: $skewXText)
-                .textFieldStyle(.roundedBorder)
-                .font(.caption.monospaced())
-                .frame(width: 56)
-                .onSubmit { commitSkew(isX: true) }
+            NumericField(placeholder: "0", text: $skewXText, range: -88...88) { _ in
+                commitSkew(isX: true)
+            }
+            .frame(width: 56)
             Text("X°")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            TextField("0", text: $skewYText)
-                .textFieldStyle(.roundedBorder)
-                .font(.caption.monospaced())
-                .frame(width: 56)
-                .onSubmit { commitSkew(isX: false) }
+            NumericField(placeholder: "0", text: $skewYText, range: -88...88) { _ in
+                commitSkew(isX: false)
+            }
+            .frame(width: 56)
             Text("Y°")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -167,15 +162,10 @@ struct TransformPanelContent: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(width: 14, alignment: .leading)
-            TextField("—", text: text)
-                .textFieldStyle(.roundedBorder)
-                .font(.caption.monospaced())
-                .onSubmit {
-                    if let v = Double(text.wrappedValue.trimmingCharacters(in: .whitespaces)) {
-                        commit(v)
-                    }
-                    sync()
-                }
+            NumericField(text: text) { v in
+                commit(v)
+                sync()
+            }
         }
     }
 

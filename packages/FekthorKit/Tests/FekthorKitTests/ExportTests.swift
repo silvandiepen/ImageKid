@@ -504,6 +504,29 @@ final class ExportTests: XCTestCase {
         XCTAssertEqual(try ExportRunner.apply(profile: bare, to: a, name: "x").fileName, "x.svg")
     }
 
+    func testRunnerStripsFileMetadata() throws {
+        // File-local swatches/styles ride inside the SVG as a metadata
+        // block; deliverables must never carry it — even through a bare
+        // profile with no actions.
+        let source = FileMeta.writing(
+            FileMeta.Meta(
+                swatches: ["#ff0000"],
+                styles: [NamedStyle(name: "brand", declarations: ["fill": "#ff0000"])]),
+            to: doc([
+                .shape(
+                    ShapeNode(
+                        id: 0, kind: .rect(x: 0, y: 0, width: 10, height: 10, rx: nil, ry: nil),
+                        style: style("fill: #ff0000;")))
+            ]))
+        XCTAssertNotNil(FileMeta.read(from: source))
+        let bare = Workfile.ExportProfile(name: "p")
+        let exported = try ExportRunner.apply(profile: bare, to: source, name: "x").document
+        XCTAssertNil(FileMeta.read(from: exported))
+        XCTAssertFalse(SVGWriter.write(exported).contains("fekthor-meta"))
+        // The source document itself is untouched (non-destructive runner).
+        XCTAssertNotNil(FileMeta.read(from: source))
+    }
+
     func testRunnerReportsUnknownAction() {
         let profile = Workfile.ExportProfile(name: "p", actions: ["flatten", "frobnicate:9"])
         let d = doc([])

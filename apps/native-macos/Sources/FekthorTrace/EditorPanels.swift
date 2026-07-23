@@ -1227,6 +1227,8 @@ struct CornersPanelContent: View {
     /// Rect geometry captured when the chain broke — the nodes may be
     /// `.path` right after, so per-corner edits rebuild from these.
     @State private var decoupled: [EditorSession.CornerRect] = []
+    /// Radius for the any-shape fillet path (non-rect selections).
+    @State private var anyShapeRadius: Double = 0
 
     private struct RectSelection {
         var rect: EditorSession.CornerRect
@@ -1281,8 +1283,30 @@ struct CornersPanelContent: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
+            } else if !session.selection.isEmpty {
+                // Any other shape: one radius fillets every corner (or just
+                // the selected points) through the live-corners engine.
+                Text(
+                    session.selection.count == 1
+                        ? "Shape corners" : "\(session.selection.count) shapes")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Slider(value: $anyShapeRadius, in: 0...48) { editing in
+                        if !editing {
+                            session.setCornerRadius(radius: anyShapeRadius)
+                            session.endStyleEdit()
+                        }
+                    }
+                    Text(String(format: "%.0f", anyShapeRadius))
+                        .font(.caption.monospacedDigit())
+                        .frame(width: 26, alignment: .trailing)
+                }
+                Text("Applies to all corners — select points to round only those, or drag the corner dots on the canvas.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             } else {
-                Text("Select a rectangle")
+                Text("Select a shape")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

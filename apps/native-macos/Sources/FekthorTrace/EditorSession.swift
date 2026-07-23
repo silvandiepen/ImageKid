@@ -76,6 +76,13 @@ final class EditorSession: ObservableObject {
         var snapshotTaken = false
     }
     @Published var distort: DistortState? = nil
+    /// File-local swatches and named styles — the per-file layer under the
+    /// workspace's shared sets. Carried INSIDE the SVG as a
+    /// `<metadata id="fekthor-meta">` block (FileMeta): loaded here on open,
+    /// written back on save, stripped from every export. Works with no
+    /// workspace at all — a single detached file keeps its own swatches.
+    @Published var fileSwatches: [String] = []
+    @Published var fileStyles: [NamedStyle] = []
 
     /// One undo snapshot: the document as it was BEFORE the labelled
     /// operation ran. The History palette lists these newest-first.
@@ -117,6 +124,11 @@ final class EditorSession: ObservableObject {
         // fold the modelled ones back into typed paints so they render and
         // edit (EditorGradients.swift). Not an edit: no dirty, no history.
         normalizeGradientReferences()
+        // File-local swatches/styles ride in the document's metadata block.
+        if let meta = FileMeta.read(from: document) {
+            fileSwatches = meta.swatches ?? []
+            fileStyles = meta.styles ?? []
+        }
     }
 
     deinit {
@@ -602,6 +614,88 @@ final class EditorSession: ObservableObject {
             }
         }
         status = "Corners linked — rect restored."
+    }
+
+    // MARK: - Live corners (any shape)
+
+    /// A shape with corner radius applied through the engine's fillet op.
+    /// The one primitive fast path survives: a plain rect with ALL corners
+    /// selected and a uniform radius keeps its native `.rect` rx (SVG
+    /// round-trip); everything else pathifies first (`Editing2.editable`)
+    /// and fillets its line-line corner anchors. `corners` maps subpath
+    /// index → anchor indices; nil rounds every corner of every subpath.
+    /// V1 is destructive (Illustrator pre-live-corners): geometry changes,
+    /// nothing is stored.
+    static func roundedShape(
+        _ shape: ShapeNode, radius: Double, corners: [Int: Set<Int>]? = nil
+    ) -> ShapeNode {
+        if corners == nil, shape.transform == nil,
+            case .rect(let x, let y, let w, let h, _, _) = shape.kind
+        {
+            var out = shape
+            let r = max(0, min(radius, min(w, h) / 2))
+            out.kind = .rect(
+                x: x, y: y, width: w, height: h, rx: r > 0.001 ? r : nil, ry: nil)
+            return out
+        }
+        var out = Editing2.editable(shape)
+        guard case .path(let paths) = out.kind else { return shape }
+        out.kind = .path(
+            paths.enumerated().map { pi, rp in
+                LiveCorners.rounded(
+                    path: rp, radius: radius, corners: corners.map { $0[pi] ?? [] })
+            })
+        return out
+    }
+
+    /// Corner radius on every selected shape (Corners palette, canvas
+    /// corner dots): whole-shape when `onlySelectedAnchors` is nil,
+    /// per-anchor otherwise. Repeated calls from the same control coalesce
+    /// into one undo step, like style edits.
+    func setCornerRadius(radius: Double, onlySelectedAnchors anchors: [Int: Set<Int>]? = nil) {
+        let ids = selection.sorted().filter { document.firstShape(id: $0) != nil }
+        guard !ids.isEmpty, radius.isFinite, radius >= 0 else { return }
+        let key = "live-corner|" + ids.map(String.init).joined(separator: ",")
+        if styleEditKey != key {
+            beginGesture(label: "Corner radius")
+            styleEditKey = key
+        }
+        mutate { doc in
+            for id in ids {
+                guard let shape = doc.firstShape(id: id) else { continue }
+                doc.replaceShape(
+                    id: id, with: Self.roundedShape(shape, radius: radius, corners: anchors))
+            }
+        }
+    }
+
+    // MARK: - File-local swatches & styles (FileMeta)
+
+    /// The metadata block the next save writes (empty = none).
+    private var fileMeta: FileMeta.Meta {
+        FileMeta.Meta(
+            swatches: fileSwatches.isEmpty ? nil : fileSwatches,
+            styles: fileStyles.isEmpty ? nil : fileStyles)
+    }
+
+    func addFileSwatch(_ hex: String) {
+        guard !fileSwatches.contains(hex) else { return }
+        fileSwatches.append(hex)
+        dirty = true
+        status = "Added \(hex) to this file's swatches."
+    }
+
+    func removeFileSwatch(_ hex: String) {
+        guard fileSwatches.contains(hex) else { return }
+        fileSwatches.removeAll { $0 == hex }
+        dirty = true
+    }
+
+    /// Replace the file-local styles wholesale (Styles palette edits).
+    func setFileStyles(_ styles: [NamedStyle]) {
+        guard styles != fileStyles else { return }
+        fileStyles = styles
+        dirty = true
     }
 
     // MARK: - Shape tools
@@ -1119,7 +1213,9 @@ final class EditorSession: ObservableObject {
 
     private func write(to url: URL) {
         do {
-            let svg = SVGWriter.write(document)
+            // File-local swatches/styles land in (or leave) the metadata
+            // block at save time; the in-memory document stays untouched.
+            let svg = SVGWriter.write(FileMeta.writing(fileMeta, to: document))
             switch fileKind {
             case .svg:
                 try svg.write(to: url, atomically: true, encoding: .utf8)

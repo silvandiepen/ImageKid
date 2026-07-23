@@ -51,6 +51,7 @@ struct WorkspaceSettingsSheet: View {
                     TextField(
                         "Subdivisions", text: $subdivisionsText,
                         prompt: Text("\(std.gridSubdivisions ?? 0)"))
+                        .numericArrowKeys(text: $subdivisionsText, range: 0...64)
                     LabeledContent("Grid strength") {
                         HStack(spacing: 8) {
                             Slider(value: $gridStrength, in: 0.25...2.0)
@@ -138,6 +139,7 @@ struct WorkspaceSettingsSheet: View {
         _ label: String, text: Binding<String>, fallback: Double?
     ) -> some View {
         TextField(label, text: text, prompt: Text(fallback.map(formatted) ?? ""))
+            .numericArrowKeys(text: text, range: 0...4096)
     }
 
     private func formatted(_ v: Double) -> String {

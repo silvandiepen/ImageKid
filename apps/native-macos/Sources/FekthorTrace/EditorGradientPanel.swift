@@ -219,24 +219,22 @@ struct GradientStopsEditor: View {
         let index = min(selectedStop, stops.count - 1)
         let stop = stops[index]
         return HStack(spacing: 8) {
-            ColorPicker(
-                "",
-                selection: Binding(
-                    get: { Self.color(stop) },
-                    set: { recolorStop(paint, index: index, color: $0) }),
-                supportsOpacity: false
-            )
-            .labelsHidden()
+            // Swatch-first stop colour (file / workspace / document grids,
+            // Custom… for the system picker).
+            SwatchColorWell(
+                session: session,
+                current: Self.color(stop),
+                addableHex: Self.hex(stop),
+                onPick: { recolorStop(paint, index: index, color: $0) })
             TextField("hex", text: $hexText)
                 .textFieldStyle(.roundedBorder)
                 .font(.caption.monospaced())
                 .frame(width: 66)
                 .onSubmit { commitHex(paint, index: index) }
-            TextField("%", text: $offsetText)
-                .textFieldStyle(.roundedBorder)
-                .font(.caption.monospaced())
-                .frame(width: 44)
-                .onSubmit { commitOffset(paint, index: index) }
+            NumericField(placeholder: "%", text: $offsetText, range: 0...100) { _ in
+                commitOffset(paint, index: index)
+            }
+            .frame(width: 44)
             Text("%")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -348,6 +346,13 @@ struct GradientStopsEditor: View {
             format: "#%02x%02x%02x", c.count > 0 ? c[0] : 0, c.count > 1 ? c[1] : 0,
             c.count > 2 ? c[2] : 0)
         offsetText = String(Int((stops[index].offset * 100).rounded()))
+    }
+
+    static func hex(_ stop: GradientStop) -> String {
+        let c = stop.color
+        return String(
+            format: "#%02x%02x%02x", c.count > 0 ? c[0] : 0, c.count > 1 ? c[1] : 0,
+            c.count > 2 ? c[2] : 0)
     }
 
     static func color(_ stop: GradientStop) -> Color {

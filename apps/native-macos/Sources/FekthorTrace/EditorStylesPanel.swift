@@ -115,8 +115,20 @@ struct StylesPanelContent: View {
     @State private var newClass = ""
     @State private var classNote: String? = nil
 
+    // File-local styles (FileMeta, no workspace needed).
+    @State private var namingNewFileStyle = false
+    @State private var newFileStyleName = ""
+    @State private var renamingFileStyle: String? = nil
+    @State private var renameFileText = ""
+    @State private var renameFilePrompt = false
+
     private var styles: [NamedStyle] { workspace.settings.namedStyles ?? [] }
     private var styleNames: [String] { styles.map(\.name) }
+    private var fileStyles: [NamedStyle] { session.fileStyles }
+    /// Every style name in play — file-local AND workspace — so applying
+    /// either layer swaps any other binding class cleanly, and names stay
+    /// unique across both.
+    private var allStyleNames: [String] { fileStyles.map(\.name) + styleNames }
     private var singleShapeSelected: Bool {
         session.selection.count == 1
             && session.selection.first.flatMap { session.document.firstShape(id: $0) } != nil
@@ -124,6 +136,8 @@ struct StylesPanelContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            fileStylesSection
+            Divider()
             stylesSection
             Divider()
             classesSection
@@ -132,7 +146,165 @@ struct StylesPanelContent: View {
         .background(newStyleHost)
         .background(renameHost)
         .background(deleteHost)
+        .background(newFileStyleHost)
+        .background(renameFileStyleHost)
         .onChange(of: session.selection) { _, _ in classNote = nil }
+    }
+
+    // MARK: File-local styles (work with no workspace at all)
+
+    /// Styles stored IN the open file (FileMeta): the per-file layer under
+    /// the workspace's shared styles — labelled sections, file first.
+    private var fileStylesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("This file")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    newFileStyleName = ""
+                    namingNewFileStyle = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .semibold))
+                        .frame(width: 20, height: 20)
+                        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                        .contentShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .disabled(!singleShapeSelected)
+                .opacity(singleShapeSelected ? 1 : 0.4)
+                .help("New file-local style from the selected shape (saved inside the SVG)")
+            }
+            if fileStyles.isEmpty {
+                Text("No file styles yet — they save inside this SVG and need no workspace.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(fileStyles, id: \.name) { style in
+                    fileStyleRow(style)
+                }
+            }
+        }
+    }
+
+    private func fileStyleRow(_ style: NamedStyle) -> some View {
+        Button {
+            note = nil
+            session.applyNamedStyle(style, roster: allStyleNames)
+        } label: {
+            HStack(spacing: 8) {
+                NamedStyleSwatch(style: style)
+                Text(style.name)
+                    .font(.caption.weight(.medium))
+                    .lineLimit(1)
+                Spacer()
+            }
+            .padding(4)
+            .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .help("Apply “\(style.name)” to the selection")
+        .contextMenu {
+            Button("Apply to Selection") {
+                note = nil
+                session.applyNamedStyle(style, roster: allStyleNames)
+            }
+            Button("Update from Selection") { updateFileStyleFromSelection(style) }
+                .disabled(!singleShapeSelected)
+            Divider()
+            Button("Rename…") {
+                renamingFileStyle = style.name
+                renameFileText = style.name
+                renameFilePrompt = true
+            }
+            Divider()
+            Button("Delete, Keep Classes") { deleteFileStyle(style.name, strip: false) }
+            Button("Delete and Strip Classes", role: .destructive) {
+                deleteFileStyle(style.name, strip: true)
+            }
+        }
+    }
+
+    private func createFileStyle() {
+        guard let name = validatedStyleName(newFileStyleName, renamingFrom: nil) else { return }
+        guard let captured = session.captureNamedStyle(named: name) else {
+            note = "Select exactly one shape to capture a style."
+            return
+        }
+        session.setFileStyles(fileStyles + [captured])
+        session.applyNamedStyle(captured, roster: allStyleNames + [name])
+        note = nil
+    }
+
+    /// File styles bind by class exactly like workspace styles, but their
+    /// reach ends at the open document — propagation is a plain in-document
+    /// rewrite, no workspace pass.
+    private func updateFileStyleFromSelection(_ style: NamedStyle) {
+        guard let captured = session.captureNamedStyle(named: style.name) else {
+            note = "Select exactly one shape to update “\(style.name)” from."
+            return
+        }
+        var updated = style
+        updated.declarations = captured.declarations
+        guard updated != style else {
+            note = "“\(style.name)” already matches the selection."
+            return
+        }
+        session.setFileStyles(
+            fileStyles.map { $0.name == style.name ? updated : $0 })
+        session.propagateNamedStyle(updated)
+        note = nil
+    }
+
+    private func commitFileStyleRename() {
+        guard let old = renamingFileStyle else { return }
+        renamingFileStyle = nil
+        guard let new = validatedStyleName(renameFileText, renamingFrom: old), new != old
+        else { return }
+        session.setFileStyles(
+            fileStyles.map { style in
+                var out = style
+                if out.name == old { out.name = new }
+                return out
+            })
+        session.retagClassInDocument(from: old, to: new)
+        note = nil
+    }
+
+    private func deleteFileStyle(_ name: String, strip: Bool) {
+        session.setFileStyles(fileStyles.filter { $0.name != name })
+        if strip {
+            session.stripClassInDocument(name)
+        } else {
+            note = "Deleted “\(name)” — bound nodes keep the class as a plain user class."
+        }
+    }
+
+    private var newFileStyleHost: some View {
+        Color.clear
+            .alert("New File Style from Selection", isPresented: $namingNewFileStyle) {
+                TextField("style-name", text: $newFileStyleName)
+                Button("Create") { createFileStyle() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(
+                    "Captures the selected shape's paints into a style stored INSIDE this SVG — no workspace needed. The name doubles as the binding class: one token, no spaces."
+                )
+            }
+    }
+
+    private var renameFileStyleHost: some View {
+        Color.clear
+            .alert("Rename File Style", isPresented: $renameFilePrompt) {
+                TextField("style-name", text: $renameFileText)
+                Button("Rename") { commitFileStyleRename() }
+                Button("Cancel", role: .cancel) { renamingFileStyle = nil }
+            } message: {
+                Text("Renames the style and retags its class on every bound node in this file.")
+            }
     }
 
     // MARK: Styles list
@@ -241,7 +413,7 @@ struct StylesPanelContent: View {
 
     private func apply(_ style: NamedStyle) {
         note = nil
-        session.applyNamedStyle(style, roster: styleNames)
+        session.applyNamedStyle(style, roster: allStyleNames)
     }
 
     /// "+": capture the selected shape's paints, add to the workfile, bind
@@ -257,7 +429,7 @@ struct StylesPanelContent: View {
             list.append(captured)
             workfile.namedStyles = list
         }
-        session.applyNamedStyle(captured, roster: styleNames + [name])
+        session.applyNamedStyle(captured, roster: allStyleNames + [name])
         note = nil
     }
 
@@ -334,8 +506,8 @@ struct StylesPanelContent: View {
             note = "Style names cannot contain spaces (the name is the SVG class)."
             return nil
         }
-        guard name == old || !styleNames.contains(name) else {
-            note = "A style named “\(name)” already exists."
+        guard name == old || !allStyleNames.contains(name) else {
+            note = "A style named “\(name)” already exists (file and workspace styles share one namespace)."
             return nil
         }
         return name
@@ -494,7 +666,7 @@ struct StylesPanelContent: View {
 
     @ViewBuilder
     private func classChip(_ token: String) -> some View {
-        let boundStyle = styles.first { $0.name == token }
+        let boundStyle = (fileStyles + styles).first { $0.name == token }
         HStack(spacing: 6) {
             if boundStyle != nil {
                 Image(systemName: "paintbrush.pointed.fill")
@@ -547,7 +719,7 @@ struct StylesPanelContent: View {
             classNote = "Class names cannot contain spaces."
             return
         }
-        guard !styleNames.contains(token) else {
+        guard !allStyleNames.contains(token) else {
             classNote = "“\(token)” names a style — click the style above to apply (and bind) it."
             return
         }
