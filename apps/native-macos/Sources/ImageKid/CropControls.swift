@@ -48,6 +48,9 @@ struct CropControls: View {
                 Toggle("Snap to grid", isOn: $session.snapToGrid)
                     .font(.caption.weight(.medium))
 
+                Toggle("Delete content outside crop", isOn: $session.cropTrimsOutsideContent)
+                    .font(.caption.weight(.medium))
+
                 Text("Drag corners or edges to resize. Drag inside the crop to move it.")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.55))

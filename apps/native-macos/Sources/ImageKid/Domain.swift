@@ -188,6 +188,9 @@ final class ImageSession: ObservableObject {
     @Published var cropRect = CGRect(x: 0, y: 0, width: 1, height: 1)
     @Published var draftCropRect: CGRect?
     @Published var cropAspectRatio: CropAspectRatio = .free
+    /// When on, applying a crop deletes layers/annotations left fully outside it
+    /// (rather than keeping them off-canvas).
+    @Published var cropTrimsOutsideContent = false
     @Published var outputSize: CGSize?
     @Published var draftOutputSize: CGSize?
     @Published var resizePreservesAspect = true
@@ -1107,9 +1110,14 @@ final class ImageSession: ObservableObject {
 
     func applyDraftCrop() {
         guard let draftCropRect, draftCropRect.width > 0.01, draftCropRect.height > 0.01 else { return }
-        cropRect = GeometryMapper.clampedNormalizedRect(draftCropRect)
+        let newCrop = GeometryMapper.clampedNormalizedRect(draftCropRect)
+        cropRect = newCrop
         self.draftCropRect = nil
         selectionRect = nil
+        if cropTrimsOutsideContent {
+            annotations.removeAll { !$0.frame.intersects(newCrop) }
+            imageLayers.removeAll { !$0.frame.intersects(newCrop) }
+        }
         record("Crop", systemImage: "crop")
     }
 
