@@ -37,6 +37,36 @@ struct NumericField: View {
     }
 }
 
+/// `NumericField` over a `Double` binding, for palettes that already hold
+/// their value as a number (Corners): keeps the text mirror in sync, clamps
+/// to `range`, and reports Return AND every arrow step through `onCommit`.
+struct NumericValueField: View {
+    @Binding var value: Double
+    var placeholder: String = "0"
+    var step: Double = 1
+    var range: ClosedRange<Double>? = nil
+    var onCommit: (Double) -> Void
+
+    @State private var text = ""
+
+    var body: some View {
+        NumericField(placeholder: placeholder, text: $text, step: step, range: range) { v in
+            let clamped = range.map { min(max(v, $0.lowerBound), $0.upperBound) } ?? v
+            value = clamped
+            text = NumericField.format(clamped)
+            onCommit(clamped)
+        }
+        .onAppear { text = NumericField.format(value) }
+        .onChange(of: value) { _, v in
+            // Only refresh from OUTSIDE edits (slider, document sync); while
+            // the user types, `value` doesn't move, so this never fights them.
+            if Double(text.trimmingCharacters(in: .whitespaces)) != v {
+                text = NumericField.format(v)
+            }
+        }
+    }
+}
+
 extension View {
     /// Arrow-key stepping for a numeric text field that keeps its OWN
     /// styling and commit flow (settings forms, prompt-backed fields):

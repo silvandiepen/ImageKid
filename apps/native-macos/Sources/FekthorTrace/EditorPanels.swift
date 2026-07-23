@@ -1317,6 +1317,29 @@ struct CornersPanelContent: View {
         return max(1, geoms.map { min($0.width, $0.height) / 2 }.min() ?? 0)
     }
 
+    /// Ceiling for the any-shape radius: half the selection's short side, so
+    /// the slider spans the range that actually changes the shape.
+    private var maxShapeRadius: Double {
+        guard let b = session.selectionBounds() else { return 48 }
+        return max(1, min(b.maxX - b.minX, b.maxY - b.minY) / 2)
+    }
+
+    /// The live radius already stored on the selection (largest corner wins),
+    /// so the field opens on the shape's real value instead of 0.
+    private var storedShapeRadius: Double {
+        for id in session.selection.sorted() {
+            guard let shape = session.document.firstShape(id: id) else { continue }
+            if case .rect(_, _, _, _, let rx, let ry) = shape.kind, let r = rx ?? ry {
+                return r
+            }
+            if case .path(let paths) = Editing2.editable(shape).kind {
+                let radii = paths.compactMap { $0.cornerRadii.values.max() }
+                if let r = radii.max() { return r }
+            }
+        }
+        return 0
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if active {
@@ -1344,15 +1367,23 @@ struct CornersPanelContent: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 HStack(spacing: 8) {
-                    Slider(value: $anyShapeRadius, in: 0...48) { editing in
-                        if !editing {
-                            session.setCornerRadius(radius: anyShapeRadius)
-                            session.endStyleEdit()
+                    Slider(
+                        value: Binding(
+                            get: { anyShapeRadius },
+                            set: { v in
+                                anyShapeRadius = v
+                                session.setCornerRadius(radius: v)
+                            }),
+                        in: 0...maxShapeRadius,
+                        onEditingChanged: { editing in
+                            if !editing { session.endStyleEdit() }
                         }
+                    )
+                    NumericValueField(value: $anyShapeRadius, range: 0...maxShapeRadius) { v in
+                        session.setCornerRadius(radius: v)
+                        session.endStyleEdit()
                     }
-                    Text(String(format: "%.0f", anyShapeRadius))
-                        .font(.caption.monospacedDigit())
-                        .frame(width: 26, alignment: .trailing)
+                    .frame(width: 52)
                 }
                 Text("Applies to all corners — select points to round only those, or drag the corner dots on the canvas.")
                     .font(.caption2)
@@ -1409,19 +1440,10 @@ struct CornersPanelContent: View {
                     if !editing { session.endStyleEdit() }
                 }
             )
-            TextField(
-                "0",
-                value: Binding(
-                    get: { uniform },
-                    set: { v in
-                        uniform = max(0, min(v, maxRadius))
-                        session.setRectRadius(uniform)
-                        session.endStyleEdit()
-                    }),
-                format: .number.precision(.fractionLength(0...2))
-            )
-            .textFieldStyle(.roundedBorder)
-            .font(.caption.monospaced())
+            NumericValueField(value: $uniform, range: 0...maxRadius) { v in
+                session.setRectRadius(v)
+                session.endStyleEdit()
+            }
             .frame(width: 52)
         }
     }
@@ -1445,19 +1467,10 @@ struct CornersPanelContent: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .frame(width: 18, alignment: .leading)
-            TextField(
-                "0",
-                value: Binding(
-                    get: { value.wrappedValue },
-                    set: { v in
-                        value.wrappedValue = max(0, v)
-                        applyPerCorner()
-                        session.endStyleEdit()
-                    }),
-                format: .number.precision(.fractionLength(0...2))
-            )
-            .textFieldStyle(.roundedBorder)
-            .font(.caption.monospaced())
+            NumericValueField(value: value, range: 0...maxRadius) { _ in
+                applyPerCorner()
+                session.endStyleEdit()
+            }
         }
     }
 
@@ -1502,6 +1515,7 @@ struct CornersPanelContent: View {
 
     private func syncUniform() {
         uniform = selectedRects.first?.radius ?? 0
+        anyShapeRadius = min(storedShapeRadius, maxShapeRadius)
     }
 }
 
