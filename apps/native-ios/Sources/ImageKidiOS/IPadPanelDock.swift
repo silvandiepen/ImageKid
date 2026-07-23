@@ -182,6 +182,7 @@ struct IPadPanelsLayer: View {
                 }
                 .accessibilityLabel(
                     (dock.presented.contains(id) ? "Hide " : "Show ") + id.spec.title)
+                .accessibilityIdentifier("chip.\(id.rawValue)")
             }
         }
     }
@@ -230,6 +231,8 @@ struct IPadPanelsLayer: View {
                 // render their dark variants on the dark-glass chrome.
                 .environment(\.colorScheme, .dark)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("panel.\(id.rawValue)")
     }
 
     /// Followers rest flush under their stack head (plus the head's live
@@ -370,5 +373,8 @@ struct HistoryPanelContent: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("history.row.\(index)")
+        // Timeline cursor for UI tests: which side of the cursor the row is on.
+        .accessibilityValue(isCurrent ? "current" : (isFuture ? "future" : "past"))
     }
 }

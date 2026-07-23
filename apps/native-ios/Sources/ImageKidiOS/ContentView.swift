@@ -256,6 +256,7 @@ struct ContentView: View {
                     Image(systemName: "square.3.layers.3d")
                 }
                 .accessibilityLabel("Layers")
+                .accessibilityIdentifier("topbar.layers")
                 Button {
                     if isRegularWidth {
                         panelDock.railToggle(.history)
@@ -266,13 +267,16 @@ struct ContentView: View {
                     Image(systemName: "clock.arrow.circlepath")
                 }
                 .accessibilityLabel("History")
+                .accessibilityIdentifier("topbar.history")
             }
             if model.workingImage != nil {
                 Button { model.undo() } label: { Image(systemName: "arrow.uturn.backward") }
                     .disabled(!model.canUndo)
+                    .accessibilityIdentifier("topbar.undo")
                 // Show redo only when there's something to redo.
                 if model.canRedo {
                     Button { model.redo() } label: { Image(systemName: "arrow.uturn.forward") }
+                        .accessibilityIdentifier("topbar.redo")
                 }
             }
             Menu {
@@ -516,6 +520,8 @@ struct ContentView: View {
                     borderColor: settings.canvasBorderColor,
                     showBorder: settings.showCanvasBorder
                 )
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("editor.viewCanvas")
             }
         }
         .padding(isRegularWidth ? 16 : 8)
@@ -555,9 +561,12 @@ struct ContentView: View {
             }
             .buttonStyle(.borderedProminent)
             .clipShape(Capsule())
+            .accessibilityIdentifier("empty.addButton")
         }
         .frame(maxWidth: 460)
         .padding(40)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("editor.emptyState")
     }
 
     /// Sidebar listing every picture in the workspace (toggleable, not always shown).
@@ -671,6 +680,8 @@ struct ContentView: View {
         .shadow(color: .black.opacity(0.30), radius: 20, y: 8)
         .environment(\.colorScheme, .dark) // keep icons light on the dark bar
         .disabled(model.isBusy)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("editor.toolbar")
     }
 
     /// Compact bar shown in place of the toolbar while a text is active: current
@@ -800,6 +811,8 @@ struct ContentView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(tool.label)
+        .accessibilityIdentifier("tool.\(tool.rawValue)")
+        .accessibilityAddTraits(activeTool == tool ? .isSelected : [])
     }
 
     private var annotationToolKind: Annotation.Kind {
@@ -1346,10 +1359,12 @@ private struct CropInspector: View {
 
                 Button("Cancel", role: .cancel, action: onCancel)
                     .buttonStyle(.bordered)
+                    .accessibilityIdentifier("crop.cancel")
                 Button(action: onApply) {
                     Label("Apply", systemImage: "checkmark")
                 }
                 .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("crop.apply")
             }
         }
     }
@@ -1481,6 +1496,7 @@ struct AnnotationControls: View {
                     .tint(.red)
                     .disabled(selectedAnnotationID == nil)
                     .accessibilityLabel("Delete selected text")
+                    .accessibilityIdentifier("annotate.deleteSelected")
                 }
             }
 
@@ -1500,6 +1516,7 @@ struct AnnotationControls: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(annotations.isEmpty)
+                .accessibilityIdentifier("annotate.apply")
             }
         }
     }
@@ -1609,6 +1626,8 @@ struct LayersPanelContent: View {
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, minHeight: 110)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("layers.empty")
             } else {
                 ScrollView {
                     LazyVStack(spacing: 4) {
@@ -1649,6 +1668,7 @@ struct LayersPanelContent: View {
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
             .accessibilityLabel(hidden ? "Show layer" : "Hide layer")
+            .accessibilityIdentifier("layers.row.eye")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
@@ -1661,6 +1681,9 @@ struct LayersPanelContent: View {
         .onTapGesture {
             select(entry)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("layers.row")
+        .accessibilityValue(isSelected ? "selected" : "")
     }
 
     private var controlBar: some View {
@@ -1670,9 +1693,14 @@ struct LayersPanelContent: View {
             Spacer()
             control("trash", label: "Delete layer", role: .destructive) { deleteSelected() }
                 .foregroundStyle(.red)
+                .accessibilityIdentifier("layers.delete")
         }
         .disabled(selectedID == nil)
         .padding(.top, 2)
+        // On the floating panel the resize corner's 44pt hit area overlays the
+        // bottom-trailing content; keep the delete button clear of it so taps
+        // reach the button, not the resize gesture.
+        .padding(.trailing, 36)
     }
 
     private func control(
@@ -1887,6 +1915,7 @@ private struct TextToolbar: View {
                     .foregroundStyle(.white)
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("textbar.done")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
@@ -2313,6 +2342,8 @@ private struct InlineEditingCanvas: View {
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .contentShape(Rectangle())
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("editor.canvas")
             .background(PencilPressureReader(pressure: pencilPressure))
             .gesture(canvasGesture(in: imageRect))
             .simultaneousGesture(doubleTapGesture(in: imageRect))
@@ -2553,6 +2584,8 @@ private struct InlineEditingCanvas: View {
                 .frame(width: box.width, height: box.height)
                 .position(x: box.midX, y: box.midY)
                 .allowsHitTesting(false)
+                .accessibilityElement()
+                .accessibilityIdentifier("canvas.selectionBorder")
             }
         }
     }
@@ -2573,6 +2606,7 @@ private struct InlineEditingCanvas: View {
             .focused($textEditorFocused)
             .submitLabel(.done)
             .onSubmit { commitTextEditing() }
+            .accessibilityIdentifier("canvas.textEditor")
             .frame(maxWidth: max(80, imageRect.maxX - origin.x))
             .fixedSize(horizontal: false, vertical: true)
             .offset(x: origin.x, y: origin.y)
