@@ -9,6 +9,8 @@ struct EditorLayer: Identifiable {
     let id = UUID()
     var name: String
     var image: UIImage
+    /// The unmasked source, kept so mask "restore" can bring hidden pixels back.
+    var originalImage: UIImage
     var frame: CGRect
     var opacity: Double = 1
     var isVisible: Bool = true

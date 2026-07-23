@@ -25,6 +25,7 @@ struct ContentView: View {
     @State private var editingTextID: UUID?
     @State private var selectedLayerID: UUID?
     @State private var layerPickerItem: PhotosPickerItem?
+    @State private var maskingLayerID: UUID?
     @State private var annotationKind: Annotation.Kind = .freehand
     @State private var annotationColor: Color = .red
     @State private var annotationWidthFraction: CGFloat = 0.008
@@ -92,6 +93,22 @@ struct ContentView: View {
         }
         .onChange(of: layerPickerItem) { _, newValue in
             loadLayerImage(newValue)
+        }
+        .sheet(isPresented: Binding(
+            get: { maskingLayerID != nil },
+            set: { if !$0 { maskingLayerID = nil } }
+        )) {
+            if let id = maskingLayerID,
+               let layer = model.layers.first(where: { $0.id == id }),
+               let original = layer.originalImage.normalizedCGImage(),
+               let current = layer.image.normalizedCGImage() {
+                RefineView(original: original, current: current) { rendered in
+                    if let i = model.layers.firstIndex(where: { $0.id == id }) {
+                        model.layers[i].image = UIImage(cgImage: rendered)
+                    }
+                    maskingLayerID = nil
+                }
+            }
         }
     }
 
@@ -466,6 +483,7 @@ struct ContentView: View {
                     layers: layers,
                     selectedID: $selectedLayerID,
                     pickerItem: $layerPickerItem,
+                    onMask: { maskingLayerID = $0 },
                     onClose: { activeTool = nil }
                 )
             case .select, .text:
@@ -1356,6 +1374,7 @@ private struct LayerInspector: View {
     @Binding var layers: [EditorLayer]
     @Binding var selectedID: UUID?
     @Binding var pickerItem: PhotosPickerItem?
+    let onMask: (UUID) -> Void
     let onClose: () -> Void
 
     private var selectedIndex: Int? { layers.firstIndex { $0.id == selectedID } }
@@ -1398,7 +1417,11 @@ private struct LayerInspector: View {
                 .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
             Text(layer.name).font(.subheadline).lineLimit(1)
             Spacer()
-            Slider(value: opacityBinding(layer.id), in: 0.05...1).frame(width: 80)
+            Slider(value: opacityBinding(layer.id), in: 0.05...1).frame(width: 70)
+            Button { onMask(layer.id) } label: {
+                Image(systemName: "paintbrush.pointed")
+            }
+            .buttonStyle(.plain)
             Button {
                 if let i = layers.firstIndex(where: { $0.id == layer.id }) { layers[i].isVisible.toggle() }
             } label: {
