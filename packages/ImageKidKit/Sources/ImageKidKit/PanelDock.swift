@@ -183,29 +183,80 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
         presented.contains(id) && !minimized.contains(id)
     }
 
+    /// The stack neighbour a hidden/minimized panel sat next to, and on which
+    /// side, so showing it again rebuilds the same stack. `neighbourBelow`
+    /// true means the panel was the head (neighbour under it); false means it
+    /// was a follower (neighbour = its predecessor above).
+    private struct StackLink { let neighbour: String; let neighbourBelow: Bool }
+    private var stackMemory: [ID: StackLink] = [:]
+
+    /// Record the adjacent panel before `id` leaves a stack: its predecessor
+    /// if it's a follower, otherwise its first follower if it's the head.
+    private func rememberStack(_ id: ID) {
+        let key = stackKey(id)
+        guard let stack = stacks.stack(containing: key),
+            let index = stack.firstIndex(of: key)
+        else { stackMemory[id] = nil; return }
+        if index > 0 {
+            stackMemory[id] = StackLink(neighbour: stack[index - 1], neighbourBelow: false)
+        } else if stack.count > 1 {
+            stackMemory[id] = StackLink(neighbour: stack[index + 1], neighbourBelow: true)
+        } else {
+            stackMemory[id] = nil
+        }
+    }
+
+    /// Reveal a now-presented panel where it belongs: rebuild the stack it
+    /// left (re-attach under its predecessor, or pull its follower chain back
+    /// under it if it was the head) when the neighbour is still open;
+    /// otherwise back at its last spot. Only a panel that has *never* been
+    /// placed — or a former follower whose stack is gone (its stored spot is a
+    /// stale head-derived coordinate) — gets a fresh opening slot.
+    private func revealPlacement(_ id: ID) {
+        let key = stackKey(id)
+        if let link = stackMemory[id] {
+            stackMemory[id] = nil
+            if let target = panel(forStackKey: link.neighbour), isExpanded(target) {
+                if link.neighbourBelow {
+                    stacks.attach(link.neighbour, below: key)
+                    syncStackWidths(containing: key)
+                } else {
+                    stacks.attach(key, below: link.neighbour)
+                    syncStackWidths(containing: link.neighbour)
+                }
+                return
+            }
+            if !link.neighbourBelow { needsPlacement.insert(id); return }
+        }
+        if !hasPlacement(id) { needsPlacement.insert(id) }
+    }
+
     public func toggle(_ id: ID) {
         if presented.contains(id) {
+            rememberStack(id)
             stacks.detach(stackKey(id))
             presented.remove(id)
             minimized.remove(id)
         } else {
-            needsPlacement.insert(id)
             presented.insert(id)
             minimized.remove(id)
+            revealPlacement(id)
         }
     }
 
     /// Collapse to the rail's icon-only button. A stacked panel detaches
-    /// first — its followers close up, and an icon can't be a stick target.
+    /// first — its followers close up, and an icon can't be a stick target —
+    /// but we remember the stack so restoring re-attaches it.
     public func minimize(_ id: ID) {
+        rememberStack(id)
         stacks.detach(stackKey(id))
         minimized.insert(id)
     }
 
     public func restore(_ id: ID) {
-        if !presented.contains(id) { needsPlacement.insert(id) }
         presented.insert(id)
         minimized.remove(id)
+        revealPlacement(id)
     }
 
     public func position(_ id: ID) -> CGSize {
@@ -251,12 +302,14 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
     /// Rail button behaviour: show if hidden, restore if minimized, hide if open.
     public func railToggle(_ id: ID) {
         if !presented.contains(id) {
-            needsPlacement.insert(id)
             presented.insert(id)
             minimized.remove(id)
+            revealPlacement(id)
         } else if minimized.contains(id) {
             minimized.remove(id)
+            revealPlacement(id)
         } else {
+            rememberStack(id)
             stacks.detach(stackKey(id))
             presented.remove(id)
             minimized.remove(id)
