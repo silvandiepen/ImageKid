@@ -1,4 +1,5 @@
 import AppKit
+import ImageKidCore
 import SwiftUI
 import UniformTypeIdentifiers
 import ImageKidKit
@@ -58,6 +59,7 @@ final class AppModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var isShowingResize = false
     @Published var isShowingExport = false
+    @Published var isShowingCanvasSize = false
     @Published var isShowingNewFile = false
     @Published var isShowingPromptEdit = false
     @Published var isShowingEnhance = false
@@ -525,6 +527,14 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Show the image at 100% (1 image pixel = 1 point).
+    func actualSize() {
+        guard case .image(let session) = media else { return }
+        session.viewportMode = .original
+        session.zoom = 1
+        session.pan = .zero
+    }
+
     func zoomIn() {
         switch media {
         case .image(let session):
@@ -669,7 +679,8 @@ final class AppModel: ObservableObject {
             frame: frame,
             strokeColor: .clear,
             fillColor: color,
-            lineWidth: 0
+            lineWidth: 0,
+            z: session.nextStackZ
         )
         session.annotations.append(fill)
         session.record("Fill selection", systemImage: "paintbrush.fill")
@@ -857,6 +868,33 @@ final class AppModel: ObservableObject {
         if !replaceMedia(.image(rotatedSession), for: itemID) {
             errorMessage = "That image was closed before the rotation finished."
         }
+    }
+
+    /// Change the canvas dimensions without scaling content — flattens the
+    /// current image, places it on a new canvas at an anchor (transparent or
+    /// filled margin, or crop), and replaces the item (same pattern as rotate).
+    func applyCanvasSize(width: Int, height: Int, anchor: CanvasAnchor, fill: NSColor?) {
+        guard let itemID = selectedItemID, case .image(let session) = media else {
+            errorMessage = "Open an image first."
+            return
+        }
+        guard let rendered = ImageRenderer.render(session) else {
+            errorMessage = "Couldn't render the image."
+            return
+        }
+        let flattened = ImageUpscaleService.imageWithExactPixelSize(rendered, size: session.effectivePixelSize)
+        let newSize = CGSize(width: max(1, width), height: max(1, height))
+        guard let resized = CanvasResizer.place(flattened, onCanvas: newSize, anchor: anchor, fill: fill) else {
+            errorMessage = "Canvas resize failed."
+            return
+        }
+        let newSession = ImageSession(sourceURL: session.sourceURL, sourceImage: resized)
+        newSession.isDirty = true
+        if !replaceMedia(.image(newSession), for: itemID) {
+            errorMessage = "That image was closed before the canvas resize finished."
+        }
+        isShowingCanvasSize = false
+        activeTool = .view
     }
 
     func requestExport() {
@@ -1310,6 +1348,49 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Image sessions for every currently-selected file (Batch Actions).
+    func selectedSessions() -> [ImageSession] {
+        let ids = selectedItemIDs.isEmpty ? Set([selectedItemID].compactMap { $0 }) : selectedItemIDs
+        return ids.compactMap { id in items.first(where: { $0.id == id }) }
+            .compactMap { item -> ImageSession? in
+                if case .image(let session) = item.media { return session }
+                return nil
+            }
+    }
+
+    /// Remove the background of every selected image, in sequence.
+    func batchRemoveBackground() {
+        let sessions = selectedSessions().filter { $0.backgroundRemovedImage == nil }
+        guard !sessions.isEmpty else { return }
+        isRemovingBackground = true
+        operationProgress = OperationProgress(
+            title: "Removing backgrounds",
+            detail: "\(sessions.count) image\(sessions.count == 1 ? "" : "s")",
+            startedAt: Date(),
+            fraction: nil
+        )
+        let engine = BackgroundRemovalEngine(
+            rawValue: UserDefaults.standard.string(forKey: "backgroundRemovalEngine")
+                ?? BackgroundRemovalEngine.builtIn.rawValue
+        ) ?? .builtIn
+        Task {
+            for session in sessions {
+                guard let source = session.sourceImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else { continue }
+                do {
+                    let output = try await Task.detached(priority: .userInitiated) {
+                        try await BackgroundRemovalService.removeBackground(from: source, engine: engine)
+                    }.value
+                    session.backgroundRemovedImage = NSImage(cgImage: output, size: CGSize(width: output.width, height: output.height))
+                    session.recordBackgroundRemoval()
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+            isRemovingBackground = false
+            operationProgress = nil
+        }
+    }
+
     var canRemoveBackgroundFromLayer: Bool {
         guard case .image(let session) = media else { return false }
         return session.selectedLayerID != nil && !isRemovingBackground
@@ -1477,9 +1558,17 @@ struct AppCommands: Commands {
 
         // Whole-image operations live under a dedicated "Image" menu.
         CommandMenu("Image") {
-            Button("Resize…") { currentAppModel?.activeTool = .resize }
+            Button("Image Size…") { currentAppModel?.activeTool = .resize }
                 .keyboardShortcut(Tool.resize.menuShortcutKey, modifiers: Tool.resize.menuShortcutModifiers)
                 .disabled(currentAppModel == nil)
+
+            Button("Canvas Size…") { currentAppModel?.isShowingCanvasSize = true }
+                .keyboardShortcut("c", modifiers: [.command, .option])
+                .disabled(currentAppModel?.imageSession == nil)
+
+            Button("Invert Mask") { currentAppModel?.imageSession?.invertActiveMask() }
+                .keyboardShortcut("i", modifiers: .command)
+                .disabled(currentAppModel?.imageSession == nil)
 
             Menu("Rotate") {
                 Button("Rotate 90° Clockwise") { currentAppModel?.rotate90(clockwise: true) }
@@ -1576,8 +1665,12 @@ struct AppCommands: Commands {
                 .keyboardShortcut("-")
                 .disabled(currentAppModel == nil)
 
+            Button("Actual Size (100%)") { currentAppModel?.actualSize() }
+                .keyboardShortcut("0", modifiers: .command)
+                .disabled(currentAppModel == nil)
+
             Button("Fit to Window") { currentAppModel?.resetView() }
-                .keyboardShortcut("0", modifiers: [])
+                .keyboardShortcut("0", modifiers: [.command, .shift])
                 .disabled(currentAppModel == nil)
 
             Divider()

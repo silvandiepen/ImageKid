@@ -1,4 +1,5 @@
 import AppKit
+import ImageKidCore
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -490,18 +491,38 @@ enum ImageRenderer {
             )
         }
 
-        drawImageLayers(session: session, targetSize: targetSize)
-
-        if includesAnnotations {
-            drawAnnotations(session: session, targetSize: targetSize)
-        }
+        // Interleave image layers and annotations by their shared z-order so a
+        // layer moved above an annotation exports above it (matching the canvas).
+        drawStack(session: session, targetSize: targetSize, includesAnnotations: includesAnnotations)
 
         return result
     }
 
-    private static func drawImageLayers(session: ImageSession, targetSize: CGSize) {
+    private static func drawStack(session: ImageSession, targetSize: CGSize, includesAnnotations: Bool) {
         let crop = session.cropRect
+        enum StackItem { case layer(ImageLayer); case annotation(Annotation) }
+        var items: [(z: Double, item: StackItem)] = []
         for layer in session.imageLayers where session.isLayerEffectivelyVisible(layer) {
+            items.append((layer.z, .layer(layer)))
+        }
+        if includesAnnotations {
+            for annotation in session.annotations where annotation.isVisible {
+                items.append((annotation.z, .annotation(annotation)))
+            }
+        }
+        items.sort { $0.z < $1.z }
+        for entry in items {
+            switch entry.item {
+            case .layer(let layer):
+                drawLayer(layer, crop: crop, targetSize: targetSize)
+            case .annotation(let annotation):
+                draw(annotation, cropRect: crop, sourceSize: session.pixelSize, targetSize: targetSize)
+            }
+        }
+    }
+
+    private static func drawLayer(_ layer: ImageLayer, crop: CGRect, targetSize: CGSize) {
+        do {
             let relativeFrame = CGRect(
                 x: (layer.frame.minX - crop.minX) / crop.width,
                 y: (layer.frame.minY - crop.minY) / crop.height,
@@ -509,7 +530,7 @@ enum ImageRenderer {
                 height: layer.frame.height / crop.height
             )
             guard relativeFrame.maxX > 0, relativeFrame.maxY > 0,
-                  relativeFrame.minX < 1, relativeFrame.minY < 1 else { continue }
+                  relativeFrame.minX < 1, relativeFrame.minY < 1 else { return }
             // Normalised frame uses a top-left origin; AppKit draws bottom-up.
             let rect = CGRect(
                 x: relativeFrame.minX * targetSize.width,
@@ -609,16 +630,30 @@ enum ImageRenderer {
 
         switch annotation.kind {
         case .rectangle:
-            let radius = annotation.cornerRadius * lineScale
             let shift = -annotation.strokeAlignment.edgeShift * lineWidth
             let strokeRect = rect.insetBy(dx: shift, dy: shift)
-            let strokeRadius = max(0, radius + annotation.strokeAlignment.edgeShift * lineWidth)
-            if let fill = annotation.fillColor {
-                fill.setFill()
-                roundedOutputPath(rect, radius: radius).fill()
+            if let radii = annotation.cornerRadii, radii.count == 4 {
+                let s = lineScale
+                let sh = annotation.strokeAlignment.edgeShift * lineWidth
+                if let fill = annotation.fillColor {
+                    fill.setFill()
+                    perCornerOutputPath(rect, tl: radii[0] * s, tr: radii[1] * s, br: radii[2] * s, bl: radii[3] * s).fill()
+                }
+                let strokePath = perCornerOutputPath(
+                    strokeRect,
+                    tl: max(0, radii[0] * s + sh), tr: max(0, radii[1] * s + sh),
+                    br: max(0, radii[2] * s + sh), bl: max(0, radii[3] * s + sh)
+                )
+                stroke(strokePath, annotation: annotation, lineWidth: lineWidth, scale: lineScale)
+            } else {
+                let radius = annotation.cornerRadius * lineScale
+                let strokeRadius = max(0, radius + annotation.strokeAlignment.edgeShift * lineWidth)
+                if let fill = annotation.fillColor {
+                    fill.setFill()
+                    roundedOutputPath(rect, radius: radius).fill()
+                }
+                stroke(roundedOutputPath(strokeRect, radius: strokeRadius), annotation: annotation, lineWidth: lineWidth, scale: lineScale)
             }
-            let path = roundedOutputPath(strokeRect, radius: strokeRadius)
-            stroke(path, annotation: annotation, lineWidth: lineWidth, scale: lineScale)
 
         case .ellipse:
             let shift = -annotation.strokeAlignment.edgeShift * lineWidth
@@ -646,11 +681,19 @@ enum ImageRenderer {
             )
 
         case .freehand(let points):
-            guard let first = points.first else { return }
+            let mapped = points.map { outputPoint($0, in: rect) }
+            guard mapped.count > 0 else { return }
             let path = NSBezierPath()
-            path.move(to: outputPoint(first, in: rect))
-            for point in points.dropFirst() {
-                path.line(to: outputPoint(point, in: rect))
+            path.move(to: mapped[0])
+            if mapped.count < 3 {
+                for p in mapped.dropFirst() { path.line(to: p) }
+            } else {
+                for i in 1..<(mapped.count - 1) {
+                    let cur = mapped[i], next = mapped[i + 1]
+                    let mid = CGPoint(x: (cur.x + next.x) / 2, y: (cur.y + next.y) / 2)
+                    path.curve(to: mid, controlPoint1: cur, controlPoint2: cur)
+                }
+                path.line(to: mapped[mapped.count - 1])
             }
             path.lineJoinStyle = .round
             path.lineCapStyle = .round
@@ -690,6 +733,14 @@ enum ImageRenderer {
         guard radius > 0 else { return NSBezierPath(rect: rect) }
         let r = min(radius, min(abs(rect.width), abs(rect.height)) / 2)
         return NSBezierPath(roundedRect: rect, xRadius: r, yRadius: r)
+    }
+
+    /// Per-corner rounded rectangle for the (y-up) export context.
+    private static func perCornerOutputPath(_ rect: CGRect, tl: CGFloat, tr: CGFloat, br: CGFloat, bl: CGFloat) -> NSBezierPath {
+        let cg = GeometryMapper.roundedRectPath(
+            rect, topLeft: tl, topRight: tr, bottomRight: br, bottomLeft: bl, flipped: true
+        )
+        return NSBezierPath(cgPath: cg)
     }
 
     /// Stroke a shape/line path with the annotation's dash and colour.
@@ -758,6 +809,37 @@ enum ImageRenderError: LocalizedError {
         case .renderFailed: "The image could not be rendered."
         case .encodeFailed: "The image could not be encoded."
         case .upscaleRuntimeMissing: "Best Quality is not ready yet. Turn it on in Settings > Upscale."
+        }
+    }
+}
+
+extension NSBezierPath {
+    /// Build an NSBezierPath from a CGPath (AppKit has no such initializer).
+    convenience init(cgPath: CGPath) {
+        self.init()
+        cgPath.applyWithBlock { elementPtr in
+            let element = elementPtr.pointee
+            let points = element.points
+            switch element.type {
+            case .moveToPoint:
+                self.move(to: points[0])
+            case .addLineToPoint:
+                self.line(to: points[0])
+            case .addQuadCurveToPoint:
+                let start = self.currentPoint
+                let control = points[0], end = points[1]
+                let c1 = CGPoint(x: start.x + 2.0 / 3.0 * (control.x - start.x),
+                                 y: start.y + 2.0 / 3.0 * (control.y - start.y))
+                let c2 = CGPoint(x: end.x + 2.0 / 3.0 * (control.x - end.x),
+                                 y: end.y + 2.0 / 3.0 * (control.y - end.y))
+                self.curve(to: end, controlPoint1: c1, controlPoint2: c2)
+            case .addCurveToPoint:
+                self.curve(to: points[2], controlPoint1: points[0], controlPoint2: points[1])
+            case .closeSubpath:
+                self.close()
+            @unknown default:
+                break
+            }
         }
     }
 }

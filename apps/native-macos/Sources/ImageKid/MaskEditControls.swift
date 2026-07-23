@@ -19,7 +19,7 @@ struct MaskEditControls: View {
             VStack(alignment: .leading, spacing: 16) {
                 field("Mask view") {
                     HStack(spacing: 10) {
-                        Slider(value: $session.maskViewOpacity, in: 0...1, step: 0.01)
+                        MinimalSlider(value: $session.maskViewOpacity, in: 0...1, step: 0.01)
                         Text("\(Int(session.maskViewOpacity * 100))%")
                             .font(.system(.caption, design: .monospaced, weight: .semibold))
                             .frame(width: 44, alignment: .trailing)
@@ -41,7 +41,7 @@ struct MaskEditControls: View {
                 if session.maskWandMode {
                     field("Tolerance") {
                         HStack(spacing: 10) {
-                            Slider(value: $session.maskWandTolerance, in: 0.01...0.6, step: 0.01)
+                            MinimalSlider(value: $session.maskWandTolerance, in: 0.01...0.6, step: 0.01)
                             Text("\(Int(session.maskWandTolerance * 100))%")
                                 .font(.system(.caption, design: .monospaced, weight: .semibold))
                                 .frame(width: 44, alignment: .trailing)
@@ -116,7 +116,7 @@ struct MaskEditControls: View {
     ) -> some View where V.Stride: BinaryFloatingPoint {
         field(title) {
             HStack(spacing: 10) {
-                Slider(value: value, in: range, step: step)
+                MinimalSlider(value: value, in: range, step: step)
                 Text(readout(Double(value.wrappedValue), suffix: suffix, percent: percent))
                     .font(.system(.caption, design: .monospaced, weight: .semibold))
                     .frame(width: 44, alignment: .trailing)

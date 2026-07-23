@@ -1,4 +1,5 @@
 import AppKit
+import ImageKidCore
 
 enum ImageSelectionRenderer {
     static func crop(_ image: NSImage, normalizedRect: CGRect) -> NSImage? {

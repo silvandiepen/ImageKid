@@ -11,6 +11,25 @@ struct SampledColor: Identifiable, Equatable {
 
     var hex: String { String(format: "#%02X%02X%02X", r, g, b) }
     var rgb: String { "rgb(\(r), \(g), \(b))" }
+
+    var hsl: String {
+        let rf = Double(r) / 255, gf = Double(g) / 255, bf = Double(b) / 255
+        let maximum = max(rf, gf, bf), minimum = min(rf, gf, bf)
+        let delta = maximum - minimum
+        let lightness = (maximum + minimum) / 2
+        let saturation = delta == 0 ? 0 : delta / (1 - abs(2 * lightness - 1))
+        var hue = 0.0
+        if delta != 0 {
+            if maximum == rf { hue = 60 * (((gf - bf) / delta).truncatingRemainder(dividingBy: 6)) }
+            else if maximum == gf { hue = 60 * (((bf - rf) / delta) + 2) }
+            else { hue = 60 * (((rf - gf) / delta) + 4) }
+        }
+        if hue < 0 { hue += 360 }
+        return String(format: "hsl(%.0f, %.0f%%, %.0f%%)", hue, saturation * 100, lightness * 100)
+    }
+
+    var cssVariable: String { "--color: \(hex);" }
+
     var color: Color {
         Color(red: Double(r) / 255, green: Double(g) / 255, blue: Double(b) / 255)
     }

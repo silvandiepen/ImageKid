@@ -1,4 +1,5 @@
 import AppKit
+import ImageKidCore
 import SwiftUI
 import ImageKidKit
 import UniformTypeIdentifiers
@@ -72,10 +73,12 @@ struct ImageWorkspaceView: View {
                         .position(x: imageRect.midX, y: imageRect.midY)
                 }
 
-                imageLayers(in: imageRect)
+                stackedContent(in: imageRect)
+                if !session.imageLayers.isEmpty || session.baseUnlocked {
+                    outOfCanvasDim(in: imageRect, canvas: bounds)
+                }
                 maskEditOverlay(in: imageRect)
                 gridOverlay(in: imageRect, canvas: bounds)
-                annotations(in: imageRect)
                 imageSelection(in: imageRect)
                 draftDrawing(in: imageRect)
 
@@ -570,6 +573,18 @@ struct ImageWorkspaceView: View {
         }
     }
 
+    /// Dims everything outside the canvas rect so content that spills past the
+    /// canvas edge reads clearly as off-canvas.
+    private func outOfCanvasDim(in imageRect: CGRect, canvas bounds: CGRect) -> some View {
+        let radius = imageCornerRadius(for: imageRect)
+        return Path { path in
+            path.addRect(bounds)
+            path.addRoundedRect(in: imageRect, cornerSize: CGSize(width: radius, height: radius))
+        }
+        .fill(Color.black.opacity(0.35), style: FillStyle(eoFill: true))
+        .allowsHitTesting(false)
+    }
+
     private func canvasBorder(in imageRect: CGRect) -> some View {
         RoundedRectangle(cornerRadius: imageCornerRadius(for: imageRect), style: .continuous)
             .strokeBorder(canvasBorderColor, lineWidth: settings.canvasBackground == .checkerboard ? 1.5 : 1)
@@ -617,27 +632,39 @@ struct ImageWorkspaceView: View {
         }
     }
 
+    /// The unified stack: image layers and annotations rendered in one shared
+    /// z-order (bottom to top), so shapes and image layers freely interleave.
     @ViewBuilder
-    private func imageLayers(in imageRect: CGRect) -> some View {
-        ForEach(session.imageLayers) { layer in
-            if session.isLayerEffectivelyVisible(layer), let displayedFrame = displayedAnnotationFrame(layer.frame) {
-                let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
-                // Show the full (unmasked) image while editing its mask.
-                let displayImage = session.maskEditLayerID == layer.id ? layer.image : layer.renderedImage
-                Image(nsImage: displayImage)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: rect.width, height: rect.height)
-                    .opacity(layer.opacity)
-                    .scaleEffect(x: layer.flipH ? -1 : 1, y: layer.flipV ? -1 : 1)
-                    .rotationEffect(.degrees(layer.rotation))
-                    .position(x: rect.midX, y: rect.midY)
-                    .allowsHitTesting(false)
+    private func stackedContent(in imageRect: CGRect) -> some View {
+        ForEach(session.stackBottomToTop) { item in
+            switch item {
+            case .layer(let layer):
+                imageLayerView(layer, in: imageRect)
+            case .annotation(let annotation):
+                annotationView(annotation, in: imageRect)
+            }
+        }
+    }
 
-                if session.selectedLayerID == layer.id {
-                    rotatedLayerSelectionOverlay(for: rect, rotation: layer.rotation)
-                        .allowsHitTesting(false)
-                }
+    @ViewBuilder
+    private func imageLayerView(_ layer: ImageLayer, in imageRect: CGRect) -> some View {
+        if session.isLayerEffectivelyVisible(layer), let displayedFrame = displayedAnnotationFrame(layer.frame) {
+            let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
+            // Show the full (unmasked) image while editing its mask.
+            let displayImage = session.maskEditLayerID == layer.id ? layer.image : layer.renderedImage
+            Image(nsImage: displayImage)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: rect.width, height: rect.height)
+                .opacity(layer.opacity)
+                .scaleEffect(x: layer.flipH ? -1 : 1, y: layer.flipV ? -1 : 1)
+                .rotationEffect(.degrees(layer.rotation))
+                .position(x: rect.midX, y: rect.midY)
+                .allowsHitTesting(false)
+
+            if session.selectedLayerID == layer.id {
+                rotatedLayerSelectionOverlay(for: rect, rotation: layer.rotation)
+                    .allowsHitTesting(false)
             }
         }
     }
@@ -743,15 +770,14 @@ struct ImageWorkspaceView: View {
             // Blue = reveal, red = hide, so the two modes are easy to tell apart.
             let ringColor: Color = session.maskBrushReveal ? .blue : .red
 
-            // Live preview of the stroke; rasterised to black/white on release.
+            // Live preview of the stroke — smoothed and blurred by softness to
+            // match how it rasterises.
             if maskStrokeViewPoints.count > 1 {
-                Path { p in
-                    p.move(to: maskStrokeViewPoints[0])
-                    for pt in maskStrokeViewPoints.dropFirst() { p.addLine(to: pt) }
-                }
-                .stroke(ringColor.opacity(0.55 * session.maskBrushOpacity),
-                        style: StrokeStyle(lineWidth: w, lineCap: .round, lineJoin: .round))
-                .allowsHitTesting(false)
+                Self.smoothPath(maskStrokeViewPoints)
+                    .stroke(ringColor.opacity(0.55 * session.maskBrushOpacity),
+                            style: StrokeStyle(lineWidth: w, lineCap: .round, lineJoin: .round))
+                    .blur(radius: session.maskBrushSoftness * w / 2)
+                    .allowsHitTesting(false)
             }
 
             if let cursor = maskBrushCursor {
@@ -787,23 +813,21 @@ struct ImageWorkspaceView: View {
     }
 
     @ViewBuilder
-    private func annotations(in imageRect: CGRect) -> some View {
-        ForEach(session.annotations) { annotation in
-            if annotation.isVisible, let displayedFrame = displayedAnnotationFrame(annotation.frame) {
-                let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
+    private func annotationView(_ annotation: Annotation, in imageRect: CGRect) -> some View {
+        if annotation.isVisible, let displayedFrame = displayedAnnotationFrame(annotation.frame) {
+            let rect = GeometryMapper.viewRect(from: displayedFrame, in: imageRect)
 
-                if editingTextID != annotation.id {
-                    let m = drawableMargin(annotation)
-                    annotationContent(annotation)
-                        .frame(width: rect.width + 2 * m, height: rect.height + 2 * m)
-                        .position(x: rect.midX, y: rect.midY)
-                        .blendMode(annotation.blendMode.swiftUI)
-                        .opacity(annotation.opacity)
-                }
+            if editingTextID != annotation.id {
+                let m = drawableMargin(annotation)
+                annotationContent(annotation)
+                    .frame(width: rect.width + 2 * m, height: rect.height + 2 * m)
+                    .position(x: rect.midX, y: rect.midY)
+                    .blendMode(annotation.blendMode.swiftUI)
+                    .opacity(annotation.opacity)
+            }
 
-                if session.selectedAnnotationID == annotation.id {
-                    selectionOverlay(for: rect, annotation: annotation)
-                }
+            if session.selectedAnnotationID == annotation.id {
+                selectionOverlay(for: rect, annotation: annotation)
             }
         }
     }
@@ -916,12 +940,7 @@ struct ImageWorkspaceView: View {
         }
 
         if session.drawingMode == .freehand, draftFreehandPoints.count > 1 {
-            Path { path in
-                path.move(to: draftFreehandPoints[0])
-                for point in draftFreehandPoints.dropFirst() {
-                    path.addLine(to: point)
-                }
-            }
+            Self.smoothPath(draftFreehandPoints)
             .stroke(
                 Color(nsColor: session.drawingStrokeColor).opacity(session.drawingOpacity),
                 style: StrokeStyle(
@@ -1096,13 +1115,18 @@ struct ImageWorkspaceView: View {
                 return mode
             }
 
-            if let annotation = hitAnnotation(at: point, imageRect: imageRect) {
-                session.selectionRect = nil
-                return annotationMoveMode(annotation)
+            // Move the already-selected item (even if occluded, e.g. a background
+            // layer selected from the panel) when the drag starts inside it.
+            if let mode = selectedItemMoveMode(at: point, imageRect: imageRect) {
+                return mode
             }
 
-            if let mode = layerMoveMode(at: point, imageRect: imageRect) {
-                return mode
+            if let item = hitTopStackItem(at: point, imageRect: imageRect) {
+                session.selectionRect = nil
+                switch item {
+                case .annotation(let a): return annotationMoveMode(a)
+                case .layer(let l): return layerMoveModeFor(l)
+                }
             }
 
             session.selectedAnnotationID = nil
@@ -1165,12 +1189,17 @@ struct ImageWorkspaceView: View {
                 return mode
             }
 
-            if let annotation = hitAnnotation(at: point, imageRect: imageRect) {
-                return annotationMoveMode(annotation)
+            // Move the already-selected item (even if occluded, e.g. a background
+            // layer selected from the panel) when the drag starts inside it.
+            if let mode = selectedItemMoveMode(at: point, imageRect: imageRect) {
+                return mode
             }
 
-            if let mode = layerMoveMode(at: point, imageRect: imageRect) {
-                return mode
+            if let item = hitTopStackItem(at: point, imageRect: imageRect) {
+                switch item {
+                case .annotation(let a): return annotationMoveMode(a)
+                case .layer(let l): return layerMoveModeFor(l)
+                }
             }
 
             session.selectedAnnotationID = nil
@@ -1196,9 +1225,15 @@ struct ImageWorkspaceView: View {
 
         case .maskEdit:
             // Accumulate the stroke; it's rasterised into the mask on release so
-            // dragging stays smooth even on large masks.
+            // dragging stays smooth even on large masks. Shift constrains to a
+            // straight line from the start point.
             if !session.maskWandMode {
-                maskStrokeViewPoints.append(value.location)
+                if NSEvent.modifierFlags.contains(.shift) {
+                    maskStrokeViewPoints = [value.startLocation, value.location]
+                } else {
+                    maskStrokeViewPoints.append(value.location)
+                }
+                maskBrushCursor = value.location
             }
 
         case .placeText:
@@ -1220,7 +1255,7 @@ struct ImageWorkspaceView: View {
             // Drag diagonally inward from the top-left corner to grow the radius.
             let maxD = min(rect.width, rect.height) / 2
             let newRadius = min(max(min(value.location.x - rect.minX, value.location.y - rect.minY), 0), maxD)
-            session.updateAnnotation(id: id) { $0.cornerRadius = newRadius }
+            session.updateAnnotation(id: id) { $0.cornerRadius = newRadius; $0.cornerRadii = nil }
 
         case .moveLayer(let id, let start):
             let delta = sourceTranslation(value.translation, imageRect: imageRect)
@@ -1382,11 +1417,11 @@ struct ImageWorkspaceView: View {
         guard let annotation else { return }
         session.annotations.append(annotation)
         session.record("Add \(session.drawingMode.label.lowercased())", systemImage: session.drawingMode.symbolName)
-        // Select the shape just drawn so it can be adjusted immediately.
-        // Freehand keeps the brush active for continued drawing.
+        // Select the shape so its settings show, but stay in the Draw tool so the
+        // next drag draws another shape directly. Freehand keeps drawing too.
         if session.drawingMode != .freehand {
             session.selectedAnnotationID = annotation.id
-            appModel.activeTool = .select
+            session.selectedLayerID = nil
         } else {
             session.selectedAnnotationID = nil
         }
@@ -1461,7 +1496,8 @@ struct ImageWorkspaceView: View {
             dashGap: session.drawingDashGap,
             dashOffset: session.drawingDashOffset,
             blendMode: session.drawingBlendMode,
-            opacity: session.drawingOpacity
+            opacity: session.drawingOpacity,
+            z: session.nextStackZ
         )
     }
 
@@ -1482,7 +1518,8 @@ struct ImageWorkspaceView: View {
             strokeColor: library.foreground,
             lineWidth: session.drawingLineWidth,
             strokeStyle: session.drawingStrokeStyle,
-            opacity: session.drawingOpacity
+            opacity: session.drawingOpacity,
+            z: session.nextStackZ
         )
     }
 
@@ -1502,7 +1539,8 @@ struct ImageWorkspaceView: View {
                 fromDisplayNormalized: displayFrame,
                 cropRect: session.cropRect
             ),
-            strokeColor: library.foreground
+            strokeColor: library.foreground,
+            z: session.nextStackZ
         )
         session.annotations.append(annotation)
         session.selectedAnnotationID = annotation.id
@@ -1583,11 +1621,47 @@ struct ImageWorkspaceView: View {
     }
 
     private func hitLayer(at point: CGPoint, imageRect: CGRect) -> ImageLayer? {
-        session.imageLayers.reversed().first { layer in
-            guard session.isLayerEffectivelyVisible(layer), let displayed = displayedAnnotationFrame(layer.frame) else { return false }
-            let rect = GeometryMapper.viewRect(from: displayed, in: imageRect)
-            let center = CGPoint(x: rect.midX, y: rect.midY)
-            return rect.contains(unrotatePoint(point, around: center, degrees: layer.rotation))
+        session.imageLayers.reversed().first { layer in layerContains(layer, at: point, imageRect: imageRect) }
+    }
+
+    private func annotationContains(_ annotation: Annotation, at point: CGPoint, imageRect: CGRect) -> Bool {
+        guard annotation.isVisible, let displayed = displayedAnnotationFrame(annotation.frame) else { return false }
+        return GeometryMapper.viewRect(from: displayed, in: imageRect).insetBy(dx: -6, dy: -6).contains(point)
+    }
+
+    private func layerContains(_ layer: ImageLayer, at point: CGPoint, imageRect: CGRect) -> Bool {
+        guard session.isLayerEffectivelyVisible(layer), let displayed = displayedAnnotationFrame(layer.frame) else { return false }
+        let rect = GeometryMapper.viewRect(from: displayed, in: imageRect)
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        return rect.contains(unrotatePoint(point, around: center, degrees: layer.rotation))
+    }
+
+    private func selectedStackItem() -> StackItem? {
+        if let id = session.selectedLayerID, let l = session.imageLayers.first(where: { $0.id == id }) { return .layer(l) }
+        if let id = session.selectedAnnotationID, let a = session.annotations.first(where: { $0.id == id }) { return .annotation(a) }
+        return nil
+    }
+
+    /// If a drag starts inside the already-selected item, move that item — even if
+    /// something is on top. Lets you move an occluded/background layer selected
+    /// from the Layers panel.
+    private func selectedItemMoveMode(at point: CGPoint, imageRect: CGRect) -> DragMode? {
+        guard let sel = selectedStackItem() else { return nil }
+        switch sel {
+        case .layer(let l):
+            return layerContains(l, at: point, imageRect: imageRect) ? layerMoveModeFor(l) : nil
+        case .annotation(let a):
+            return annotationContains(a, at: point, imageRect: imageRect) ? annotationMoveMode(a) : nil
+        }
+    }
+
+    /// The top-most stack item (by shared z) under the point — layer or annotation.
+    private func hitTopStackItem(at point: CGPoint, imageRect: CGRect) -> StackItem? {
+        session.stackTopToBottom.first { item in
+            switch item {
+            case .annotation(let a): return annotationContains(a, at: point, imageRect: imageRect)
+            case .layer(let l): return layerContains(l, at: point, imageRect: imageRect)
+            }
         }
     }
 
@@ -1639,8 +1713,12 @@ struct ImageWorkspaceView: View {
 
     private func layerMoveMode(at point: CGPoint, imageRect: CGRect) -> DragMode? {
         guard let layer = hitLayer(at: point, imageRect: imageRect) else { return nil }
+        return layerMoveModeFor(layer)
+    }
+
+    /// Start moving a specific image layer; Option-drag duplicates it.
+    private func layerMoveModeFor(_ layer: ImageLayer) -> DragMode {
         session.selectionRect = nil
-        // Option-drag duplicates the layer and drags the copy.
         if NSEvent.modifierFlags.contains(.option),
            let copyID = session.duplicateImageLayer(id: layer.id, offset: 0),
            let copy = session.imageLayers.first(where: { $0.id == copyID }) {
@@ -1946,13 +2024,27 @@ struct ImageWorkspaceView: View {
 
         switch annotation.kind {
         case .rectangle:
-            let radius = annotation.cornerRadius
-            let fillPath = roundedRectPath(baseRect, radius: radius)
+            let fillPath: Path
+            let strokePath: Path
+            if let radii = annotation.cornerRadii, radii.count == 4 {
+                let shift = annotation.strokeAlignment.edgeShift * lw
+                fillPath = Path(GeometryMapper.roundedRectPath(
+                    baseRect, topLeft: radii[0], topRight: radii[1], bottomRight: radii[2], bottomLeft: radii[3]
+                ))
+                strokePath = Path(GeometryMapper.roundedRectPath(
+                    strokeRect,
+                    topLeft: max(0, radii[0] + shift), topRight: max(0, radii[1] + shift),
+                    bottomRight: max(0, radii[2] + shift), bottomLeft: max(0, radii[3] + shift)
+                ))
+            } else {
+                let radius = annotation.cornerRadius
+                fillPath = roundedRectPath(baseRect, radius: radius)
+                strokePath = roundedRectPath(strokeRect, radius: max(0, radius + annotation.strokeAlignment.edgeShift * lw))
+            }
             if let fill = annotation.fillColor {
                 context.fill(fillPath, with: .color(Color(nsColor: fill)))
             }
-            let strokeRadius = max(0, radius + annotation.strokeAlignment.edgeShift * lw)
-            context.stroke(roundedRectPath(strokeRect, radius: strokeRadius), with: stroke, style: style)
+            context.stroke(strokePath, with: stroke, style: style)
 
         case .ellipse:
             if let fill = annotation.fillColor {
@@ -1980,17 +2072,30 @@ struct ImageWorkspaceView: View {
             )
 
         case .freehand(let points):
-            guard let first = points.first else { return }
-            var path = Path()
-            path.move(to: localPoint(first, size: size))
-            for point in points.dropFirst() {
-                path.addLine(to: localPoint(point, size: size))
-            }
+            let path = Self.smoothPath(points.map { localPoint($0, size: size) })
             context.stroke(path, with: stroke, style: style)
 
         case .text:
             break
         }
+    }
+
+    /// A smooth curve through the points (quadratic segments via midpoints).
+    static func smoothPath(_ pts: [CGPoint]) -> Path {
+        var path = Path()
+        guard let first = pts.first else { return path }
+        path.move(to: first)
+        if pts.count < 3 {
+            for p in pts.dropFirst() { path.addLine(to: p) }
+            return path
+        }
+        for i in 1..<(pts.count - 1) {
+            let cur = pts[i], next = pts[i + 1]
+            let mid = CGPoint(x: (cur.x + next.x) / 2, y: (cur.y + next.y) / 2)
+            path.addQuadCurve(to: mid, control: cur)
+        }
+        path.addLine(to: pts[pts.count - 1])
+        return path
     }
 
     private func drawArrow(

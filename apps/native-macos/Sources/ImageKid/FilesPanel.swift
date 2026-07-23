@@ -74,6 +74,13 @@ struct FilesListContent: View {
                 }
                 appModel.requestExport()
             }
+            if appModel.selectedItemIDs.count > 1 {
+                Menu("Actions on \(appModel.selectedItemIDs.count) files") {
+                    Button("Remove Background") { appModel.batchRemoveBackground() }
+                        .disabled(appModel.isRemovingBackground)
+                    Button("Export…") { appModel.requestExport() }
+                }
+            }
             Button("Close Without Saving") {
                 appModel.closeItem(item.id)
             }

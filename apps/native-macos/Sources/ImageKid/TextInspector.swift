@@ -1,4 +1,5 @@
 import AppKit
+import ImageKidCore
 import SwiftUI
 import ImageKidKit
 
@@ -41,7 +42,7 @@ struct TextInspector: View {
 
                 field("Size") {
                     HStack(spacing: 10) {
-                        Slider(value: fontSizeBinding, in: 0...400, step: 1)
+                        MinimalSlider(value: fontSizeBinding, in: 0...400, step: 1)
                         TextField("", value: fontSizeBinding, format: .number)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 52)
@@ -50,7 +51,7 @@ struct TextInspector: View {
 
                 field("Line height") {
                     HStack(spacing: 10) {
-                        Slider(value: lineHeightBinding, in: 0...4, step: 0.05)
+                        MinimalSlider(value: lineHeightBinding, in: 0...4, step: 0.05)
                         TextField("", value: lineHeightBinding, format: .number.precision(.fractionLength(2)))
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 52)

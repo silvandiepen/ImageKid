@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageKidCore
 
 struct CropOverlay: View {
     let imageRect: CGRect

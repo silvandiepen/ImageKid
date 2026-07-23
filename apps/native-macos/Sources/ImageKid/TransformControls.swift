@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageKidCore
 import ImageKidKit
 
 /// Fast transforms for the selected image layer: rotate, flip, scale, reset.
@@ -29,7 +30,7 @@ struct TransformControls: View {
                             .frame(width: 56)
                         Text("°").foregroundStyle(.white.opacity(0.55))
                     }
-                    Slider(value: rotationBinding, in: -180...180, step: 1)
+                    MinimalSlider(value: rotationBinding, in: -180...180, step: 1)
                 }
 
                 field("Flip") {
