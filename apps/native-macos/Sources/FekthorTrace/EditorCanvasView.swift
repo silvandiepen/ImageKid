@@ -1561,6 +1561,48 @@ struct EditorCanvasView: View {
         let docRect = CGRect(
             x: (band.minX - t.tx) / t.s, y: (band.minY - t.ty) / t.s,
             width: band.width / t.s, height: band.height / t.s)
+
+        // Direct Select: the band grabs the POINTS inside it. Anchor editing is
+        // single-shape, so keep the shape with the most points in the box.
+        if session.tool == .directSelect {
+            var best: (id: Int, refs: Set<AnchorRef>)? = nil
+            func walkPoints(_ nodes: [GraphicNode]) {
+                for node in nodes {
+                    switch node {
+                    case .raw: continue
+                    case .group(let g):
+                        guard !g.renderStyle.isDisplayNone, !session.lockedNodes.contains(g.id)
+                        else { continue }
+                        walkPoints(g.children)
+                    case .shape(let s):
+                        guard !s.renderStyle.isDisplayNone, !session.lockedNodes.contains(s.id)
+                        else { continue }
+                        var refs: Set<AnchorRef> = []
+                        for a in Editing2.anchors(of: s)
+                        where docRect.contains(CGPoint(x: a.position.x, y: a.position.y)) {
+                            refs.insert(AnchorRef(path: a.path, index: a.index))
+                        }
+                        if !refs.isEmpty, best == nil || refs.count > best!.refs.count {
+                            best = (s.id, refs)
+                        }
+                    }
+                }
+            }
+            walkPoints(session.document.nodes)
+            let shift = NSEvent.modifierFlags.contains(.shift)
+            if let best {
+                if shift, session.selection == [best.id] {
+                    selectedAnchors.formUnion(best.refs)
+                } else {
+                    session.selection = [best.id]
+                    selectedAnchors = best.refs
+                }
+            } else if !shift {
+                selectedAnchors = []
+            }
+            return
+        }
+
         var picked = marqueeBase
         func walk(_ nodes: [GraphicNode]) {
             for node in nodes {
