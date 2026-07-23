@@ -51,6 +51,12 @@ struct EditorCanvasView: View {
     @State private var zoomScrub = false
     @State private var zoomDragStart: (location: CGPoint, zoom: CGFloat)? = nil
     @State private var draggingAnchor: (path: Int, index: Int)? = nil
+    /// The dragged anchor's doc position at grab time, so a drag moves it by
+    /// the delta from there — a click (no movement) never snaps it to grid.
+    @State private var anchorDragStart: Pt? = nil
+    /// The anchor drag hasn't taken its undo snapshot yet — deferred until the
+    /// first real move, so selecting a point doesn't create an empty undo step.
+    @State private var pendingAnchorGesture = false
     @State private var draggingHandle: (segment: Int, kind: Editing.HandleKind)? = nil
     @State private var draggingBody = false
     /// Body-drag bookkeeping: the doc point the drag started at, and the
@@ -1154,9 +1160,10 @@ struct EditorCanvasView: View {
                 }
             }
             if let hit = best {
-                session.beginGesture(label: "Move anchor")
+                pendingAnchorGesture = true
                 snapMagnets = collectMagnets(excluding: session.selection)
                 draggingAnchor = (hit.0.path, hit.0.index)
+                anchorDragStart = hit.0.position
                 activeAnchor = (hit.0.path, hit.0.index)
                 return
             }
@@ -1174,10 +1181,11 @@ struct EditorCanvasView: View {
                 if d <= hitRadius, best == nil || d < best!.1 { best = (a, d) }
             }
             if let hit = best {
-                session.beginGesture(label: "Move anchor")
+                pendingAnchorGesture = true
                 session.selection = [under]
                 snapMagnets = collectMagnets(excluding: session.selection)
                 draggingAnchor = (hit.0.path, hit.0.index)
+                anchorDragStart = hit.0.position
                 activeAnchor = (hit.0.path, hit.0.index)
                 return
             }
@@ -1271,10 +1279,22 @@ struct EditorCanvasView: View {
             session.moveHandle(
                 node: sel, path: active.path, segment: h.segment, kind: h.kind,
                 to: want, mirror: mirror)
-        } else if let d = draggingAnchor, let sel = single {
-            session.moveAnchor(
-                node: sel, path: d.path, anchor: d.index,
-                to: pointOrGridSnapped(target, in: size))
+        } else if let d = draggingAnchor, let sel = single, let start = anchorDragStart {
+            // A click (no real movement) only selects — never move/snap the
+            // point. Once dragging, move it by the delta from its grab point
+            // (so it doesn't jump to the cursor), snapping the result to grid.
+            if hypot(v.translation.width, v.translation.height) > 2 {
+                if pendingAnchorGesture {
+                    session.beginGesture(label: "Move anchor")
+                    pendingAnchorGesture = false
+                }
+                let s = docPoint(from: v.startLocation, in: size)
+                let cur = docPoint(from: v.location, in: size)
+                let raw = Pt(start.x + (cur.x - s.x), start.y + (cur.y - s.y))
+                session.moveAnchor(
+                    node: sel, path: d.path, anchor: d.index,
+                    to: pointOrGridSnapped(raw, in: size))
+            }
         } else if draggingBody, let origin = moveOrigin {
             // Point snap sticks the GRAB POINT to the magnet (the shape
             // keeps its offset to the cursor); grid snap keeps quantising
@@ -1308,6 +1328,8 @@ struct EditorCanvasView: View {
             gestureBegan = false
             snapMagnets = []
             activeMagnet = nil
+            anchorDragStart = nil
+            pendingAnchorGesture = false
         }
         if zoomDragStart != nil {
             zoomDragStart = nil
