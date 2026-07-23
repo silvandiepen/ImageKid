@@ -100,6 +100,8 @@ struct EditorItem: Identifiable {
     /// Non-destructive annotations (text/shapes) layered over `current`. Kept
     /// editable and only flattened into pixels on export — never baked in place.
     var annotations: [Annotation] = []
+    /// Non-destructive image layers placed over the base (flattened on export).
+    var layers: [EditorLayer] = []
     /// The working image captured immediately before the last background removal,
     /// used as the restore source in Refine (may be cropped, unlike `sourceImage`).
     var preRemovalImage: UIImage?
@@ -221,6 +223,30 @@ final class InferenceModel: ObservableObject {
     var annotations: [Annotation] {
         get { active?.annotations ?? [] }
         set { if let i = activeIndex { items[i].annotations = newValue } }
+    }
+
+    /// Image layers for the selected picture (persist, editable).
+    var layers: [EditorLayer] {
+        get { active?.layers ?? [] }
+        set { if let i = activeIndex { items[i].layers = newValue } }
+    }
+
+    func addLayer(_ image: UIImage) {
+        guard let base = workingImage else { return }
+        // Fit the new layer to ~55% of the base, centred, preserving aspect.
+        let baseAspect = base.size.width / max(base.size.height, 1)
+        let imgAspect = image.size.width / max(image.size.height, 1)
+        var w: CGFloat = 0.55
+        var h: CGFloat = w * (baseAspect / max(imgAspect, 0.0001))
+        if h > 0.9 { h = 0.9; w = h * (imgAspect / max(baseAspect, 0.0001)) }
+        let frame = CGRect(x: (1 - w) / 2, y: (1 - h) / 2, width: w, height: h)
+        let name = "Layer \(layers.count + 1)"
+        layers.append(EditorLayer(name: name, image: image, frame: frame))
+        statusText = "Layer added"
+    }
+
+    func removeLayer(_ id: UUID) {
+        layers.removeAll { $0.id == id }
     }
 
     var canUndo: Bool { active.map { !$0.undoStack.isEmpty } ?? false }

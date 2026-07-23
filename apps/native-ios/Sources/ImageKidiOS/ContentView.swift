@@ -23,6 +23,8 @@ struct ContentView: View {
     @State private var isEditingTextInline = false
     @State private var selectedAnnotationID: UUID?
     @State private var editingTextID: UUID?
+    @State private var selectedLayerID: UUID?
+    @State private var layerPickerItem: PhotosPickerItem?
     @State private var annotationKind: Annotation.Kind = .freehand
     @State private var annotationColor: Color = .red
     @State private var annotationWidthFraction: CGFloat = 0.008
@@ -36,6 +38,11 @@ struct ContentView: View {
     /// Editable, non-destructive annotations for the selected picture.
     private var annotations: Binding<[Annotation]> {
         Binding(get: { model.annotations }, set: { model.annotations = $0 })
+    }
+
+    /// Editable, non-destructive image layers for the selected picture.
+    private var layers: Binding<[EditorLayer]> {
+        Binding(get: { model.layers }, set: { model.layers = $0 })
     }
 
     var body: some View {
@@ -82,6 +89,21 @@ struct ContentView: View {
         .toolbar { editorToolbar }
         .onChange(of: pickerItem) { _, newValue in
             loadPickedImage(newValue)
+        }
+        .onChange(of: layerPickerItem) { _, newValue in
+            loadLayerImage(newValue)
+        }
+    }
+
+    private func loadLayerImage(_ item: PhotosPickerItem?) {
+        guard let item else { return }
+        Task { @MainActor in
+            if let data = try? await item.loadTransferable(type: Data.self),
+               let image = UIImage(data: data) {
+                model.addLayer(image)
+                selectedLayerID = model.layers.last?.id
+            }
+            layerPickerItem = nil
         }
     }
 
@@ -190,6 +212,7 @@ struct ContentView: View {
                     showBorder: settings.showCanvasBorder,
                     cropRect: $cropRect,
                     annotations: annotations,
+                    layers: layers,
                     draftAnnotation: $draftAnnotation,
                     annotationKind: annotationToolKind,
                     annotationColor: annotationColor,
@@ -200,6 +223,7 @@ struct ContentView: View {
                     isEditingText: $isEditingTextInline,
                     selectedAnnotationID: $selectedAnnotationID,
                     editingTextID: $editingTextID,
+                    selectedLayerID: $selectedLayerID,
                     onTextLocation: { _ in }
                 )
             } else {
@@ -339,6 +363,7 @@ struct ContentView: View {
             toolButton(.colour)
             toolButton(.crop)
             toolButton(.resize)
+            toolButton(.layer)
             toolButton(.draw)
             toolButton(.text)
             Divider().frame(height: 26).padding(.horizontal, 2)
@@ -436,6 +461,13 @@ struct ContentView: View {
                         onApply: applyAnnotations
                     )
                 }
+            case .layer:
+                LayerInspector(
+                    layers: layers,
+                    selectedID: $selectedLayerID,
+                    pickerItem: $layerPickerItem,
+                    onClose: { activeTool = nil }
+                )
             case .select, .text:
                 EmptyView()
             }
@@ -524,15 +556,17 @@ struct ContentView: View {
         activeTool = nil
     }
 
-    /// A UIImage with the current annotations flattened on top, for view-mode
-    /// display and export. Returns the base unchanged when there are none.
+    /// A UIImage with image layers then annotations flattened on top, for
+    /// view-mode display and export. Returns the base unchanged when empty.
     private func displayWithAnnotations(_ base: UIImage) -> UIImage {
-        guard !model.annotations.isEmpty,
-              let cg = base.normalizedCGImage(),
-              let rendered = AnnotationRasterizer.render(model.annotations, onto: cg) else {
-            return base
+        guard var cg = base.normalizedCGImage() else { return base }
+        if !model.layers.isEmpty, let composited = LayerCompositor.render(base: cg, layers: model.layers) {
+            cg = composited
         }
-        return UIImage(cgImage: rendered)
+        if !model.annotations.isEmpty, let rendered = AnnotationRasterizer.render(model.annotations, onto: cg) {
+            cg = rendered
+        }
+        return UIImage(cgImage: cg)
     }
 
     /// The "Magic" entry point: a context menu grouping AI-powered actions —
@@ -602,6 +636,7 @@ private enum EditorTool: String, CaseIterable, Identifiable {
     case colour
     case crop
     case resize
+    case layer
     case draw
     case text
     case background
@@ -614,6 +649,7 @@ private enum EditorTool: String, CaseIterable, Identifiable {
         case .colour: "Colour picker"
         case .crop: "Crop"
         case .resize: "Resize"
+        case .layer: "Layers"
         case .draw: "Draw"
         case .text: "Text"
         case .background: "Remove background"
@@ -626,6 +662,7 @@ private enum EditorTool: String, CaseIterable, Identifiable {
         case .colour: "eyedropper"
         case .crop: "crop"
         case .resize: "arrow.up.left.and.arrow.down.right"
+        case .layer: "square.3.layers.3d"
         case .draw: "pencil.tip.crop.circle"
         case .text: "textformat"
         case .background: "eraser"
@@ -634,7 +671,7 @@ private enum EditorTool: String, CaseIterable, Identifiable {
 
     var usesEditingCanvas: Bool {
         switch self {
-        case .select, .colour, .crop, .draw, .text: true
+        case .select, .colour, .crop, .layer, .draw, .text: true
         case .resize, .background: false
         }
     }
@@ -1287,6 +1324,94 @@ private struct ColourInspector: View {
     }
 }
 
+/// Manage image layers: add from Photos, reorder implicitly by stack, adjust
+/// opacity/size, toggle visibility, delete. Drag on canvas to move (Layers tool).
+private struct LayerInspector: View {
+    @Binding var layers: [EditorLayer]
+    @Binding var selectedID: UUID?
+    @Binding var pickerItem: PhotosPickerItem?
+    let onClose: () -> Void
+
+    private var selectedIndex: Int? { layers.firstIndex { $0.id == selectedID } }
+
+    var body: some View {
+        InspectorPanel(title: "Layers", systemImage: "square.3.layers.3d", onClose: onClose) {
+            VStack(alignment: .leading, spacing: 10) {
+                PhotosPicker(selection: $pickerItem, matching: .images) {
+                    Label("Add image layer", systemImage: "plus")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.bordered)
+
+                if layers.isEmpty {
+                    Text("No layers yet. Add an image to place it over the picture, then drag it on the canvas.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                } else {
+                    ForEach(layers) { layer in
+                        layerRow(layer)
+                    }
+                    if let idx = selectedIndex {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Size").font(.caption).foregroundStyle(.secondary)
+                            Slider(value: sizeBinding(idx), in: 0.1...1.5)
+                        }
+                        .padding(.top, 2)
+                    }
+                }
+            }
+        }
+    }
+
+    private func layerRow(_ layer: EditorLayer) -> some View {
+        let isSelected = layer.id == selectedID
+        return HStack(spacing: 10) {
+            Image(uiImage: layer.image)
+                .resizable().scaledToFill()
+                .frame(width: 34, height: 34)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
+            Text(layer.name).font(.subheadline).lineLimit(1)
+            Spacer()
+            Slider(value: opacityBinding(layer.id), in: 0.05...1).frame(width: 80)
+            Button {
+                if let i = layers.firstIndex(where: { $0.id == layer.id }) { layers[i].isVisible.toggle() }
+            } label: {
+                Image(systemName: layer.isVisible ? "eye" : "eye.slash")
+            }
+            .buttonStyle(.plain)
+            Button(role: .destructive) {
+                layers.removeAll { $0.id == layer.id }
+                if selectedID == layer.id { selectedID = nil }
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(6)
+        .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+        .contentShape(Rectangle())
+        .onTapGesture { selectedID = layer.id }
+    }
+
+    private func opacityBinding(_ id: UUID) -> Binding<Double> {
+        Binding(
+            get: { layers.first(where: { $0.id == id })?.opacity ?? 1 },
+            set: { v in if let i = layers.firstIndex(where: { $0.id == id }) { layers[i].opacity = v } }
+        )
+    }
+
+    private func sizeBinding(_ idx: Int) -> Binding<CGFloat> {
+        Binding(
+            get: { layers.indices.contains(idx) ? layers[idx].frame.width : 0.5 },
+            set: { newW in
+                guard layers.indices.contains(idx) else { return }
+                let factor = newW / max(layers[idx].frame.width, 0.0001)
+                layers[idx] = layers[idx].scaled(by: factor)
+            }
+        )
+    }
+}
+
 private struct InlineEditingCanvas: View {
     let image: UIImage
     let activeTool: EditorTool
@@ -1295,6 +1420,7 @@ private struct InlineEditingCanvas: View {
     let showBorder: Bool
     @Binding var cropRect: CGRect
     @Binding var annotations: [Annotation]
+    @Binding var layers: [EditorLayer]
     @Binding var draftAnnotation: Annotation?
     let annotationKind: Annotation.Kind
     let annotationColor: Color
@@ -1305,6 +1431,7 @@ private struct InlineEditingCanvas: View {
     @Binding var isEditingText: Bool
     @Binding var selectedAnnotationID: UUID?
     @Binding var editingTextID: UUID?
+    @Binding var selectedLayerID: UUID?
     let onTextLocation: (CGPoint) -> Void
 
     @State private var dragStartCrop: CGRect?
@@ -1318,6 +1445,9 @@ private struct InlineEditingCanvas: View {
     @State private var moveOriginalAnnotation: Annotation?
     @State private var didHitTestThisDrag = false
     @State private var dragMoved = false
+    // Drag-to-move an image layer (Layers tool).
+    @State private var movingLayerIndex: Int?
+    @State private var moveOriginalLayer: EditorLayer?
     @FocusState private var textEditorFocused: Bool
 
     var body: some View {
@@ -1340,6 +1470,9 @@ private struct InlineEditingCanvas: View {
                         }
                     }
                     .position(x: imageRect.midX, y: imageRect.midY)
+
+                // Image layers render over the base, under annotations.
+                layersOverlay(in: imageRect)
 
                 if activeTool == .crop {
                     cropOverlay(in: imageRect)
@@ -1459,6 +1592,48 @@ private struct InlineEditingCanvas: View {
             .frame(width: 26, height: 26)
             .position(viewPoint(for: corner, in: imageRect))
             .gesture(cropCornerGesture(corner, in: imageRect))
+    }
+
+    private func layerRect(_ layer: EditorLayer, in imageRect: CGRect) -> CGRect {
+        CGRect(
+            x: imageRect.minX + layer.frame.minX * imageRect.width,
+            y: imageRect.minY + layer.frame.minY * imageRect.height,
+            width: layer.frame.width * imageRect.width,
+            height: layer.frame.height * imageRect.height
+        )
+    }
+
+    /// Topmost visible layer whose rect contains `point` (view space), if any.
+    private func hitTestLayer(at point: CGPoint, in imageRect: CGRect) -> Int? {
+        for idx in layers.indices.reversed() where layers[idx].isVisible && layerRect(layers[idx], in: imageRect).contains(point) {
+            return idx
+        }
+        return nil
+    }
+
+    @ViewBuilder
+    private func layersOverlay(in imageRect: CGRect) -> some View {
+        ZStack {
+            ForEach(layers) { layer in
+                if layer.isVisible {
+                    let rect = layerRect(layer, in: imageRect)
+                    Image(uiImage: layer.image)
+                        .resizable()
+                        .frame(width: rect.width, height: rect.height)
+                        .opacity(layer.opacity)
+                        .position(x: rect.midX, y: rect.midY)
+                }
+            }
+            if activeTool == .layer, let id = selectedLayerID,
+               let layer = layers.first(where: { $0.id == id }) {
+                let rect = layerRect(layer, in: imageRect)
+                Rectangle()
+                    .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                    .frame(width: rect.width, height: rect.height)
+                    .position(x: rect.midX, y: rect.midY)
+            }
+        }
+        .allowsHitTesting(false)
     }
 
     @ViewBuilder
@@ -1604,9 +1779,34 @@ private struct InlineEditingCanvas: View {
                         return
                     }
                 }
+                // Layers tool: drag a layer to move it; drag empty space pans.
+                if activeTool == .layer {
+                    if !didHitTestThisDrag {
+                        didHitTestThisDrag = true
+                        if let idx = hitTestLayer(at: value.startLocation, in: imageRect) {
+                            movingLayerIndex = idx
+                            moveOriginalLayer = layers[idx]
+                            selectedLayerID = layers[idx].id
+                        }
+                    }
+                    if let idx = movingLayerIndex, let original = moveOriginalLayer,
+                       layers.indices.contains(idx) {
+                        let dx = (value.location.x - value.startLocation.x) / imageRect.width
+                        let dy = (value.location.y - value.startLocation.y) / imageRect.height
+                        layers[idx] = original.translated(dx: dx, dy: dy)
+                    } else {
+                        panOffset = CGSize(
+                            width: committedPanOffset.width + value.translation.width,
+                            height: committedPanOffset.height + value.translation.height
+                        )
+                    }
+                    return
+                }
                 switch activeTool {
                 case .select:
                     break // handled above (select/move only, never draws)
+                case .layer:
+                    break // handled above
                 case .colour:
                     guard let cgImage = image.normalizedCGImage() else { return }
                     let normalized = normalized(value.location, in: imageRect)
@@ -1644,12 +1844,14 @@ private struct InlineEditingCanvas: View {
                 }
                 // Finish a move (select/text tools): if we were repositioning an
                 // annotation, commit it and don't also draw or add new text.
-                let wasMoving = movingAnnotationIndex != nil
+                let wasMoving = movingAnnotationIndex != nil || movingLayerIndex != nil
                 let tapped = !dragMoved
                 defer {
                     didHitTestThisDrag = false
                     movingAnnotationIndex = nil
                     moveOriginalAnnotation = nil
+                    movingLayerIndex = nil
+                    moveOriginalLayer = nil
                     dragMoved = false
                 }
                 if wasMoving { return }
@@ -1697,6 +1899,12 @@ private struct InlineEditingCanvas: View {
                         annotations.append(new)
                         beginTextEditing(new.id)
                     }
+                case .layer:
+                    guard tapped else {
+                        committedPanOffset = panOffset // finish a free pan
+                        break
+                    }
+                    selectedLayerID = hitTestLayer(at: value.location, in: imageRect).map { layers[$0].id }
                 case .colour, .resize, .background:
                     break
                 }
