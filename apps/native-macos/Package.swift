@@ -30,7 +30,10 @@ let package = Package(
         ),
         .testTarget(
             name: "ImageKidTests",
-            dependencies: ["ImageKid"],
+            dependencies: [
+                "ImageKid",
+                .product(name: "ImageKidCore", package: "ImageKidCore")
+            ],
             path: "Tests/ImageKidTests"
         )
     ],

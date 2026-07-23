@@ -1,4 +1,5 @@
 import CoreGraphics
+import ImageKidCore
 import XCTest
 @testable import ImageKid
 
