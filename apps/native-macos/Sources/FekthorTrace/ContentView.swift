@@ -532,6 +532,25 @@ struct ContentView: View {
         }
     }
 
+    /// Trace → editor handoff: the CURRENT vector (hand edits included)
+    /// crosses the Model2Bridge into an UNTITLED editor session — dirty
+    /// from birth, so leaving without saving prompts. The trace state
+    /// clears once the session exists (same reset the workspace-save flow
+    /// uses); a workspace trace target does NOT reroute this — the save
+    /// bar remains the way to file a trace into the workspace, Open in
+    /// Editor always detaches.
+    private func openTraceInEditor() {
+        guard let doc = model.document else { return }
+        let session = EditorSession(document: Model2Bridge.graphicDocument(from: doc))
+        session.dirty = true
+        session.status = "Opened the traced vector — untitled; ⌘S saves it."
+        editorSession = session
+        traceTarget = nil
+        model.reset()
+        zoom = 1
+        offset = .zero
+    }
+
     /// Gallery double-click / Open in Editor: straight into the editor; the
     /// editor's Back returns to the gallery (the workspace stays open).
     private func openEntry(_ entry: IconEntry) {
@@ -646,6 +665,11 @@ struct ContentView: View {
                 }
                 .keyboardShortcut("z", modifiers: .command)
                 .disabled(!model.canUndo)
+                Button { openTraceInEditor() } label: {
+                    Label("Open in Editor", systemImage: "square.and.pencil")
+                }
+                .disabled(!model.hasResult)
+                .help("Continue with this vector in the editor")
                 Button { model.exportSVG() } label: {
                     Label("Export SVG", systemImage: "square.and.arrow.up")
                 }
