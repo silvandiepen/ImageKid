@@ -225,8 +225,21 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
     }
 
     public func setSize(_ id: ID, to size: CGSize) {
+        let newWidth = min(max(size.width, minSize.width), maxSize.width)
+        // The resize handle is the bottom-trailing corner, so a widen should
+        // keep the LEADING edge put and grow rightward. A right-side anchor is
+        // stored trailing-edge-relative, so resolving it with the new width
+        // would otherwise shove the panel left by the whole width delta —
+        // compensate by shrinking the trailing offset to hold the leading edge.
+        if let anchor = anchors[id], anchor.side == .right {
+            let delta = newWidth - self.size(id).width
+            if delta != 0 {
+                anchors[id] = PanelAnchor(
+                    side: .right, offset: anchor.offset - delta, y: anchor.y)
+            }
+        }
         sizes[id] = CGSize(
-            width: min(max(size.width, minSize.width), maxSize.width),
+            width: newWidth,
             height: min(max(size.height, minSize.height), maxSize.height)
         )
     }
