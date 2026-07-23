@@ -19,6 +19,7 @@ final class EditorSession: ObservableObject {
     /// click (or click-drag) at a time.
     enum Tool: String, CaseIterable {
         case select
+        case directSelect
         case rect
         case ellipse
         case line

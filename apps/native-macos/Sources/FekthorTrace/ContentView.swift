@@ -1677,6 +1677,7 @@ struct EditorWorkspaceView: View {
     private var toolShelf: some View {
         HStack(spacing: 4) {
             shelfButton(.select, "cursorarrow", "Select", "V or ⌘1")
+            shelfButton(.directSelect, "cursorarrow.motionlines", "Direct Select", "A")
             shelfButton(.rect, "square", "Rectangle", "M or ⌘2")
             shelfButton(.ellipse, "circle", "Ellipse", "L or ⌘3")
             shelfButton(.line, "line.diagonal", "Line", "\\ or ⌘4")
@@ -1844,7 +1845,8 @@ private struct ToolShortcutMonitor: NSViewRepresentable {
 
         private static func tool(for letter: String) -> EditorSession.Tool? {
             switch letter {
-            case "v", "a": return .select
+            case "v": return .select
+            case "a": return .directSelect
             case "m": return .rect
             case "l": return .ellipse
             case "\\": return .line

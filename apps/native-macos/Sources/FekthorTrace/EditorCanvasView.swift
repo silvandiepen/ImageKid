@@ -117,6 +117,12 @@ struct EditorCanvasView: View {
         session.selection.count == 1 ? session.selection.first : nil
     }
 
+    /// Both selection tools (v = Select whole shapes + transform frame,
+    /// a = Direct Select points) share the non-drawing interaction paths.
+    private var isSelectTool: Bool {
+        session.tool == .select || session.tool == .directSelect
+    }
+
     var body: some View {
         GeometryReader { geo in
             ZStack {
@@ -136,6 +142,11 @@ struct EditorCanvasView: View {
             .background(
                 CanvasKeyMonitor(onKeyDown: handleCanvasKeyDown, onKeyUp: handleCanvasKeyUp)
             )
+            .onChange(of: session.tool) {
+                // Leaving Direct Select drops the point highlight so Select
+                // shows the transform frame instead of anchor dots.
+                if session.tool != .directSelect { activeAnchor = nil }
+            }
         }
         .frame(minWidth: 300, minHeight: 340)
     }
@@ -188,7 +199,7 @@ struct EditorCanvasView: View {
     /// ⇧ makes it a 10× coarse step.
     @discardableResult
     private func moveByArrow(dx: Double, dy: Double, duplicate: Bool) -> Bool {
-        guard session.tool == .select else { return false }
+        guard isSelectTool else { return false }
         let base = snapStep ?? 1
         let step = NSEvent.modifierFlags.contains(.shift) ? base * 10 : base
         if duplicate {
@@ -609,7 +620,9 @@ struct EditorCanvasView: View {
     private func drawAnchorsAndHandles(
         _ ctx: inout GraphicsContext, doc: GraphicDocument, t: T
     ) {
-        guard let sel = single, let shape = doc.firstShape(id: sel) else { return }
+        guard session.tool == .directSelect, let sel = single,
+            let shape = doc.firstShape(id: sel)
+        else { return }
         if let active = activeAnchor {
             for h in Editing2.handles(of: shape, path: active.path, anchor: active.index) {
                 let hv = CGPoint(x: h.position.x * t.s + t.tx, y: h.position.y * t.s + t.ty)
@@ -665,7 +678,7 @@ struct EditorCanvasView: View {
 
     /// Visually distinct from anchors: smaller, accent-filled circles.
     private func drawCornerDots(_ ctx: inout GraphicsContext, doc: GraphicDocument, t: T) {
-        guard session.tool == .select, session.distort == nil,
+        guard session.tool == .directSelect, session.distort == nil,
             let sel = single, let shape = doc.firstShape(id: sel)
         else { return }
         for (_, _, dot) in cornerDots(of: shape, t: t) {
@@ -1064,7 +1077,7 @@ struct EditorCanvasView: View {
             beginPen(v, in: size)
             return
         }
-        if session.tool != .select {
+        if !isSelectTool {
             snapMagnets = collectMagnets(excluding: [])
             drawStart = pointOrGridSnapped(docPoint(from: v.startLocation, in: size), in: size)
             return
@@ -1096,9 +1109,10 @@ struct EditorCanvasView: View {
                 return
             }
         }
-        // Corner dots (single selection): smaller hit radius than anchors —
-        // the dot sits 11pt off the anchor, so the two never fight.
-        if let sel = single, let shape = doc.firstShape(id: sel), session.distort == nil {
+        // Corner dots (Direct Select, single selection): smaller hit radius
+        // than anchors — the dot sits 11pt off the anchor, so they never fight.
+        if session.tool == .directSelect, let sel = single,
+            let shape = doc.firstShape(id: sel), session.distort == nil {
             var best: (path: Int, info: LiveCorners.CornerInfo, d: CGFloat)? = nil
             for (pi, info, dot) in cornerDots(of: shape, t: t) {
                 let d = hypot(dot.x - v.startLocation.x, dot.y - v.startLocation.y)
@@ -1118,7 +1132,7 @@ struct EditorCanvasView: View {
                 return
             }
         }
-        if let sel = single, let shape = doc.firstShape(id: sel) {
+        if session.tool == .directSelect, let sel = single, let shape = doc.firstShape(id: sel) {
             if let active = activeAnchor {
                 for h in Editing2.handles(of: shape, path: active.path, anchor: active.index) {
                     let hv = CGPoint(
@@ -1150,7 +1164,7 @@ struct EditorCanvasView: View {
         // Direct point selection: clicking near a point of the shape under the
         // cursor selects that shape AND the point in one click (Illustrator
         // direct-select), so arrow keys can nudge it right away.
-        if session.distort == nil, session.selection.count != 1,
+        if session.tool == .directSelect, session.distort == nil, session.selection.count != 1,
             let under = hitNode(at: v.startLocation, in: size),
             let shape = doc.firstShape(id: under) {
             var best: (Editing2.Anchor, CGFloat)? = nil
@@ -1168,8 +1182,8 @@ struct EditorCanvasView: View {
                 return
             }
         }
-        // Transform handles on the selection frame (any selection size).
-        if !session.selection.isEmpty, let box = selectionDocBounds() {
+        // Transform handles on the selection frame (Select tool only).
+        if session.tool == .select, !session.selection.isEmpty, let box = selectionDocBounds() {
             let view = paddedViewRect(box, t: t)
             let knob = rotateKnobPoint(for: view)
             if hypot(knob.x - v.startLocation.x, knob.y - v.startLocation.y) <= hitRadius - 1 {
@@ -1228,7 +1242,7 @@ struct EditorCanvasView: View {
             continuePen(v, in: size)
             return
         }
-        if session.tool != .select {
+        if !isSelectTool {
             updateDraft(v, in: size)
             return
         }
@@ -1307,7 +1321,7 @@ struct EditorCanvasView: View {
             endPen(v, in: size)
             return
         }
-        if session.tool != .select {
+        if !isSelectTool {
             finishDraft(v, in: size)
             return
         }
@@ -1520,7 +1534,7 @@ struct EditorCanvasView: View {
     private func draftKind(from s: Pt, to p: Pt, shift: Bool, option: Bool) -> ShapeKind? {
         var d = Pt(p.x - s.x, p.y - s.y)
         switch session.tool {
-        case .select, .pen:
+        case .select, .directSelect, .pen:
             return nil  // pen paths are built anchor by anchor, not dragged out
         case .line:
             if shift {
@@ -1807,7 +1821,7 @@ struct EditorCanvasView: View {
     private enum ToolCursors {
         static func cursor(for tool: EditorSession.Tool) -> NSCursor {
             switch tool {
-            case .select: return .arrow
+            case .select, .directSelect: return .arrow
             case .rect, .ellipse, .line: return .crosshair
             case .pen: return pen
             }
