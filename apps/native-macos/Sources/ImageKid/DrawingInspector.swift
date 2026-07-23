@@ -57,7 +57,7 @@ struct DrawingInspector: View {
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.white.opacity(0.58))
             }
-            Slider(value: lineWidthBinding, in: 1...32, step: 1)
+            MinimalSlider(value: lineWidthBinding, in: 1...32, step: 1)
             BaseSwatchStrip(colors: library.baseColors) { strokeColorBinding.wrappedValue = Color(nsColor: $0) }
 
             Picker("Style", selection: strokeStyleBinding) {
@@ -80,7 +80,7 @@ struct DrawingInspector: View {
                     Image(systemName: "scribble")
                         .font(.system(size: 12))
                         .foregroundStyle(.white.opacity(0.55))
-                    Slider(value: $session.drawingSmoothing, in: 0...1, step: 0.05)
+                    MinimalSlider(value: $session.drawingSmoothing, in: 0...1, step: 0.05)
                     Text("\(Int(session.drawingSmoothing * 100))%")
                         .font(.caption.monospacedDigit())
                         .frame(width: 40, alignment: .trailing)
@@ -157,7 +157,7 @@ struct DrawingInspector: View {
     private var opacityField: some View {
         field("Opacity") {
             HStack(spacing: 10) {
-                Slider(value: opacityBinding, in: 0.05...1, step: 0.05)
+                MinimalSlider(value: opacityBinding, in: 0.05...1, step: 0.05)
                 Text("\(Int(opacityBinding.wrappedValue * 100))%")
                     .font(.caption.monospacedDigit())
                     .frame(width: 38, alignment: .trailing)
@@ -329,7 +329,7 @@ struct DrawingInspector: View {
 
     private func labeledSlider(value: Binding<Double>, range: ClosedRange<Double>, step: Double, suffix: String, percent: Bool = false) -> some View {
         HStack(spacing: 10) {
-            Slider(value: value, in: range, step: step)
+            MinimalSlider(value: value, in: range, step: step)
             Text(percent ? "\(Int(value.wrappedValue * 100))\(suffix)" : "\(Int(value.wrappedValue)) \(suffix)")
                 .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(.white.opacity(0.6))

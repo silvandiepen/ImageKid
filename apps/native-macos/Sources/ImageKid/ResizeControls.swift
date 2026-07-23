@@ -52,7 +52,7 @@ struct ResizeControls: View {
                         .buttonStyle(.bordered)
 
                         HStack(spacing: 8) {
-                            Slider(value: customPercentBinding, in: 10...800, step: 1)
+                            MinimalSlider(value: customPercentBinding, in: 10...800, step: 1)
                             TextField("Percent", value: customPercentBinding, format: .number)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 70)
