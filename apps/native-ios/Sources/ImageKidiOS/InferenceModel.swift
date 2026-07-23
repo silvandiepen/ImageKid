@@ -109,6 +109,11 @@ struct EditorItem: Identifiable {
     var history: [HistoryStep]
     var historyIndex = 0
     var sampledColors: [SampledColor] = []
+    /// Non-destructive annotations (text/shapes) layered over `current`. Kept
+    /// editable and only flattened into pixels on export — never baked in place.
+    var annotations: [Annotation] = []
+    /// Non-destructive image layers placed over the base (flattened on export).
+    var layers: [EditorLayer] = []
     /// The working image captured immediately before the last background removal,
     /// used as the restore source in Refine (may be cropped, unlike `sourceImage`).
     var preRemovalImage: UIImage?
@@ -226,6 +231,45 @@ final class InferenceModel: ObservableObject {
 
     /// The image currently shown and acted on.
     var workingImage: UIImage? { current }
+
+    /// Non-destructive annotations for the selected picture (persist, editable).
+    var annotations: [Annotation] {
+        get { active?.annotations ?? [] }
+        set { if let i = activeIndex { items[i].annotations = newValue } }
+    }
+
+    /// Image layers for the selected picture (persist, editable).
+    var layers: [EditorLayer] {
+        get { active?.layers ?? [] }
+        set { if let i = activeIndex { items[i].layers = newValue } }
+    }
+
+    /// Next depth for a new stack item (above all current layers + annotations).
+    var nextStackZ: Double {
+        let maxLayer = active?.layers.map(\.z).max() ?? 0
+        let maxAnno = active?.annotations.map(\.z).max() ?? 0
+        return max(maxLayer, maxAnno) + 1
+    }
+
+    func addLayer(_ image: UIImage) {
+        guard let base = workingImage else { return }
+        // Fit the new layer to ~55% of the base, centred, preserving aspect.
+        let baseAspect = base.size.width / max(base.size.height, 1)
+        let imgAspect = image.size.width / max(image.size.height, 1)
+        var w: CGFloat = 0.55
+        var h: CGFloat = w * (baseAspect / max(imgAspect, 0.0001))
+        if h > 0.9 { h = 0.9; w = h * (imgAspect / max(baseAspect, 0.0001)) }
+        let frame = CGRect(x: (1 - w) / 2, y: (1 - h) / 2, width: w, height: h)
+        let name = "Layer \(layers.count + 1)"
+        var layer = EditorLayer(name: name, image: image, originalImage: image, frame: frame)
+        layer.z = nextStackZ
+        layers.append(layer)
+        statusText = "Layer added"
+    }
+
+    func removeLayer(_ id: UUID) {
+        layers.removeAll { $0.id == id }
+    }
 
     var canUndo: Bool { active.map { $0.historyIndex > 0 } ?? false }
     var canRedo: Bool { active.map { $0.historyIndex < $0.history.count - 1 } ?? false }
@@ -384,7 +428,37 @@ final class InferenceModel: ObservableObject {
             height: normalizedRect.height * CGFloat(source.height)
         ).integral
         guard let cropped = source.cropping(to: pixelRect) else { return }
+        // The crop replaces the base with only the cropped pixels; annotation and
+        // layer frames are normalised to the OLD image, so rebase them into the
+        // cropped space or they'd be re-interpreted against the smaller image.
+        rebaseContent(intoCrop: normalizedRect)
         commit(cropped, status: "Cropped", systemImage: "crop")
+    }
+
+    /// Re-normalise all annotations/layers of the active item from full-image
+    /// space into the given crop's space.
+    private func rebaseContent(intoCrop crop: CGRect) {
+        guard crop.width > 0, crop.height > 0, let index = activeIndex else { return }
+        func remap(_ p: CGPoint) -> CGPoint {
+            CGPoint(x: (p.x - crop.minX) / crop.width, y: (p.y - crop.minY) / crop.height)
+        }
+        items[index].annotations = items[index].annotations.map { annotation in
+            var copy = annotation
+            copy.start = remap(annotation.start)
+            copy.end = remap(annotation.end)
+            copy.points = annotation.points.map(remap)
+            return copy
+        }
+        items[index].layers = items[index].layers.map { layer in
+            var copy = layer
+            copy.frame = CGRect(
+                x: (layer.frame.minX - crop.minX) / crop.width,
+                y: (layer.frame.minY - crop.minY) / crop.height,
+                width: layer.frame.width / crop.width,
+                height: layer.frame.height / crop.height
+            )
+            return copy
+        }
     }
 
     /// Resizes the working image to an exact pixel size.
@@ -392,6 +466,31 @@ final class InferenceModel: ObservableObject {
         guard let source = workingImage?.normalizedCGImage() else { return }
         guard let resized = source.resizedExact(width: width, height: height) else { return }
         commit(resized, status: "Resized to \(width)×\(height)", systemImage: "arrow.up.left.and.arrow.down.right")
+    }
+
+    /// Resize; when ENLARGING, upscale with the chosen AI quality instead of a
+    /// plain stretch. Shrinking (or same size) uses a plain resample.
+    func applyResize(width: Int, height: Int, upscaleQuality: EnhanceQuality) {
+        guard let source = workingImage?.normalizedCGImage() else { return }
+        let enlarging = width > source.width || height > source.height
+        guard enlarging else {
+            applyResize(width: width, height: height)
+            return
+        }
+        let target = CGSize(width: CGFloat(width), height: CGFloat(height))
+        run(status: "Upscaled to \(width)×\(height)", systemImage: "arrow.up.left.and.arrow.down.right") { [self] progress in
+            switch upscaleQuality {
+            case .quick:
+                let resolved = UpscaleContentMode.resolved(.automatic, for: source)
+                let sharpening: CoreImageUpscaler.Sharpening = resolved == .textAndUI ? .textAndUI : .photoArtwork
+                return try await CoreImageUpscaler(sharpening: sharpening)
+                    .upscale(source, to: target, progress: progress)
+            case .high:
+                return try await realESRGANUpscaler.upscale(source, to: target, progress: progress)
+            case .max:
+                return try await auraSRUpscaler.upscale(source, to: target, progress: progress)
+            }
+        }
     }
 
     /// Replaces the working image with an already-rendered edit (annotations,

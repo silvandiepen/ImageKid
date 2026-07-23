@@ -46,6 +46,11 @@ struct ContentView: View {
         .sheet(isPresented: $appModel.isShowingExport) {
             exportSheet
         }
+        .sheet(isPresented: $appModel.isShowingCanvasSize) {
+            if let session = appModel.imageSession {
+                CanvasSizeSheet(appModel: appModel, currentSize: session.effectivePixelSize)
+            }
+        }
         .sheet(isPresented: $appModel.isShowingPromptEdit) {
             PromptEditSheet(
                 isApplying: appModel.isApplyingPromptEdit,

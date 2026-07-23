@@ -35,7 +35,7 @@ struct RotateControls: View {
 
                 field("Angle") {
                     HStack(spacing: 8) {
-                        Slider(value: $session.rotationDraft, in: -180...180, step: 1)
+                        MinimalSlider(value: $session.rotationDraft, in: -180...180, step: 1)
                         TextField("Angle", value: $session.rotationDraft, format: .number)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 58)

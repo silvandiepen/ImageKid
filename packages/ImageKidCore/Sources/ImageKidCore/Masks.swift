@@ -1,17 +1,18 @@
-import AppKit
+import CoreGraphics
 import CoreImage
 import CoreImage.CIFilterBuiltins
+import Foundation
 
 /// Non-destructive mask helpers: apply a grayscale mask to an image, and derive
-/// a mask from a cutout's alpha channel.
-enum MaskCompositor {
-    private static let context = CIContext(options: [.useSoftwareRenderer: false])
+/// a mask from a cutout's alpha channel. Shared by both apps.
+public enum MaskCompositor {
+    private static var context: CIContext { PlatformRender.ciContext }
 
     /// Composite `image` through `mask` (white = keep, black = hide) over
     /// transparency, without altering the original pixels.
-    static func apply(mask: NSImage, to image: NSImage) -> NSImage? {
-        guard let imageCG = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
-              let maskCG = mask.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+    public static func apply(mask: PlatformImage, to image: PlatformImage) -> PlatformImage? {
+        guard let imageCG = image.cgImageForRendering,
+              let maskCG = mask.cgImageForRendering else {
             return nil
         }
         let base = CIImage(cgImage: imageCG)
@@ -31,13 +32,13 @@ enum MaskCompositor {
               let result = context.createCGImage(output, from: base.extent) else {
             return nil
         }
-        return NSImage(cgImage: result, size: image.size)
+        return .fromCGImage(result, size: image.size)
     }
 
     /// A translucent red overlay showing the hidden (black) areas of a mask —
     /// opaque red where the mask hides, transparent where it keeps.
-    static func hiddenOverlay(from mask: NSImage) -> NSImage? {
-        guard let maskCG = mask.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+    public static func hiddenOverlay(from mask: PlatformImage) -> PlatformImage? {
+        guard let maskCG = mask.cgImageForRendering else { return nil }
         let filter = CIFilter.colorMatrix()
         filter.inputImage = CIImage(cgImage: maskCG)
         // RGB = red; alpha = 1 - R (grayscale mask, so R == luminance).
@@ -48,12 +49,12 @@ enum MaskCompositor {
         filter.biasVector = CIVector(x: 1, y: 0, z: 0, w: 1)
         guard let output = filter.outputImage,
               let result = context.createCGImage(output, from: output.extent) else { return nil }
-        return NSImage(cgImage: result, size: mask.size)
+        return .fromCGImage(result, size: mask.size)
     }
 
     /// Build an opaque grayscale mask whose brightness equals the cutout's alpha
     /// (foreground → white, removed background → black).
-    static func alphaMask(from cutout: CGImage) -> NSImage? {
+    public static func alphaMask(from cutout: CGImage) -> PlatformImage? {
         let filter = CIFilter.colorMatrix()
         filter.inputImage = CIImage(cgImage: cutout)
         // Move the alpha channel into R, G, B; force output alpha to 1.
@@ -68,6 +69,6 @@ enum MaskCompositor {
               let result = context.createCGImage(output, from: bounds) else {
             return nil
         }
-        return NSImage(cgImage: result, size: CGSize(width: cutout.width, height: cutout.height))
+        return .fromCGImage(result, size: CGSize(width: cutout.width, height: cutout.height))
     }
 }

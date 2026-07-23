@@ -70,7 +70,9 @@ struct IPadPanelsLayer: View {
     @Binding var annotationSoftness: CGFloat
     @Binding var textSizeFraction: CGFloat
     @Binding var annotations: [Annotation]
+    @Binding var layers: [EditorLayer]
     @Binding var selectedAnnotationID: UUID?
+    @Binding var selectedLayerID: UUID?
     let currentSample: SampledColor?
     let onSaveSample: () -> Void
     let onAnnotateCancel: () -> Void
@@ -143,7 +145,9 @@ struct IPadPanelsLayer: View {
                     panel(.layers) {
                         LayersPanelContent(
                             annotations: $annotations,
-                            selectedAnnotationID: $selectedAnnotationID
+                            layers: $layers,
+                            selectedAnnotationID: $selectedAnnotationID,
+                            selectedLayerID: $selectedLayerID
                         )
                     }
                 }

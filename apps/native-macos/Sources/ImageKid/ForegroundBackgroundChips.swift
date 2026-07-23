@@ -1,4 +1,5 @@
 import AppKit
+import ImageKidCore
 import SwiftUI
 
 /// Photoshop-style foreground / background colour chips with a swap control.

@@ -13,6 +13,8 @@ packages:
     path: ../../packages/ImageKidInference
   ImageKidKit:
     path: ../../packages/ImageKidKit
+  ImageKidCore:
+    path: ../../packages/ImageKidCore
 targets:
   ImageKidiOS:
     type: application
@@ -26,6 +28,7 @@ targets:
     dependencies:
       - package: ImageKidInference
       - package: ImageKidKit
+      - package: ImageKidCore
     info:
       path: Sources/ImageKidiOS/Info.plist
       properties:

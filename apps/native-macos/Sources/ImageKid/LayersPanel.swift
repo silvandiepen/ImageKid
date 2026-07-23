@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageKidCore
 import ImageKidKit
 import UniformTypeIdentifiers
 
@@ -54,27 +55,21 @@ struct LayersPanel: View {
             VStack(alignment: .leading, spacing: 10) {
                 ScrollView {
                     LazyVStack(spacing: 4) {
-                        ForEach(session.layerGroups) { group in
-                            groupHeader(group)
-                            if !group.isCollapsed {
-                                ForEach(members(of: group)) { layer in
-                                    imageLayerRow(layer).padding(.leading, 18)
-                                }
+                        // Unified stack, top-to-bottom — image layers and shapes
+                        // share a z order; grouped layers nest under a folder header.
+                        ForEach(panelRows) { r in
+                            switch r {
+                            case .group(let group):
+                                groupHeader(group)
+                            case .groupedLayer(let layer):
+                                imageLayerRow(layer).padding(.leading, 18)
+                            case .item(let item):
+                                stackRow(item)
+                                    .modifier(ReorderDrag(
+                                        id: item.id, draggingID: $draggingID, dropTargetID: $dropTargetID,
+                                        onDrop: { src in session.reorderStack(moving: src, above: item.id) }
+                                    ))
                             }
-                        }
-                        ForEach(ungroupedLayers) { layer in
-                            imageLayerRow(layer)
-                                .modifier(ReorderDrag(
-                                    id: layer.id, draggingID: $draggingID, dropTargetID: $dropTargetID,
-                                    onDrop: { src in session.reorderImageLayerVisual(moving: src, onto: layer.id) }
-                                ))
-                        }
-                        ForEach(orderedLayers) { layer in
-                            row(layer)
-                                .modifier(ReorderDrag(
-                                    id: layer.id, draggingID: $draggingID, dropTargetID: $dropTargetID,
-                                    onDrop: { src in session.reorderAnnotationVisual(moving: src, onto: layer.id) }
-                                ))
                         }
                         if !session.baseUnlocked {
                             backgroundRow
@@ -91,6 +86,54 @@ struct LayersPanel: View {
                     .padding(.bottom, 16)
             }
         }
+    }
+
+    @ViewBuilder
+    private func stackRow(_ item: StackItem) -> some View {
+        switch item {
+        case .layer(let layer): imageLayerRow(layer)
+        case .annotation(let annotation): row(annotation)
+        }
+    }
+
+    /// A row in the panel: a group folder header, a layer nested in a group, or a
+    /// top-level stack item.
+    private enum PanelRow: Identifiable {
+        case group(LayerGroup)
+        case groupedLayer(ImageLayer)
+        case item(StackItem)
+        var id: UUID {
+            switch self {
+            case .group(let g): return g.id
+            case .groupedLayer(let l): return l.id
+            case .item(let i): return i.id
+            }
+        }
+    }
+
+    /// Build the display list top-to-bottom, nesting grouped layers under their
+    /// folder header (placed where the group's top-most member sits in z).
+    private var panelRows: [PanelRow] {
+        var rows: [PanelRow] = []
+        var emitted = Set<UUID>()
+        for item in session.stackTopToBottom {
+            if case .layer(let layer) = item, let gid = session.groupID(forLayer: layer.id) {
+                guard !emitted.contains(gid) else { continue }
+                emitted.insert(gid)
+                if let group = session.layerGroups.first(where: { $0.id == gid }) {
+                    rows.append(.group(group))
+                    if !group.isCollapsed {
+                        let members = group.memberIDs
+                            .compactMap { id in session.imageLayers.first { $0.id == id } }
+                            .sorted { $0.z > $1.z }
+                        for m in members { rows.append(.groupedLayer(m)) }
+                    }
+                }
+            } else {
+                rows.append(.item(item))
+            }
+        }
+        return rows
     }
 
     private func row(_ layer: Annotation) -> some View {
@@ -121,6 +164,13 @@ struct LayersPanel: View {
             session.selectedLayerID = nil
             session.selectionRect = nil
             if appModel.activeTool == .view { appModel.activeTool = .select }
+        }
+        .contextMenu {
+            Button("Rename") { startRename(layer.id, current: label(for: layer)) }
+            Button("Duplicate") { session.duplicateAnnotation(id: layer.id) }
+            Button(layer.isVisible ? "Hide" : "Show") { session.toggleAnnotationVisibility(id: layer.id) }
+            Divider()
+            Button("Delete", role: .destructive) { session.removeAnnotation(id: layer.id) }
         }
     }
 
@@ -163,6 +213,17 @@ struct LayersPanel: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.white.opacity(0.8))
                 .help(layer.isMaskEnabled ? "Disable mask" : "Enable mask")
+            } else if isSelected {
+                Button {
+                    session.addLayerMask(id: layer.id)
+                } label: {
+                    Image(systemName: "theatermask.and.paintbrush")
+                        .font(.system(size: 11))
+                        .opacity(0.5)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white.opacity(0.7))
+                .help("Add mask")
             }
             visibilityButton(isOn: layer.isVisible) {
                 session.toggleImageLayerVisibility(id: layer.id)
@@ -190,22 +251,36 @@ struct LayersPanel: View {
             session.selectedAnnotationID = nil
         }
         .contextMenu {
-            Button(layer.hasMask ? "Redo Background Mask" : "Remove Background (Mask)") {
-                session.selectedLayerID = layer.id
-                appModel.removeBackgroundFromSelectedLayer()
-            }
-            .disabled(appModel.isRemovingBackground)
+            Button("Rename") { startRename(layer.id, current: layer.name) }
+            Button("Duplicate") { session.duplicateImageLayer(id: layer.id) }
+            Button(layer.isVisible ? "Hide" : "Show") { session.toggleImageLayerVisibility(id: layer.id) }
             Divider()
-            Button(layer.hasMask ? "Edit Mask" : "Add Mask") {
-                session.beginMaskEdit(layerID: layer.id)
+            if layer.hasMask {
+                Button("Edit Mask") { session.beginMaskEdit(layerID: layer.id) }
+            } else {
+                Button("Add Mask") { session.addLayerMask(id: layer.id) }
             }
+            Button("Invert Mask") { session.invertLayerMask(id: layer.id) }
             if layer.hasMask {
                 Button(layer.isMaskEnabled ? "Disable Mask" : "Enable Mask") {
                     session.toggleLayerMask(id: layer.id)
                 }
                 Button("Delete Mask") { session.removeLayerMask(id: layer.id) }
             }
+            Button(layer.hasMask ? "Redo Background Mask" : "Remove Background (Mask)") {
+                session.selectedLayerID = layer.id
+                appModel.removeBackgroundFromSelectedLayer()
+            }
+            .disabled(appModel.isRemovingBackground)
+            Divider()
+            Button("Delete", role: .destructive) { session.removeImageLayer(id: layer.id) }
         }
+    }
+
+    private func startRename(_ id: UUID, current: String) {
+        editingText = current
+        editingID = id
+        nameFieldFocused = true
     }
 
     /// The open image itself, shown as the locked bottom layer.
@@ -315,12 +390,14 @@ struct LayersPanel: View {
     private var controlBar: some View {
         HStack(spacing: 6) {
             control("arrow.up", help: "Bring forward") {
-                if let id = session.selectedLayerID { session.moveImageLayer(id: id, forward: true) }
-                else if let id = session.selectedAnnotationID { session.moveAnnotation(id: id, forward: true) }
+                if let id = session.selectedLayerID ?? session.selectedAnnotationID {
+                    session.moveStackItem(id, up: true)
+                }
             }
             control("arrow.down", help: "Send backward") {
-                if let id = session.selectedLayerID { session.moveImageLayer(id: id, forward: false) }
-                else if let id = session.selectedAnnotationID { session.moveAnnotation(id: id, forward: false) }
+                if let id = session.selectedLayerID ?? session.selectedAnnotationID {
+                    session.moveStackItem(id, up: false)
+                }
             }
             Spacer()
             control("folder.badge.plus", help: "Group selected layers") {

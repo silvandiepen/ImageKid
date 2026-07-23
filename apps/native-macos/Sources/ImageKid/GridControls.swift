@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageKidCore
 import ImageKidKit
 
 /// Floating panel for customising the canvas grid: visibility, snapping,
@@ -26,7 +27,7 @@ struct GridControls: View {
 
                 field("Size") {
                     HStack(spacing: 10) {
-                        Slider(value: $session.gridSizePx, in: 4...512, step: 1)
+                        MinimalSlider(value: $session.gridSizePx, in: 4...512, step: 1)
                         Text("\(Int(session.gridSizePx)) px")
                             .font(.system(.caption, design: .monospaced, weight: .semibold))
                             .frame(width: 56, alignment: .trailing)
@@ -43,7 +44,7 @@ struct GridControls: View {
 
                 field("Subdivisions") {
                     HStack(spacing: 10) {
-                        Slider(
+                        MinimalSlider(
                             value: Binding(
                                 get: { Double(session.gridSubdivisions) },
                                 set: { session.gridSubdivisions = Int($0.rounded()) }
@@ -60,7 +61,7 @@ struct GridControls: View {
                     HStack(spacing: 10) {
                         ColorPicker("", selection: gridColorBinding, supportsOpacity: false)
                             .labelsHidden()
-                        Slider(value: $session.gridOpacity, in: 0.03...1, step: 0.01)
+                        MinimalSlider(value: $session.gridOpacity, in: 0.03...1, step: 0.01)
                         Text("\(Int(session.gridOpacity * 100))%")
                             .font(.system(.caption, design: .monospaced, weight: .semibold))
                             .frame(width: 40, alignment: .trailing)

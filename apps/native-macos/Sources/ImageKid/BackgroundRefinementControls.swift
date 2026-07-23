@@ -28,7 +28,7 @@ struct BackgroundRefinementControls: View {
 
                 field("Size") {
                     HStack(spacing: 10) {
-                        Slider(value: $session.backgroundBrushSize, in: 4...160, step: 1)
+                        MinimalSlider(value: $session.backgroundBrushSize, in: 4...160, step: 1)
                         Text("\(Int(session.backgroundBrushSize))")
                             .font(.system(.caption, design: .monospaced, weight: .semibold))
                             .frame(width: 38, alignment: .trailing)
@@ -37,7 +37,7 @@ struct BackgroundRefinementControls: View {
 
                 field("Softness") {
                     HStack(spacing: 10) {
-                        Slider(value: $session.backgroundBrushSoftness, in: 0...0.9, step: 0.05)
+                        MinimalSlider(value: $session.backgroundBrushSoftness, in: 0...0.9, step: 0.05)
                         Text("\(Int(session.backgroundBrushSoftness * 100))%")
                             .font(.system(.caption, design: .monospaced, weight: .semibold))
                             .frame(width: 42, alignment: .trailing)
@@ -46,7 +46,7 @@ struct BackgroundRefinementControls: View {
 
                 field("Strength") {
                     HStack(spacing: 10) {
-                        Slider(value: $session.backgroundBrushStrength, in: 0.1...1, step: 0.05)
+                        MinimalSlider(value: $session.backgroundBrushStrength, in: 0.1...1, step: 0.05)
                         Text("\(Int(session.backgroundBrushStrength * 100))%")
                             .font(.system(.caption, design: .monospaced, weight: .semibold))
                             .frame(width: 42, alignment: .trailing)

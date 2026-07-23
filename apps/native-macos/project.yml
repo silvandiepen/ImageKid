@@ -13,6 +13,8 @@ packages:
     path: ../../packages/ImageKidInference
   ImageKidKit:
     path: ../../packages/ImageKidKit
+  ImageKidCore:
+    path: ../../packages/ImageKidCore
   FekthorKit:
     path: ../../packages/FekthorKit
 targets:
@@ -27,6 +29,7 @@ targets:
     dependencies:
       - package: ImageKidInference
       - package: ImageKidKit
+      - package: ImageKidCore
     entitlements:
       path: Sources/ImageKid/ImageKid.entitlements
       properties:

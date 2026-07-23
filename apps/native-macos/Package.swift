@@ -12,14 +12,16 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../packages/ImageKidInference"),
-        .package(path: "../../packages/ImageKidKit")
+        .package(path: "../../packages/ImageKidKit"),
+        .package(path: "../../packages/ImageKidCore")
     ],
     targets: [
         .executableTarget(
             name: "ImageKid",
             dependencies: [
                 .product(name: "ImageKidInference", package: "ImageKidInference"),
-                .product(name: "ImageKidKit", package: "ImageKidKit")
+                .product(name: "ImageKidKit", package: "ImageKidKit"),
+                .product(name: "ImageKidCore", package: "ImageKidCore")
             ],
             path: "Sources/ImageKid",
             resources: [
@@ -28,7 +30,10 @@ let package = Package(
         ),
         .testTarget(
             name: "ImageKidTests",
-            dependencies: ["ImageKid"],
+            dependencies: [
+                "ImageKid",
+                .product(name: "ImageKidCore", package: "ImageKidCore")
+            ],
             path: "Tests/ImageKidTests"
         )
     ],

@@ -1,4 +1,5 @@
 import Foundation
+import ImageKidCore
 import AppKit
 import SwiftUI
 import AVFoundation
@@ -141,142 +142,9 @@ enum CropAspectRatio: String, CaseIterable, Identifiable {
     }
 }
 
-enum DrawingMode: String, CaseIterable, Identifiable {
-    case rectangle
-    case ellipse
-    case line
-    case arrow
-    case freehand
+// MARK: - AppKit rendering conveniences for the shared model
 
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .rectangle: "Rectangle"
-        case .ellipse: "Ellipse"
-        case .line: "Line"
-        case .arrow: "Arrow"
-        case .freehand: "Freehand"
-        }
-    }
-
-    var symbolName: String {
-        switch self {
-        case .rectangle: "rectangle"
-        case .ellipse: "circle"
-        case .line: "line.diagonal"
-        case .arrow: "arrow.up.right"
-        case .freehand: "pencil.tip"
-        }
-    }
-
-    var supportsFill: Bool {
-        self == .rectangle || self == .ellipse
-    }
-}
-
-struct SampledColor: Identifiable {
-    let id: UUID
-    var color: NSColor
-
-    init(id: UUID = UUID(), color: NSColor) {
-        self.id = id
-        self.color = color
-    }
-
-    var sRGB: NSColor {
-        color.usingColorSpace(.sRGB) ?? color
-    }
-
-    var hex: String {
-        let value = sRGB
-        let includeAlpha = value.alphaComponent < 0.999
-        return String(
-            format: includeAlpha ? "#%02X%02X%02X%02X" : "#%02X%02X%02X",
-            Int((value.redComponent * 255).rounded()),
-            Int((value.greenComponent * 255).rounded()),
-            Int((value.blueComponent * 255).rounded()),
-            Int((value.alphaComponent * 255).rounded())
-        )
-    }
-
-    var rgb: String {
-        let value = sRGB
-        return String(
-            format: "rgb(%d, %d, %d)",
-            Int((value.redComponent * 255).rounded()),
-            Int((value.greenComponent * 255).rounded()),
-            Int((value.blueComponent * 255).rounded())
-        )
-    }
-
-    var rgba: String {
-        let value = sRGB
-        return String(
-            format: "rgba(%d, %d, %d, %.3f)",
-            Int((value.redComponent * 255).rounded()),
-            Int((value.greenComponent * 255).rounded()),
-            Int((value.blueComponent * 255).rounded()),
-            value.alphaComponent
-        )
-    }
-
-    var hsl: String {
-        let value = sRGB
-        let r = value.redComponent
-        let g = value.greenComponent
-        let b = value.blueComponent
-        let maximum = max(r, g, b)
-        let minimum = min(r, g, b)
-        let delta = maximum - minimum
-        let lightness = (maximum + minimum) / 2
-        let saturation = delta == 0 ? 0 : delta / (1 - abs(2 * lightness - 1))
-        var hue: CGFloat = 0
-        if delta != 0 {
-            if maximum == r {
-                hue = 60 * ((g - b) / delta).truncatingRemainder(dividingBy: 6)
-            } else if maximum == g {
-                hue = 60 * (((b - r) / delta) + 2)
-            } else {
-                hue = 60 * (((r - g) / delta) + 4)
-            }
-        }
-        if hue < 0 { hue += 360 }
-        return String(format: "hsl(%.0f, %.0f%%, %.0f%%)", hue, saturation * 100, lightness * 100)
-    }
-
-    var cssVariable: String { "--color: \(hex);" }
-
-    var swiftUIColor: String {
-        let value = sRGB
-        return String(
-            format: "Color(red: %.3f, green: %.3f, blue: %.3f, opacity: %.3f)",
-            value.redComponent,
-            value.greenComponent,
-            value.blueComponent,
-            value.alphaComponent
-        )
-    }
-}
-
-enum AnnotationFontWeight: String, CaseIterable, Identifiable {
-    case regular
-    case medium
-    case semibold
-    case bold
-
-    var id: String { rawValue }
-    var label: String { rawValue.capitalized }
-
-    var swiftUIWeight: Font.Weight {
-        switch self {
-        case .regular: .regular
-        case .medium: .medium
-        case .semibold: .semibold
-        case .bold: .bold
-        }
-    }
-
+extension AnnotationFontWeight {
     var appKitWeight: NSFont.Weight {
         switch self {
         case .regular: .regular
@@ -285,33 +153,9 @@ enum AnnotationFontWeight: String, CaseIterable, Identifiable {
         case .bold: .bold
         }
     }
-
-    var fontManagerWeight: Int {
-        switch self {
-        case .regular: 5
-        case .medium: 7
-        case .semibold: 8
-        case .bold: 9
-        }
-    }
 }
 
-enum AnnotationTextAlignment: String, CaseIterable, Identifiable {
-    case leading
-    case center
-    case trailing
-
-    var id: String { rawValue }
-    var label: String { rawValue.capitalized }
-
-    var swiftUIAlignment: Alignment {
-        switch self {
-        case .leading: .leading
-        case .center: .center
-        case .trailing: .trailing
-        }
-    }
-
+extension AnnotationTextAlignment {
     var paragraphAlignment: NSTextAlignment {
         switch self {
         case .leading: .left
@@ -321,338 +165,11 @@ enum AnnotationTextAlignment: String, CaseIterable, Identifiable {
     }
 }
 
-/// Stroke line style for shapes and lines.
-enum ShapeStrokeStyle: String, CaseIterable, Identifiable, Hashable {
-    case solid, dashed, dotted
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .solid: return "Solid"
-        case .dashed: return "Dashed"
-        case .dotted: return "Dotted"
-        }
-    }
-    /// Dash pattern scaled to the stroke width (empty = solid line).
-    func dashPattern(lineWidth: CGFloat) -> [CGFloat] {
-        let w = max(lineWidth, 1)
-        switch self {
-        case .solid: return []
-        case .dashed: return [w * 3, w * 2.2]
-        case .dotted: return [w * 0.05, w * 1.8]
-        }
-    }
-}
-
-/// Blend mode for how a shape composites over the layers beneath it.
-enum ShapeBlendMode: String, CaseIterable, Identifiable, Hashable {
-    case normal, multiply, screen, overlay, darken, lighten
-    case colorDodge, colorBurn, softLight, hardLight
-    case difference, exclusion, hue, saturation, color, luminosity
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .normal: return "Normal"
-        case .multiply: return "Multiply"
-        case .screen: return "Screen"
-        case .overlay: return "Overlay"
-        case .darken: return "Darken"
-        case .lighten: return "Lighten"
-        case .colorDodge: return "Color Dodge"
-        case .colorBurn: return "Color Burn"
-        case .softLight: return "Soft Light"
-        case .hardLight: return "Hard Light"
-        case .difference: return "Difference"
-        case .exclusion: return "Exclusion"
-        case .hue: return "Hue"
-        case .saturation: return "Saturation"
-        case .color: return "Color"
-        case .luminosity: return "Luminosity"
-        }
-    }
-
-    var swiftUI: BlendMode {
-        switch self {
-        case .normal: return .normal
-        case .multiply: return .multiply
-        case .screen: return .screen
-        case .overlay: return .overlay
-        case .darken: return .darken
-        case .lighten: return .lighten
-        case .colorDodge: return .colorDodge
-        case .colorBurn: return .colorBurn
-        case .softLight: return .softLight
-        case .hardLight: return .hardLight
-        case .difference: return .difference
-        case .exclusion: return .exclusion
-        case .hue: return .hue
-        case .saturation: return .saturation
-        case .color: return .color
-        case .luminosity: return .luminosity
-        }
-    }
-
-    var cg: CGBlendMode {
-        switch self {
-        case .normal: return .normal
-        case .multiply: return .multiply
-        case .screen: return .screen
-        case .overlay: return .overlay
-        case .darken: return .darken
-        case .lighten: return .lighten
-        case .colorDodge: return .colorDodge
-        case .colorBurn: return .colorBurn
-        case .softLight: return .softLight
-        case .hardLight: return .hardLight
-        case .difference: return .difference
-        case .exclusion: return .exclusion
-        case .hue: return .hue
-        case .saturation: return .saturation
-        case .color: return .color
-        case .luminosity: return .luminosity
-        }
-    }
-}
-
-/// Where a shape's stroke sits relative to its edge.
-enum StrokeAlignment: String, CaseIterable, Identifiable, Hashable {
-    case inset, center, outset
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .inset: return "Inside"
-        case .center: return "Center"
-        case .outset: return "Outside"
-        }
-    }
-    /// How far (in stroke-width multiples) to shift the stroke path outward.
-    var edgeShift: CGFloat {
-        switch self {
-        case .inset: return -0.5
-        case .center: return 0
-        case .outset: return 0.5
-        }
-    }
-}
-
-struct Annotation: Identifiable {
-    enum Kind {
-        case rectangle
-        case ellipse
-        case line(start: CGPoint, end: CGPoint)
-        case arrow(start: CGPoint, end: CGPoint)
-        case freehand(points: [CGPoint])
-        case text(String)
-    }
-
-    let id: UUID
-    var kind: Kind
-    var frame: CGRect
-    var strokeColor: NSColor
-    var fillColor: NSColor?
-    var lineWidth: CGFloat
-    var strokeStyle: ShapeStrokeStyle
-    var strokeAlignment: StrokeAlignment
-    /// Corner radius for rectangles, in source pixels (0 = square corners).
-    var cornerRadius: CGFloat
-    /// Custom dash: length of a dash and the gap after it, in source pixels.
-    /// When dashLength <= 0 the strokeStyle preset is used instead.
-    var dashLength: CGFloat
-    var dashGap: CGFloat
-    var dashOffset: CGFloat
-    var blendMode: ShapeBlendMode
-    var opacity: Double
-    var fontFamily: String
-    var fontSize: CGFloat
-    var fontWeight: AnnotationFontWeight
-    var lineHeight: CGFloat
-    var textAlignment: AnnotationTextAlignment
-    var customName: String?
-    var isVisible: Bool
-
-    init(
-        id: UUID = UUID(),
-        kind: Kind,
-        frame: CGRect,
-        strokeColor: NSColor = .systemRed,
-        fillColor: NSColor? = nil,
-        lineWidth: CGFloat = 3,
-        strokeStyle: ShapeStrokeStyle = .solid,
-        strokeAlignment: StrokeAlignment = .center,
-        cornerRadius: CGFloat = 0,
-        dashLength: CGFloat = 0,
-        dashGap: CGFloat = 0,
-        dashOffset: CGFloat = 0,
-        blendMode: ShapeBlendMode = .normal,
-        opacity: Double = 1,
-        fontFamily: String = "",
-        fontSize: CGFloat = 48,
-        fontWeight: AnnotationFontWeight = .semibold,
-        lineHeight: CGFloat = 1.1,
-        textAlignment: AnnotationTextAlignment = .leading,
-        customName: String? = nil,
-        isVisible: Bool = true
-    ) {
-        self.id = id
-        self.kind = kind
-        self.frame = frame
-        self.strokeColor = strokeColor
-        self.fillColor = fillColor
-        self.lineWidth = lineWidth
-        self.strokeStyle = strokeStyle
-        self.strokeAlignment = strokeAlignment
-        self.cornerRadius = cornerRadius
-        self.dashLength = dashLength
-        self.dashGap = dashGap
-        self.dashOffset = dashOffset
-        self.blendMode = blendMode
-        self.opacity = opacity
-        self.fontFamily = fontFamily
-        self.fontSize = fontSize
-        self.fontWeight = fontWeight
-        self.lineHeight = lineHeight
-        self.textAlignment = textAlignment
-        self.customName = customName
-        self.isVisible = isVisible
-    }
-
-    /// The dash pattern to render with: custom (dashLength/dashGap scaled by the
-    /// given render scale) when set, otherwise the strokeStyle preset.
-    func effectiveDash(lineWidth: CGFloat, scale: CGFloat = 1) -> [CGFloat] {
-        if dashLength > 0 {
-            return [dashLength * scale, max(dashGap, 0) * scale]
-        }
-        return strokeStyle.dashPattern(lineWidth: lineWidth)
-    }
-
-    var textValue: String? {
-        get {
-            guard case .text(let value) = kind else { return nil }
-            return value
-        }
-        set {
-            guard case .text = kind, let newValue else { return }
-            kind = .text(newValue)
-        }
-    }
-
-    var isText: Bool {
-        if case .text = kind { return true }
-        return false
-    }
-
-    var isDrawable: Bool { !isText }
-
-    /// Rectangle or ellipse — shapes that can be filled.
-    var isFillable: Bool {
-        switch kind {
-        case .rectangle, .ellipse: return true
-        default: return false
-        }
-    }
-
-    var isRectangle: Bool {
-        if case .rectangle = kind { return true }
-        return false
-    }
-
-    var drawingMode: DrawingMode? {
-        switch kind {
-        case .rectangle: .rectangle
-        case .ellipse: .ellipse
-        case .line: .line
-        case .arrow: .arrow
-        case .freehand: .freehand
-        case .text: nil
-        }
-    }
-
-    mutating func changeDrawingMode(_ mode: DrawingMode) {
-        switch mode {
-        case .rectangle:
-            kind = .rectangle
-        case .ellipse:
-            kind = .ellipse
-        case .line:
-            kind = .line(start: .zero, end: CGPoint(x: 1, y: 1))
-        case .arrow:
-            kind = .arrow(start: .zero, end: CGPoint(x: 1, y: 1))
-        case .freehand:
-            kind = .freehand(points: [.zero, CGPoint(x: 1, y: 1)])
-        }
-    }
-}
-
-/// A placed raster image composited above the base image and below vector
-/// annotations. `frame` is normalised in the base-image source space (0…1),
-/// matching `Annotation.frame`.
-struct ImageLayer: Identifiable {
-    let id: UUID
-    var name: String
-    var image: NSImage
-    var frame: CGRect
-    var opacity: Double
-    var isVisible: Bool
-    /// Rotation in degrees, clockwise, about the layer's centre.
-    var rotation: Double
-    var flipH: Bool
-    var flipV: Bool
-    /// Non-destructive alpha mask (white = keep, black = hide). Applied to the
-    /// layer image when `isMaskEnabled` is true; the original pixels are kept.
-    var mask: NSImage?
-    var isMaskEnabled: Bool
-
-    init(
-        id: UUID = UUID(),
-        name: String,
-        image: NSImage,
-        frame: CGRect,
-        opacity: Double = 1,
-        isVisible: Bool = true,
-        rotation: Double = 0,
-        flipH: Bool = false,
-        flipV: Bool = false,
-        mask: NSImage? = nil,
-        isMaskEnabled: Bool = true
-    ) {
-        self.id = id
-        self.name = name
-        self.image = image
-        self.frame = frame
-        self.opacity = opacity
-        self.isVisible = isVisible
-        self.rotation = rotation
-        self.flipH = flipH
-        self.flipV = flipV
-        self.mask = mask
-        self.isMaskEnabled = isMaskEnabled
-    }
-
-    var hasMask: Bool { mask != nil }
-
+extension ImageLayer {
     /// The image as it should render — masked when a mask is present and enabled.
     var renderedImage: NSImage {
         guard isMaskEnabled, let mask else { return image }
         return MaskCompositor.apply(mask: mask, to: image) ?? image
-    }
-}
-
-/// An organisational group over image layers. Toggling group visibility gates
-/// all members; members keep their own z-order in the flat layer stack.
-struct LayerGroup: Identifiable {
-    let id: UUID
-    var name: String
-    var memberIDs: [UUID]
-    var isVisible: Bool
-    var isCollapsed: Bool
-
-    init(id: UUID = UUID(), name: String, memberIDs: [UUID], isVisible: Bool = true, isCollapsed: Bool = false) {
-        self.id = id
-        self.name = name
-        self.memberIDs = memberIDs
-        self.isVisible = isVisible
-        self.isCollapsed = isCollapsed
     }
 }
 
@@ -671,6 +188,9 @@ final class ImageSession: ObservableObject {
     @Published var cropRect = CGRect(x: 0, y: 0, width: 1, height: 1)
     @Published var draftCropRect: CGRect?
     @Published var cropAspectRatio: CropAspectRatio = .free
+    /// When on, applying a crop deletes layers/annotations left fully outside it
+    /// (rather than keeping them off-canvas).
+    @Published var cropTrimsOutsideContent = false
     @Published var outputSize: CGSize?
     @Published var draftOutputSize: CGSize?
     @Published var resizePreservesAspect = true
@@ -749,10 +269,10 @@ final class ImageSession: ObservableObject {
     @Published var showGrid = false
     @Published var snapToGrid = false
     @Published var gridSizePx: CGFloat = 64
-    /// Grid line colour (hex). Default subtle white.
-    @Published var gridColorHex: String = "#FFFFFF"
+    /// Grid line colour (hex). A mid grey so it reads on both light and dark canvases.
+    @Published var gridColorHex: String = "#808080"
     /// Grid line opacity, 0…1.
-    @Published var gridOpacity: Double = 0.18
+    @Published var gridOpacity: Double = 0.5
     /// Number of finer subdivisions drawn between the main grid lines (1 = none).
     @Published var gridSubdivisions: Int = 1
     /// Whether the floating Grid settings panel is showing.
@@ -868,8 +388,96 @@ final class ImageSession: ObservableObject {
         baseUnlocked = snapshot.baseUnlocked
     }
 
+    // MARK: - Unified layer stack (image layers + annotations share a z order)
+
+    /// z value for a brand-new item so it lands on top of everything.
+    var nextStackZ: Double {
+        ((imageLayers.map(\.z) + annotations.map(\.z)).max() ?? 0) + 1
+    }
+
+    /// Lowest z in the stack (used to place an unlocked background at the bottom).
+    var minStackZ: Double {
+        (imageLayers.map(\.z) + annotations.map(\.z)).min() ?? 0
+    }
+
+    /// Image layers + annotations as one stack, bottom-to-top (z ascending).
+    var stackBottomToTop: [StackItem] {
+        (imageLayers.map(StackItem.layer) + annotations.map(StackItem.annotation))
+            .sorted { $0.z < $1.z }
+    }
+
+    /// Top-to-bottom (for the Layers panel).
+    var stackTopToBottom: [StackItem] { stackBottomToTop.reversed() }
+
+    /// Give every item a distinct z. Legacy sessions (all z == 0) migrate to the
+    /// old implicit order: image layers below, annotations on top.
+    func normalizeStackZ() {
+        struct Ref { let z: Double; let kind: Int; let idx: Int; let isLayer: Bool; let id: UUID }
+        var refs: [Ref] = []
+        for (i, l) in imageLayers.enumerated() { refs.append(Ref(z: l.z, kind: 0, idx: i, isLayer: true, id: l.id)) }
+        for (i, a) in annotations.enumerated() { refs.append(Ref(z: a.z, kind: 1, idx: i, isLayer: false, id: a.id)) }
+        refs.sort { lhs, rhs in
+            if lhs.z != rhs.z { return lhs.z < rhs.z }
+            if lhs.kind != rhs.kind { return lhs.kind < rhs.kind }
+            return lhs.idx < rhs.idx
+        }
+        for (newZ, ref) in refs.enumerated() {
+            if ref.isLayer {
+                if let i = imageLayers.firstIndex(where: { $0.id == ref.id }) { imageLayers[i].z = Double(newZ) }
+            } else {
+                if let i = annotations.firstIndex(where: { $0.id == ref.id }) { annotations[i].z = Double(newZ) }
+            }
+        }
+    }
+
+    /// Drag-reorder in the unified stack: move `sourceID` so it takes `targetID`'s
+    /// slot (dropping just above the target visually).
+    func reorderStack(moving sourceID: UUID, above targetID: UUID) {
+        guard sourceID != targetID else { return }
+        normalizeStackZ()
+        var order = stackTopToBottom.map(\.id) // top-to-bottom
+        guard let from = order.firstIndex(of: sourceID) else { return }
+        let moved = order.remove(at: from)
+        guard let to = order.firstIndex(of: targetID) else { return }
+        order.insert(moved, at: to)
+        // order is top-to-bottom → assign descending z.
+        let count = order.count
+        for (i, id) in order.enumerated() {
+            let newZ = Double(count - 1 - i)
+            if let li = imageLayers.firstIndex(where: { $0.id == id }) { imageLayers[li].z = newZ }
+            else if let ai = annotations.firstIndex(where: { $0.id == id }) { annotations[ai].z = newZ }
+        }
+        record("Reorder layer", systemImage: "arrow.up.arrow.down")
+    }
+
+    /// Move an item one step up (forward) or down (backward) in the unified stack.
+    func moveStackItem(_ id: UUID, up: Bool) {
+        normalizeStackZ()
+        let ordered = stackBottomToTop
+        guard let idx = ordered.firstIndex(where: { $0.id == id }) else { return }
+        let neighbor = up ? idx + 1 : idx - 1
+        guard neighbor >= 0, neighbor < ordered.count else { return }
+        let a = id, b = ordered[neighbor].id
+        let za = stackZ(of: a), zb = stackZ(of: b)
+        setStackZ(a, zb)
+        setStackZ(b, za)
+        record(up ? "Bring forward" : "Send backward", systemImage: "square.3.layers.3d")
+    }
+
+    private func stackZ(of id: UUID) -> Double {
+        if let l = imageLayers.first(where: { $0.id == id }) { return l.z }
+        if let a = annotations.first(where: { $0.id == id }) { return a.z }
+        return 0
+    }
+
+    private func setStackZ(_ id: UUID, _ z: Double) {
+        if let i = imageLayers.firstIndex(where: { $0.id == id }) { imageLayers[i].z = z }
+        else if let i = annotations.firstIndex(where: { $0.id == id }) { annotations[i].z = z }
+    }
+
     /// Seed the timeline with the opened image as the first step.
     func seedHistory() {
+        normalizeStackZ()
         history = [HistoryEntry(name: "Open", systemImage: "photo", snapshot: currentSnapshot())]
         historyIndex = 0
     }
@@ -1037,11 +645,20 @@ final class ImageSession: ObservableObject {
         paragraph.alignment = a.textAlignment.paragraphAlignment
         paragraph.lineHeightMultiple = max(a.lineHeight, 0.01)
         let attrs: [NSAttributedString.Key: Any] = [.font: baseFont, .paragraphStyle: paragraph]
-        let bounds = (content as NSString).boundingRect(
-            with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: attrs
+        // Use the layout manager's *used* rect — the tight bounds of the laid-out
+        // glyphs — instead of boundingRect, which pads with extra line leading and
+        // makes single-line boxes look like they have a trailing blank line.
+        let storage = NSTextStorage(string: content, attributes: attrs)
+        let container = NSTextContainer(
+            size: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         )
+        container.lineFragmentPadding = 0
+        let layoutManager = NSLayoutManager()
+        layoutManager.usesFontLeading = false
+        layoutManager.addTextContainer(container)
+        storage.addLayoutManager(layoutManager)
+        layoutManager.ensureLayout(for: container)
+        let bounds = layoutManager.usedRect(for: container)
         let pad = max(a.fontSize * 0.18, 4)
         let px = pixelSize
         let w = min((bounds.width + pad * 2) / max(px.width, 1), 1)
@@ -1086,6 +703,7 @@ final class ImageSession: ObservableObject {
             strokeStyle: src.strokeStyle,
             strokeAlignment: src.strokeAlignment,
             cornerRadius: src.cornerRadius,
+            cornerRadii: src.cornerRadii,
             dashLength: src.dashLength,
             dashGap: src.dashGap,
             dashOffset: src.dashOffset,
@@ -1097,7 +715,8 @@ final class ImageSession: ObservableObject {
             lineHeight: src.lineHeight,
             textAlignment: src.textAlignment,
             customName: src.customName,
-            isVisible: src.isVisible
+            isVisible: src.isVisible,
+            z: nextStackZ
         )
         annotations.insert(copy, at: index + 1)
         selectedAnnotationID = copy.id
@@ -1119,7 +738,7 @@ final class ImageSession: ObservableObject {
             ),
             opacity: src.opacity, isVisible: src.isVisible,
             rotation: src.rotation, flipH: src.flipH, flipV: src.flipV,
-            mask: src.mask, isMaskEnabled: src.isMaskEnabled
+            mask: src.mask, isMaskEnabled: src.isMaskEnabled, z: nextStackZ
         )
         imageLayers.insert(newLayer, at: index + 1)
         selectedLayerID = newLayer.id
@@ -1199,7 +818,8 @@ final class ImageSession: ObservableObject {
         let layer = ImageLayer(
             name: name,
             image: image,
-            frame: CGRect(x: (1 - w) / 2, y: (1 - h) / 2, width: w, height: h)
+            frame: CGRect(x: (1 - w) / 2, y: (1 - h) / 2, width: w, height: h),
+            z: nextStackZ
         )
         imageLayers.append(layer)
         selectedLayerID = layer.id
@@ -1222,7 +842,8 @@ final class ImageSession: ObservableObject {
         let layer = ImageLayer(
             name: "Background",
             image: workingSourceImage,
-            frame: CGRect(x: 0, y: 0, width: 1, height: 1)
+            frame: CGRect(x: 0, y: 0, width: 1, height: 1),
+            z: minStackZ - 1
         )
         imageLayers.insert(layer, at: 0)
         baseUnlocked = true
@@ -1321,6 +942,35 @@ final class ImageSession: ObservableObject {
         guard let index = imageLayers.firstIndex(where: { $0.id == id }), imageLayers[index].hasMask else { return }
         imageLayers[index].mask = nil
         record("Remove mask", systemImage: "trash")
+    }
+
+    /// Add a full-white mask (everything shown) to a layer that has none.
+    func addLayerMask(id: UUID) {
+        guard let index = imageLayers.firstIndex(where: { $0.id == id }), imageLayers[index].mask == nil else { return }
+        imageLayers[index].mask = MaskPainter.fullMask(size: imageLayers[index].image.size)
+        imageLayers[index].isMaskEnabled = true
+        record("Add mask", systemImage: "theatermask.and.paintbrush")
+    }
+
+    /// Invert a layer's mask (swap shown/hidden). Creates a white mask first if none,
+    /// so the layer becomes fully hidden.
+    func invertLayerMask(id: UUID) {
+        guard let index = imageLayers.firstIndex(where: { $0.id == id }) else { return }
+        if imageLayers[index].mask == nil {
+            imageLayers[index].mask = MaskPainter.fullMask(size: imageLayers[index].image.size)
+        }
+        if let mask = imageLayers[index].mask {
+            imageLayers[index].mask = MaskPainter.invert(mask)
+            imageLayers[index].isMaskEnabled = true
+        }
+        record("Invert mask", systemImage: "circle.righthalf.filled")
+    }
+
+    /// Invert whichever mask is active — the one being edited, else the selected layer's.
+    func invertActiveMask() {
+        if let id = maskEditLayerID ?? selectedLayerID {
+            invertLayerMask(id: id)
+        }
     }
 
     // MARK: - Mask editing
@@ -1461,9 +1111,14 @@ final class ImageSession: ObservableObject {
 
     func applyDraftCrop() {
         guard let draftCropRect, draftCropRect.width > 0.01, draftCropRect.height > 0.01 else { return }
-        cropRect = GeometryMapper.clampedNormalizedRect(draftCropRect)
+        let newCrop = GeometryMapper.clampedNormalizedRect(draftCropRect)
+        cropRect = newCrop
         self.draftCropRect = nil
         selectionRect = nil
+        if cropTrimsOutsideContent {
+            annotations.removeAll { !$0.frame.intersects(newCrop) }
+            imageLayers.removeAll { !$0.frame.intersects(newCrop) }
+        }
         record("Crop", systemImage: "crop")
     }
 
@@ -1564,71 +1219,5 @@ final class VideoSession: ObservableObject {
         } catch {
             naturalSize = CGSize(width: 16, height: 9)
         }
-    }
-}
-
-public enum GeometryMapper {
-    public static func aspectFitRect(contentSize: CGSize, in bounds: CGRect) -> CGRect {
-        guard contentSize.width > 0, contentSize.height > 0, bounds.width > 0, bounds.height > 0 else {
-            return .zero
-        }
-
-        let scale = min(bounds.width / contentSize.width, bounds.height / contentSize.height)
-        let size = CGSize(width: contentSize.width * scale, height: contentSize.height * scale)
-        return CGRect(
-            x: bounds.midX - size.width / 2,
-            y: bounds.midY - size.height / 2,
-            width: size.width,
-            height: size.height
-        )
-    }
-
-    public static func normalizedPoint(_ point: CGPoint, in imageRect: CGRect) -> CGPoint? {
-        guard imageRect.contains(point), imageRect.width > 0, imageRect.height > 0 else { return nil }
-        return CGPoint(
-            x: (point.x - imageRect.minX) / imageRect.width,
-            y: (point.y - imageRect.minY) / imageRect.height
-        )
-    }
-
-    public static func normalizedRect(from first: CGPoint, to second: CGPoint, in imageRect: CGRect) -> CGRect? {
-        guard let a = normalizedPoint(first, in: imageRect), let b = normalizedPoint(second, in: imageRect) else {
-            return nil
-        }
-        return clampedNormalizedRect(CGRect(
-            x: min(a.x, b.x),
-            y: min(a.y, b.y),
-            width: abs(b.x - a.x),
-            height: abs(b.y - a.y)
-        ))
-    }
-
-    public static func viewRect(from normalizedRect: CGRect, in imageRect: CGRect) -> CGRect {
-        CGRect(
-            x: imageRect.minX + normalizedRect.minX * imageRect.width,
-            y: imageRect.minY + normalizedRect.minY * imageRect.height,
-            width: normalizedRect.width * imageRect.width,
-            height: normalizedRect.height * imageRect.height
-        )
-    }
-
-    public static func clampedNormalizedRect(_ rect: CGRect, minimumSize: CGFloat = 0.01) -> CGRect {
-        let width = min(max(rect.width, minimumSize), 1)
-        let height = min(max(rect.height, minimumSize), 1)
-        let x = min(max(rect.minX, 0), 1 - width)
-        let y = min(max(rect.minY, 0), 1 - height)
-        return CGRect(x: x, y: y, width: width, height: height)
-    }
-
-    public static func applyingAspectRatio(_ ratio: CGFloat?, to rect: CGRect, anchor: CGPoint = .zero) -> CGRect {
-        guard let ratio, ratio > 0 else { return clampedNormalizedRect(rect) }
-        var result = rect
-        let proposedHeight = result.width / ratio
-        if proposedHeight <= 1 {
-            result.size.height = proposedHeight
-        } else {
-            result.size.width = result.height * ratio
-        }
-        return clampedNormalizedRect(result)
     }
 }
