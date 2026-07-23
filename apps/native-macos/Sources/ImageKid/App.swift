@@ -59,6 +59,7 @@ final class AppModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var isShowingResize = false
     @Published var isShowingExport = false
+    @Published var isShowingCanvasSize = false
     @Published var isShowingNewFile = false
     @Published var isShowingPromptEdit = false
     @Published var isShowingEnhance = false
@@ -869,6 +870,33 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Change the canvas dimensions without scaling content — flattens the
+    /// current image, places it on a new canvas at an anchor (transparent or
+    /// filled margin, or crop), and replaces the item (same pattern as rotate).
+    func applyCanvasSize(width: Int, height: Int, anchor: CanvasAnchor, fill: NSColor?) {
+        guard let itemID = selectedItemID, case .image(let session) = media else {
+            errorMessage = "Open an image first."
+            return
+        }
+        guard let rendered = ImageRenderer.render(session) else {
+            errorMessage = "Couldn't render the image."
+            return
+        }
+        let flattened = ImageUpscaleService.imageWithExactPixelSize(rendered, size: session.effectivePixelSize)
+        let newSize = CGSize(width: max(1, width), height: max(1, height))
+        guard let resized = CanvasResizer.place(flattened, onCanvas: newSize, anchor: anchor, fill: fill) else {
+            errorMessage = "Canvas resize failed."
+            return
+        }
+        let newSession = ImageSession(sourceURL: session.sourceURL, sourceImage: resized)
+        newSession.isDirty = true
+        if !replaceMedia(.image(newSession), for: itemID) {
+            errorMessage = "That image was closed before the canvas resize finished."
+        }
+        isShowingCanvasSize = false
+        activeTool = .view
+    }
+
     func requestExport() {
         guard case .image = media else {
             errorMessage = "Video export is not implemented in the current foundation build."
@@ -1530,9 +1558,13 @@ struct AppCommands: Commands {
 
         // Whole-image operations live under a dedicated "Image" menu.
         CommandMenu("Image") {
-            Button("Resize…") { currentAppModel?.activeTool = .resize }
+            Button("Image Size…") { currentAppModel?.activeTool = .resize }
                 .keyboardShortcut(Tool.resize.menuShortcutKey, modifiers: Tool.resize.menuShortcutModifiers)
                 .disabled(currentAppModel == nil)
+
+            Button("Canvas Size…") { currentAppModel?.isShowingCanvasSize = true }
+                .keyboardShortcut("c", modifiers: [.command, .option])
+                .disabled(currentAppModel?.imageSession == nil)
 
             Button("Invert Mask") { currentAppModel?.imageSession?.invertActiveMask() }
                 .keyboardShortcut("i", modifiers: .command)
