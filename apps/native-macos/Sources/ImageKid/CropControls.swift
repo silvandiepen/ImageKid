@@ -5,6 +5,7 @@ import ImageKidKit
 struct CropControls: View {
     @ObservedObject var session: ImageSession
     @Binding var offset: CGSize
+    var dockEdges: (leadingFlat: Bool, trailingFlat: Bool) = (false, false)
     let onCancel: () -> Void
     let onApply: () -> Void
 
@@ -14,7 +15,8 @@ struct CropControls: View {
             systemImage: "crop",
             width: 290,
             offset: $offset,
-            onClose: onCancel
+            onClose: onCancel,
+            dockEdges: dockEdges
         ) {
             VStack(alignment: .leading, spacing: 18) {
                 field("Ratio") {

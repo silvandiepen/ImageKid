@@ -4,6 +4,7 @@ import ImageKidKit
 struct ResizeControls: View {
     @ObservedObject var session: ImageSession
     @Binding var offset: CGSize
+    var dockEdges: (leadingFlat: Bool, trailingFlat: Bool) = (false, false)
     let isApplying: Bool
     let onCancel: () -> Void
     let onApply: () -> Void
@@ -17,7 +18,8 @@ struct ResizeControls: View {
             systemImage: "arrow.up.left.and.arrow.down.right",
             width: 310,
             offset: $offset,
-            onClose: onCancel
+            onClose: onCancel,
+            dockEdges: dockEdges
         ) {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 12) {

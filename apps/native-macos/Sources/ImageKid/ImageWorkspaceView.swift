@@ -20,8 +20,7 @@ struct ImageWorkspaceView: View {
     @State private var lastBackgroundBrushPoint: CGPoint?
     @State private var didCaptureBackgroundUndo = false
     @State private var isViewportToolbarCollapsed = false
-    @State private var panelOffset: CGSize = .zero
-    @State private var gridPanelOffset: CGSize = .zero
+    @StateObject private var toolInspector = ToolInspectorPlacement()
     @State private var lastMaskPoint: CGPoint?
     @State private var maskBrushCursor: CGPoint?
     /// Set when a new text item is created so its default "Text" is selected.
@@ -257,30 +256,28 @@ struct ImageWorkspaceView: View {
     @ViewBuilder
     private var toolPanels: some View {
         ZStack(alignment: .topLeading) {
-            // Right-side, tool-driven context panels.
-            VStack(spacing: 12) {
-                HStack(alignment: .top) {
-                    Spacer()
-                    rightToolPanels
-                }
-                if session.showGridPanel {
-                    HStack(alignment: .top) {
-                        Spacer()
+            // Right-side, tool-driven context inspectors — absolutely placed in
+            // the workspace dock so they stick to its edges, stay reachable, and
+            // remember where they were dragged (default: top-right).
+            GeometryReader { geo in
+                let dock = geo.size
+                ZStack(alignment: .topLeading) {
+                    rightToolPanels(in: dock)
+                    if session.showGridPanel {
                         GridControls(
                             session: session,
-                            offset: $gridPanelOffset,
+                            offset: toolInspector.offsetBinding(.grid, in: dock),
+                            dockEdges: toolInspector.dockEdges(.grid, in: dock),
                             onClose: { session.showGridPanel = false }
                         )
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
                 }
-                Spacer()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .animation(.easeOut(duration: 0.18), value: appModel.activeTool)
+                .animation(.easeOut(duration: 0.18), value: session.selectedAnnotationID)
+                .animation(.easeOut(duration: 0.18), value: session.showGridPanel)
             }
-            .padding(.top, 54)
-            .padding(.trailing, 18)
-            .animation(.easeOut(duration: 0.18), value: appModel.activeTool)
-            .animation(.easeOut(duration: 0.18), value: session.selectedAnnotationID)
-            .animation(.easeOut(duration: 0.18), value: session.showGridPanel)
 
             // Movable, minimizable dockable panels + their minimized icon rail.
             dockablePanelsLayer
@@ -290,11 +287,12 @@ struct ImageWorkspaceView: View {
     }
 
     @ViewBuilder
-    private var rightToolPanels: some View {
+    private func rightToolPanels(in dock: CGSize) -> some View {
         if session.isEditingMask {
             MaskEditControls(
                 session: session,
-                offset: $panelOffset,
+                offset: toolInspector.offsetBinding(.maskEdit, in: dock),
+                dockEdges: toolInspector.dockEdges(.maskEdit, in: dock),
                 onDone: { session.endMaskEdit() }
             )
             .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -303,7 +301,8 @@ struct ImageWorkspaceView: View {
             TransformControls(
                 session: session,
                 layerID: layerID,
-                offset: $panelOffset,
+                offset: toolInspector.offsetBinding(.transform, in: dock),
+                dockEdges: toolInspector.dockEdges(.transform, in: dock),
                 onClose: { session.selectedLayerID = nil; session.selectedLayerIDs = [] }
             )
             .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -311,21 +310,24 @@ struct ImageWorkspaceView: View {
             SelectionPanel(
                 session: session,
                 appModel: appModel,
-                offset: $panelOffset,
+                offset: toolInspector.offsetBinding(.selection, in: dock),
+                dockEdges: toolInspector.dockEdges(.selection, in: dock),
                 onClose: { session.selectionRect = nil }
             )
             .transition(.move(edge: .trailing).combined(with: .opacity))
         } else if appModel.activeTool == .pickColor {
             ColorPalettePanel(
                 session: session,
-                offset: $panelOffset,
+                offset: toolInspector.offsetBinding(.colorPalette, in: dock),
+                dockEdges: toolInspector.dockEdges(.colorPalette, in: dock),
                 onClose: { appModel.activeTool = .view }
             )
             .transition(.move(edge: .trailing).combined(with: .opacity))
         } else if appModel.activeTool == .crop {
             CropControls(
                 session: session,
-                offset: $panelOffset,
+                offset: toolInspector.offsetBinding(.crop, in: dock),
+                dockEdges: toolInspector.dockEdges(.crop, in: dock),
                 onCancel: cancelCrop,
                 onApply: applyCrop
             )
@@ -333,7 +335,8 @@ struct ImageWorkspaceView: View {
         } else if appModel.activeTool == .resize {
             ResizeControls(
                 session: session,
-                offset: $panelOffset,
+                offset: toolInspector.offsetBinding(.resize, in: dock),
+                dockEdges: toolInspector.dockEdges(.resize, in: dock),
                 isApplying: appModel.isApplyingResize,
                 onCancel: cancelResize,
                 onApply: applyResize,
@@ -343,7 +346,8 @@ struct ImageWorkspaceView: View {
         } else if appModel.activeTool == .rotate {
             RotateControls(
                 session: session,
-                offset: $panelOffset,
+                offset: toolInspector.offsetBinding(.rotate, in: dock),
+                dockEdges: toolInspector.dockEdges(.rotate, in: dock),
                 onCancel: cancelRotate,
                 onApply: applyRotate
             )
@@ -353,7 +357,8 @@ struct ImageWorkspaceView: View {
                   session.backgroundRemovedImage != nil {
             BackgroundRefinementControls(
                 session: session,
-                offset: $panelOffset,
+                offset: toolInspector.offsetBinding(.backgroundRefine, in: dock),
+                dockEdges: toolInspector.dockEdges(.backgroundRefine, in: dock),
                 onUndo: { session.undoLastBackgroundRefinement() },
                 onClose: { appModel.activeTool = .view }
             )
@@ -361,7 +366,8 @@ struct ImageWorkspaceView: View {
         } else if appModel.activeTool == .draw || session.selectedAnnotation?.isDrawable == true {
             DrawingInspector(
                 session: session,
-                offset: $panelOffset,
+                offset: toolInspector.offsetBinding(.drawing, in: dock),
+                dockEdges: toolInspector.dockEdges(.drawing, in: dock),
                 onClose: {
                     session.selectedAnnotationID = nil
                     appModel.activeTool = .view
@@ -372,7 +378,8 @@ struct ImageWorkspaceView: View {
             TextInspector(
                 session: session,
                 annotationID: selected.id,
-                offset: $panelOffset
+                offset: toolInspector.offsetBinding(.text, in: dock),
+                dockEdges: toolInspector.dockEdges(.text, in: dock)
             )
             .transition(.move(edge: .trailing).combined(with: .opacity))
         }

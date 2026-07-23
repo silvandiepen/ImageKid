@@ -4,6 +4,7 @@ import ImageKidKit
 struct BackgroundRefinementControls: View {
     @ObservedObject var session: ImageSession
     @Binding var offset: CGSize
+    var dockEdges: (leadingFlat: Bool, trailingFlat: Bool) = (false, false)
     let onUndo: () -> Void
     let onClose: () -> Void
 
@@ -13,7 +14,8 @@ struct BackgroundRefinementControls: View {
             systemImage: "paintbrush.pointed",
             width: 300,
             offset: $offset,
-            onClose: onClose
+            onClose: onClose,
+            dockEdges: dockEdges
         ) {
             VStack(alignment: .leading, spacing: 18) {
                 field("Brush") {

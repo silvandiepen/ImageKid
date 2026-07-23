@@ -6,6 +6,7 @@ import ImageKidKit
 struct MaskEditControls: View {
     @ObservedObject var session: ImageSession
     @Binding var offset: CGSize
+    var dockEdges: (leadingFlat: Bool, trailingFlat: Bool) = (false, false)
     let onDone: () -> Void
 
     var body: some View {
@@ -14,7 +15,8 @@ struct MaskEditControls: View {
             systemImage: "theatermask.and.paintbrush",
             width: 300,
             offset: $offset,
-            onClose: onDone
+            onClose: onDone,
+            dockEdges: dockEdges
         ) {
             VStack(alignment: .leading, spacing: 16) {
                 field("Mask view") {

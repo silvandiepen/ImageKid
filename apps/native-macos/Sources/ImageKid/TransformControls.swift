@@ -7,6 +7,7 @@ struct TransformControls: View {
     @ObservedObject var session: ImageSession
     let layerID: UUID
     @Binding var offset: CGSize
+    var dockEdges: (leadingFlat: Bool, trailingFlat: Bool) = (false, false)
     let onClose: () -> Void
 
     private var layer: ImageLayer? { session.imageLayers.first(where: { $0.id == layerID }) }
@@ -17,7 +18,8 @@ struct TransformControls: View {
             systemImage: "crop.rotate",
             width: 280,
             offset: $offset,
-            onClose: onClose
+            onClose: onClose,
+            dockEdges: dockEdges
         ) {
             VStack(alignment: .leading, spacing: 16) {
                 field("Rotate") {

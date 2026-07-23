@@ -4,6 +4,7 @@ import ImageKidKit
 struct RotateControls: View {
     @ObservedObject var session: ImageSession
     @Binding var offset: CGSize
+    var dockEdges: (leadingFlat: Bool, trailingFlat: Bool) = (false, false)
     let onCancel: () -> Void
     let onApply: () -> Void
 
@@ -13,7 +14,8 @@ struct RotateControls: View {
             systemImage: "rotate.right",
             width: 300,
             offset: $offset,
-            onClose: onCancel
+            onClose: onCancel,
+            dockEdges: dockEdges
         ) {
             VStack(alignment: .leading, spacing: 16) {
                 field("Quick") {

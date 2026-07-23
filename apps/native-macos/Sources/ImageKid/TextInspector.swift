@@ -8,6 +8,7 @@ struct TextInspector: View {
     @ObservedObject var session: ImageSession
     let annotationID: UUID
     @Binding var offset: CGSize
+    var dockEdges: (leadingFlat: Bool, trailingFlat: Bool) = (false, false)
 
     private let fontFamilies = NSFontManager.shared.availableFontFamilies.sorted()
 
@@ -17,7 +18,8 @@ struct TextInspector: View {
             systemImage: "textformat",
             width: 300,
             offset: $offset,
-            onClose: { session.selectedAnnotationID = nil }
+            onClose: { session.selectedAnnotationID = nil },
+            dockEdges: dockEdges
         ) {
             VStack(alignment: .leading, spacing: 18) {
                 field("Text") {
