@@ -26,6 +26,9 @@ struct ContentView: View {
     @State private var selectedLayerID: UUID?
     @State private var layerPickerItem: PhotosPickerItem?
     @State private var maskingLayerID: UUID?
+    @State private var imagekidExportDoc: ImageKidFileDocument?
+    @State private var showImagekidExporter = false
+    @State private var showImagekidImporter = false
     @State private var annotationKind: Annotation.Kind = .freehand
     @State private var annotationColor: Color = .red
     @State private var annotationWidthFraction: CGFloat = 0.008
@@ -94,6 +97,18 @@ struct ContentView: View {
         .onChange(of: layerPickerItem) { _, newValue in
             loadLayerImage(newValue)
         }
+        .fileExporter(
+            isPresented: $showImagekidExporter,
+            document: imagekidExportDoc,
+            contentType: .imagekid,
+            defaultFilename: "ImageKid"
+        ) { _ in }
+        .fileImporter(
+            isPresented: $showImagekidImporter,
+            allowedContentTypes: [.imagekid, .data]
+        ) { result in
+            openImageKid(result)
+        }
         .sheet(isPresented: Binding(
             get: { maskingLayerID != nil },
             set: { if !$0 { maskingLayerID = nil } }
@@ -110,6 +125,26 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    /// Build a .imagekid document from the current editor state and present the
+    /// exporter (the format round-trips with the macOS app).
+    private func saveImageKid() {
+        guard let base = model.workingImage,
+              let data = ImageKidBridge.makeDocumentData(base: base, annotations: model.annotations, layers: model.layers) else { return }
+        imagekidExportDoc = ImageKidFileDocument(data: data)
+        showImagekidExporter = true
+    }
+
+    private func openImageKid(_ result: Result<URL, Error>) {
+        guard case .success(let url) = result else { return }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url),
+              let loaded = ImageKidBridge.load(data) else { return }
+        model.setSource(loaded.base)
+        model.annotations = loaded.annotations
+        model.layers = loaded.layers
     }
 
     private func loadLayerImage(_ item: PhotosPickerItem?) {
@@ -137,8 +172,10 @@ struct ContentView: View {
             }
             Menu {
                 if model.workingImage != nil {
-                    Button { isExporting = true } label: { Label("Export…", systemImage: "square.and.arrow.up") }
+                    Button { isExporting = true } label: { Label("Export image…", systemImage: "square.and.arrow.up") }
+                    Button { saveImageKid() } label: { Label("Save .imagekid…", systemImage: "doc.badge.arrow.up") }
                 }
+                Button { showImagekidImporter = true } label: { Label("Open .imagekid…", systemImage: "doc") }
                 Button { isShowingSettings = true } label: { Label("Settings", systemImage: "gearshape") }
             } label: {
                 Image(systemName: "ellipsis.circle")
