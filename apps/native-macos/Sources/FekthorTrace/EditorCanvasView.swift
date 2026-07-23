@@ -125,8 +125,34 @@ struct EditorCanvasView: View {
                     )
             }
             .clipped()
+            // Arrow keys nudge the selected point. Focus follows a click on
+            // the canvas, so selecting a point makes the keys live.
+            .focusable()
+            .onKeyPress(.upArrow) { nudgeActiveAnchor(dx: 0, dy: -1) ? .handled : .ignored }
+            .onKeyPress(.downArrow) { nudgeActiveAnchor(dx: 0, dy: 1) ? .handled : .ignored }
+            .onKeyPress(.leftArrow) { nudgeActiveAnchor(dx: -1, dy: 0) ? .handled : .ignored }
+            .onKeyPress(.rightArrow) { nudgeActiveAnchor(dx: 1, dy: 0) ? .handled : .ignored }
         }
         .frame(minWidth: 300, minHeight: 340)
+    }
+
+    /// Move the selected point by one step in the given direction. With grid
+    /// snapping on the step is one grid unit (and the point lands on the grid);
+    /// off, it's a fine 1pt nudge — ⇧ makes either a 10× coarse nudge.
+    @discardableResult
+    private func nudgeActiveAnchor(dx: Double, dy: Double) -> Bool {
+        guard session.tool == .select, let sel = single, let active = activeAnchor,
+            let shape = session.document.firstShape(id: sel),
+            let anchor = Editing2.anchors(of: shape).first(where: {
+                $0.path == active.path && $0.index == active.index
+            })
+        else { return false }
+        let base = snapStep ?? 1
+        let step = NSEvent.modifierFlags.contains(.shift) ? base * 10 : base
+        let target = Pt(anchor.position.x + dx * step, anchor.position.y + dy * step)
+        session.beginGesture(label: "Nudge point")
+        session.moveAnchor(node: sel, path: active.path, anchor: active.index, to: snapped(target))
+        return true
     }
 
     private func canvas(in size: CGSize) -> some View {
