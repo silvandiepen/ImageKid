@@ -206,6 +206,15 @@ final class EditorPanelsState: ObservableObject {
     /// persisted.
     @Published var needsPlacement: Set<EditorPanel> = []
 
+    /// The bottom animation timeline drawer: shown + height, persisted like
+    /// the palettes (it is workspace chrome, not document state).
+    @Published var timelineShown: Bool {
+        didSet { AppDefaults.store.set(timelineShown, forKey: Self.timelineShownKey) }
+    }
+    @Published var timelineHeight: Double {
+        didSet { AppDefaults.store.set(timelineHeight, forKey: Self.timelineHeightKey) }
+    }
+
     // v3 keys: v1 shipped every palette open in an overlapping pile, v2
     // scattered them over fixed offsets; v3 re-defaults everyone once into
     // the edge-docked layout without touching other preferences. Positions
@@ -223,12 +232,17 @@ final class EditorPanelsState: ObservableObject {
     private static func sizeKey(_ panel: EditorPanel) -> String {
         "fekthor.panel.\(panel.rawValue).size.v3"
     }
+    private static let timelineShownKey = "fekthor.timeline.shown"
+    private static let timelineHeightKey = "fekthor.timeline.height"
 
     /// First-run set: the daily-driver palettes. Everything else is one
     /// click away in the Panels menu — ten open palettes bury the canvas.
     private static let defaultVisible: Set<EditorPanel> = [.fill, .stroke, .layers]
 
     private init() {
+        timelineShown = AppDefaults.store.bool(forKey: Self.timelineShownKey)
+        let storedHeight = AppDefaults.store.double(forKey: Self.timelineHeightKey)
+        timelineHeight = storedHeight > 0 ? storedHeight : 220
         let loadedVisible: Set<EditorPanel>
         if let raw = AppDefaults.store.array(forKey: Self.visibleKey) as? [String] {
             loadedVisible = Set(raw.compactMap(EditorPanel.init(rawValue:)))

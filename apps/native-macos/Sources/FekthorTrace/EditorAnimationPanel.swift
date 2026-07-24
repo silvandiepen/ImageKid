@@ -61,6 +61,15 @@ struct AnimationPanelContent: View {
             .help("Loop the preview")
 
             Spacer()
+
+            Button {
+                EditorPanelsState.shared.timelineShown.toggle()
+            } label: {
+                Image(systemName: "timeline.selection")
+            }
+            .buttonStyle(.bordered)
+            .help("Show the timeline")
+            .accessibilityIdentifier("animation.timeline")
         }
     }
 

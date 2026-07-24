@@ -1510,6 +1510,11 @@ struct EditorWorkspaceView: View {
             .overlay(
                 EditorPanelsLayer(session: session, workspace: workspace, preview: preview)
                     .environmentObject(workspace))
+            if panels.timelineShown {
+                Divider()
+                EditorTimelineDrawer(session: session, preview: preview)
+                    .frame(height: panels.timelineHeight)
+            }
             Divider()
             HStack {
                 Text(session.status).foregroundStyle(.secondary).lineLimit(1)
