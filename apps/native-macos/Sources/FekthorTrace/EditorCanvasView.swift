@@ -36,6 +36,7 @@ struct EditorGuideConfig: Equatable {
 
 struct EditorCanvasView: View {
     @ObservedObject var session: EditorSession
+    @ObservedObject private var canvasAppearance = CanvasAppearance.shared
     @Binding var zoom: CGFloat
     @Binding var offset: CGSize
     var grid: EditorGridConfig? = nil
@@ -147,7 +148,9 @@ struct EditorCanvasView: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                Rectangle().fill(Color(nsColor: .textBackgroundColor))
+                // Translucent surround (Settings ⌘, sets colour/opacity):
+                // the window's glass reads through like the header/footer.
+                Rectangle().fill(canvasAppearance.effectiveBackground)
                 canvas(in: geo.size)
                     .overlay(
                         RightClickCatcher { point, size in
