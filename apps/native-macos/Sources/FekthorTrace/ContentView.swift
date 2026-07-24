@@ -449,7 +449,9 @@ struct ContentView: View {
                 visible: menuState.showGrid,
                 snap: menuState.snapToGrid,
                 opacity: std.gridOpacity ?? 1,
-                colorHex: std.gridColor)
+                colorHex: std.gridColor,
+                subOpacity: std.gridSubOpacity,
+                subColorHex: std.gridSubColor)
         }
         let detached = gridStore.detached
         guard detached.spacing > 0 else { return nil }
@@ -459,7 +461,9 @@ struct ContentView: View {
             visible: menuState.showGrid,
             snap: menuState.snapToGrid,
             opacity: detached.opacity,
-            colorHex: detached.color)
+            colorHex: detached.color,
+            subOpacity: detached.subOpacity,
+            subColorHex: detached.subColor)
     }
 
     /// The workspace guide icon drawn dimmed behind the open icon. nil when

@@ -23,6 +23,9 @@ struct EditorGridConfig: Equatable {
     var opacity: Double = 1
     /// Grid line colour as "#rrggbb"; nil = the standard slate blue-grey.
     var colorHex: String? = nil
+    /// Subdivision lines' own opacity/colour; nil = follow opacity/colorHex.
+    var subOpacity: Double? = nil
+    var subColorHex: String? = nil
 }
 
 /// The workspace guide icon drawn dimmed between the artboard fill and the
@@ -414,16 +417,18 @@ struct EditorCanvasView: View {
         guard majorPx >= 4 else { return }
         let fade = min(1.0, (majorPx - 4) / 8)
         let line = GridLook.lineColor(hex: g.colorHex)
-        let strength = max(0, g.opacity)
-        let subAlpha = min(0.45, 0.12 * strength) * fade
-        let majorAlpha = min(0.45, 0.22 * strength) * fade
+        let majorAlpha = GridLook.alphas(opacity: g.opacity).major * fade
+        // Subdivisions follow the grid lines unless split (their own
+        // opacity/colour set through the Grid palette).
+        let subLine = GridLook.lineColor(hex: g.subColorHex ?? g.colorHex)
+        let subAlpha = GridLook.alphas(opacity: g.subOpacity ?? g.opacity).sub * fade
         let subs = max(0, g.subdivisions)
         if subs > 0 {
             let subStep = g.spacing / Double(subs + 1)
             if subStep * Double(t.s) >= 4 {
                 var p = Path()
                 addGridLines(&p, doc: doc, step: subStep, t: t, skipEvery: subs + 1, over: size)
-                ctx.stroke(p, with: .color(line.opacity(subAlpha)), lineWidth: 0.5)
+                ctx.stroke(p, with: .color(subLine.opacity(subAlpha)), lineWidth: 0.5)
             }
         }
         var p = Path()

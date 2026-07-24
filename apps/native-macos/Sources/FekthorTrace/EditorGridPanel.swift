@@ -10,6 +10,8 @@ enum GridLook {
     /// The standard slate blue-grey — reads better on the white artboard
     /// than pure gray.
     static let standardColor = Color(red: 0.42, green: 0.47, blue: 0.58)
+    /// The same slate as a hex, for seeding an explicit colour on split.
+    static let standardHex = "#6b7894"
 
     static func lineColor(hex: String?) -> Color {
         guard let hex, let c = PaintValue.parseHex(hex) else { return standardColor }
@@ -35,6 +37,10 @@ struct GridValues: Equatable {
     var opacity: Double
     /// "#rrggbb"; nil = the standard slate blue-grey.
     var color: String?
+    /// Subdivision lines' own opacity/colour. nil subOpacity = LINKED
+    /// (they follow opacity/color); the palette's split button sets both.
+    var subOpacity: Double? = nil
+    var subColor: String? = nil
 }
 
 /// A named grid configuration the Grid Presets palette applies in one click.
@@ -44,18 +50,22 @@ struct GridPreset: Codable, Equatable, Identifiable {
     var subdivisions: Int
     var opacity: Double
     var color: String?
+    var subOpacity: Double?
+    var subColor: String?
 
     // "strength" stays the stored key for opacity — presets saved before
     // the rename must keep decoding.
     private enum CodingKeys: String, CodingKey {
-        case name, spacing, subdivisions, color
+        case name, spacing, subdivisions, color, subOpacity, subColor
         case opacity = "strength"
     }
 
     var id: String { name }
 
     var values: GridValues {
-        GridValues(spacing: spacing, subdivisions: subdivisions, opacity: opacity, color: color)
+        GridValues(
+            spacing: spacing, subdivisions: subdivisions, opacity: opacity, color: color,
+            subOpacity: subOpacity, subColor: subColor)
     }
 
     /// Compact "8 pt ÷ 4" detail shown next to the name.
@@ -71,6 +81,8 @@ struct GridPreset: Codable, Equatable, Identifiable {
     func matches(_ v: GridValues) -> Bool {
         abs(spacing - v.spacing) < 0.001 && subdivisions == v.subdivisions
             && abs(opacity - v.opacity) < 0.005 && color == v.color
+            && abs((subOpacity ?? -1) - (v.subOpacity ?? -1)) < 0.005
+            && subColor == v.subColor
     }
 }
 
@@ -98,9 +110,11 @@ final class GridPresetStore: ObservableObject {
         var subdivisions: Int = 0
         var opacity: Double = 1
         var color: String? = nil
+        var subOpacity: Double? = nil
+        var subColor: String? = nil
 
         private enum CodingKeys: String, CodingKey {
-            case spacing, subdivisions, color
+            case spacing, subdivisions, color, subOpacity, subColor
             case opacity = "strength"
         }
     }
@@ -168,12 +182,14 @@ private struct GridAccess {
                 spacing: std.gridSpacing ?? 1,
                 subdivisions: std.gridSubdivisions ?? 0,
                 opacity: std.gridOpacity ?? 1,
-                color: std.gridColor)
+                color: std.gridColor,
+                subOpacity: std.gridSubOpacity,
+                subColor: std.gridSubColor)
         }
         let d = store.detached
         return GridValues(
             spacing: d.spacing, subdivisions: d.subdivisions, opacity: d.opacity,
-            color: d.color)
+            color: d.color, subOpacity: d.subOpacity, subColor: d.subColor)
     }
 
     func apply(_ v: GridValues) {
@@ -184,12 +200,14 @@ private struct GridAccess {
                 s.gridSubdivisions = v.subdivisions
                 s.gridOpacity = v.opacity
                 s.gridColor = v.color
+                s.gridSubOpacity = v.subOpacity
+                s.gridSubColor = v.subColor
                 workfile.settings = s
             }
         } else {
             store.detached = GridPresetStore.DetachedGrid(
                 spacing: v.spacing, subdivisions: v.subdivisions, opacity: v.opacity,
-                color: v.color)
+                color: v.color, subOpacity: v.subOpacity, subColor: v.subColor)
         }
     }
 
@@ -215,6 +233,7 @@ struct GridPanelContent: View {
     @State private var spacingText = ""
     @State private var subdivisionsText = ""
     @State private var opacity: Double = 1
+    @State private var subOpacity: Double = 1
     @AppStorage("fekthor.gridPreviewCollapsed", store: AppDefaults.store)
     private var previewCollapsed = false
 
@@ -228,8 +247,12 @@ struct GridPanelContent: View {
     /// click or a workspace switch re-syncs the fields.
     private var syncKey: String {
         let cur = access.current
-        return "\(cur.spacing)|\(cur.subdivisions)|\(cur.opacity)|\(cur.color ?? "-")|\(workspace.workspace != nil)"
+        let sub = cur.subOpacity.map { "\($0)" } ?? "-"
+        return "\(cur.spacing)|\(cur.subdivisions)|\(cur.opacity)|\(cur.color ?? "-")|\(sub)|\(cur.subColor ?? "-")|\(workspace.workspace != nil)"
     }
+
+    /// Subdivisions carry their own opacity/colour (the split button).
+    private var split: Bool { access.current.subOpacity != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -274,8 +297,22 @@ struct GridPanelContent: View {
                     }
                 }
             }
+            HStack {
+                Text(split ? "Grid lines" : "Lines")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                splitButton
+            }
             opacityRow
             colorRow
+            if split {
+                Text("Subdivisions")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                subOpacityRow
+                subColorRow
+            }
             Divider()
             presetsButton
         }
@@ -342,6 +379,94 @@ struct GridPanelContent: View {
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .frame(width: 38, alignment: .trailing)
+        }
+    }
+
+    /// Linked (default): subdivisions ride the grid lines' opacity/colour.
+    /// Splitting seeds them with the current values so nothing jumps.
+    private var splitButton: some View {
+        Button {
+            if split {
+                change {
+                    $0.subOpacity = nil
+                    $0.subColor = nil
+                }
+            } else {
+                change {
+                    $0.subOpacity = $0.opacity
+                    $0.subColor = $0.color ?? GridLook.standardHex
+                }
+            }
+        } label: {
+            Image(systemName: "link")
+                .font(.system(size: 10, weight: .semibold))
+                .frame(width: 20, height: 20)
+                .background(
+                    .white.opacity(split ? 0.08 : 0.28),
+                    in: RoundedRectangle(cornerRadius: 6))
+                .contentShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .help(
+            split
+                ? "Link subdivisions back to the grid lines"
+                : "Split subdivisions — give them their own opacity and colour")
+        .accessibilityIdentifier("grid.splitSub")
+    }
+
+    private var subOpacityRow: some View {
+        HStack(spacing: 8) {
+            Text("Opacity")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 52, alignment: .leading)
+            Slider(value: $subOpacity, in: Self.opacityRange) { editing in
+                if !editing { change { $0.subOpacity = subOpacity } }
+            }
+            .accessibilityIdentifier("grid.subOpacity")
+            Text(String(format: "%.0f%%", subOpacity * 100))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 38, alignment: .trailing)
+        }
+    }
+
+    private var subColorRow: some View {
+        let follows = access.current.subColor == nil
+        return HStack(spacing: 8) {
+            Text("Color")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 52, alignment: .leading)
+            ColorPicker(
+                "",
+                selection: Binding(
+                    get: {
+                        GridLook.lineColor(
+                            hex: access.current.subColor ?? access.current.color)
+                    },
+                    set: { picked in change { $0.subColor = hex(from: picked) } }),
+                supportsOpacity: false
+            )
+            .labelsHidden()
+            .controlSize(.small)
+            .accessibilityIdentifier("grid.subColor")
+            Spacer()
+            if !follows {
+                Button {
+                    change { $0.subColor = nil }
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 9, weight: .semibold))
+                        .frame(width: 18, height: 18)
+                        .background(
+                            .white.opacity(0.08), in: RoundedRectangle(cornerRadius: 5))
+                        .contentShape(RoundedRectangle(cornerRadius: 5))
+                }
+                .buttonStyle(.plain)
+                .help("Follow the grid line colour")
+                .accessibilityIdentifier("grid.subColorReset")
+            }
         }
     }
 
@@ -418,6 +543,7 @@ struct GridPanelContent: View {
         spacingText = NumericField.format(cur.spacing)
         subdivisionsText = String(cur.subdivisions)
         opacity = cur.opacity
+        subOpacity = cur.subOpacity ?? cur.opacity
     }
 
     private func hex(from color: Color) -> String {
@@ -451,14 +577,17 @@ private struct GridPreviewSwatch: View {
             let majorPx = values.spacing * scale
             guard majorPx >= 2 else { return }
             let line = GridLook.lineColor(hex: values.color)
-            let (majorAlpha, subAlpha) = GridLook.alphas(opacity: values.opacity)
+            let majorAlpha = GridLook.alphas(opacity: values.opacity).major
+            let subLine = GridLook.lineColor(hex: values.subColor ?? values.color)
+            let subAlpha = GridLook.alphas(
+                opacity: values.subOpacity ?? values.opacity).sub
             let subs = max(0, values.subdivisions)
             if subs > 0 {
                 let subStep = majorPx / Double(subs + 1)
                 if subStep >= 2.5 {
                     var p = Path()
                     addLines(&p, step: subStep, skipEvery: subs + 1, in: size)
-                    ctx.stroke(p, with: .color(line.opacity(subAlpha)), lineWidth: 0.5)
+                    ctx.stroke(p, with: .color(subLine.opacity(subAlpha)), lineWidth: 0.5)
                 }
             }
             var p = Path()
@@ -628,7 +757,8 @@ struct GridPresetsPanelContent: View {
         let cur = access.current
         return GridPreset(
             name: name, spacing: cur.spacing, subdivisions: cur.subdivisions,
-            opacity: cur.opacity, color: cur.color)
+            opacity: cur.opacity, color: cur.color, subOpacity: cur.subOpacity,
+            subColor: cur.subColor)
     }
 
     private func savePreset() {
