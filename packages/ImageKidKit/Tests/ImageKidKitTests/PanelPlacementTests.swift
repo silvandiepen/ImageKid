@@ -129,26 +129,26 @@ final class PanelPlacementTests: XCTestCase {
         XCTAssertEqual(
             PanelPlacement.openingSlot(
                 panelSize: CGSize(width: 240, height: 300), dock: dock, openFrames: []),
-            CGPoint(x: 16, y: 16))
+            CGPoint(x: 8, y: 8))
     }
 
     func testOpeningSlotPrefersTheEmptierSide() {
         // One panel on the left — the right column has more room.
         let slot = PanelPlacement.openingSlot(
             panelSize: CGSize(width: 240, height: 300), dock: dock,
-            openFrames: [CGRect(x: 16, y: 16, width: 240, height: 400)])
-        XCTAssertEqual(slot, CGPoint(x: 1000 - 240 - 16, y: 16))
+            openFrames: [CGRect(x: 8, y: 8, width: 240, height: 400)])
+        XCTAssertEqual(slot, CGPoint(x: 1000 - 240 - 8, y: 8))
     }
 
     func testOpeningSlotStacksBelowTheLowestPanelOnItsSide() {
-        // Left column ends at y 216, right at y 516 — left wins, below + gap.
+        // Left column ends at y 208, right at y 508 — left wins, below + gap.
         let slot = PanelPlacement.openingSlot(
             panelSize: CGSize(width: 240, height: 300), dock: dock,
             openFrames: [
-                CGRect(x: 16, y: 16, width: 240, height: 200),
-                CGRect(x: 744, y: 16, width: 240, height: 500),
+                CGRect(x: 8, y: 8, width: 240, height: 200),
+                CGRect(x: 752, y: 8, width: 240, height: 500),
             ])
-        XCTAssertEqual(slot, CGPoint(x: 16, y: 232))
+        XCTAssertEqual(slot, CGPoint(x: 8, y: 220))
     }
 
     func testOpeningSlotIsClampedIntoTheDock() {
