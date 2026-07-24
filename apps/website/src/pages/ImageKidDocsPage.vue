@@ -16,6 +16,30 @@
         <figcaption :class="bemm('caption')">The home screen. Open an image, start a blank canvas, or pick up a recent file.</figcaption>
       </figure>
 
+      <h2 :class="bemm('heading')">How to: cut out a subject</h2>
+      <ol :class="bemm('steps')">
+        <li>Open the image — drop it on the window, <kbd>⌘O</kbd>, or <kbd>⌘V</kbd> to paste.</li>
+        <li>Run background removal. The built-in model is instant.</li>
+        <li>If the edges are hard — hair, fur, a busy background — take the offer to download the best-quality model. It also runs on your Mac.</li>
+        <li>Refine the mask by hand where you disagree with it. <kbd>⌘I</kbd> inverts if you wanted the background instead.</li>
+        <li>Export as PNG to keep the transparency.</li>
+      </ol>
+
+      <h2 :class="bemm('heading')">How to: make a small image bigger</h2>
+      <ol :class="bemm('steps')">
+        <li>Open the image and go to Enhance.</li>
+        <li>Pick a grade: Quick for an instant sharpen, High or Max for on-device AI detail.</li>
+        <li>Choose the size — same, 2× or 4×.</li>
+        <li>Apply, then export. Nothing was uploaded at any point.</li>
+      </ol>
+
+      <h2 :class="bemm('heading')">How to: crop without losing anything</h2>
+      <ol :class="bemm('steps')">
+        <li>Pick the crop tool. Drag the handles, or set a fixed ratio.</li>
+        <li>Leave <em>Delete content outside crop</em> unticked and the crop stays reversible — the pixels are still there.</li>
+        <li>Need a bigger frame rather than a smaller picture? That is Canvas Size, <kbd>⌥⌘C</kbd>.</li>
+      </ol>
+
       <h2 :class="bemm('heading')">Getting an image in</h2>
       <p :class="bemm('copy')">Four ways, all equivalent: drop a file anywhere on the window, press <kbd>⌘O</kbd>, paste with <kbd>⌘V</kbd>, or drop a file onto the Dock icon. ImageKid opens JPEG, PNG, WebP, HEIC and TIFF. Nothing is written back to your original file unless you explicitly export over it.</p>
 
@@ -109,6 +133,16 @@ const bemm = useBemm("imagekid-docs-page", { includeBaseClass: true });
   }
 
   &__caption { font-size: var(--font-size-s); opacity: 0.65; }
+
+  &__steps {
+    margin-top: var(--space-m);
+    display: grid;
+    gap: var(--space-m);
+    padding-inline-start: var(--space-xl);
+
+    li { padding-inline-start: var(--space-xs); }
+    li::marker { color: var(--color-primary); font-weight: 700; }
+  }
 
   &__heading { margin-top: var(--space-xxl); }
   &__copy { margin-top: var(--space-m); }

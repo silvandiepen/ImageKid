@@ -13,9 +13,9 @@ const data: ProductPageData = {
   name: meta.name,
   icon: meta.icon,
   eyebrow: "Native image editor for Mac, iPad & iPhone",
-  tagline: "Everyday image editing, done on your device.",
+  tagline: "Image editing that gets out of the way.",
   lead:
-    "Open a picture and get straight to work: cut out the background, sharpen and enlarge it, crop, annotate, and export — without an account, a subscription, or an upload step. The heavy AI runs on-device, so your files stay yours.",
+    "Drop an image in. Cut the background, make it bigger, crop it, mark it up, send it on. No account, no subscription, no upload. The AI runs on your Mac, which is where your pictures already were.",
   chips: ["macOS 14 · iPadOS · iOS 17", "One app, all your devices", "Local-first processing"],
   actions: [
     { label: "Explore the features", to: "/features", variant: "primary" },
@@ -25,21 +25,21 @@ const data: ProductPageData = {
   heroImage: "/media/app/workspace.jpg",
   heroImageAlt: "The ImageKid editor with an image open and the tool palette visible",
   featuresEyebrow: "In the box",
-  featuresTitle: "A full editor, not a single trick.",
+  featuresTitle: "A full editor, not a one-trick app.",
   features: [
-    { title: "Remove backgrounds", description: "One tap to cut out subjects. A built-in remover for quick shots, plus an optional higher-quality on-device model for hair and tricky edges." },
-    { title: "Enhance & upscale", description: "Sharpen and enlarge with quality grades — Quick, High, and Max — at the same size or 2× / 4×. AI models run locally." },
-    { title: "Crop & resize", description: "Exact dimensions, aspect-lock, ratios, and drag handles for precise output sizes." },
-    { title: "Rotate & flip", description: "Straighten, rotate, and mirror with a live canvas and clean re-rendering." },
-    { title: "Draw, text & colour", description: "Annotate with shapes, arrows, freehand, and text, and sample exact pixel colours into a palette." },
-    { title: "Private by default", description: "Core editing and downloaded models run on-device. No accounts, no analytics, no tracking." }
+    { title: "Remove backgrounds", description: "One tap and the subject is cut out. There is a fast built-in model, and a better one you can download for hair and other nightmares." },
+    { title: "Enhance & upscale", description: "Quick, High or Max. Same size, 2× or 4×. You pick how good it needs to be; the app picks the model." },
+    { title: "Crop & resize", description: "Exact pixels, locked ratios, drag handles. Crops stay reversible until you tell them not to be." },
+    { title: "Rotate & flip", description: "Straighten, spin, mirror. Re-rendered clean every time, not nudged pixel by pixel." },
+    { title: "Draw, text & colour", description: "Shapes, arrows, freehand, text. Pick colours straight off the image and keep them in a swatch list." },
+    { title: "Private by default", description: "Everything local runs local. No account, no analytics, no tracking. Magic is the one exception, and only if you set it up." }
   ],
   sections: [
     {
       eyebrow: "Cut it out",
-      title: "Background removal that respects the edges.",
+      title: "It gets the hair right.",
       copy:
-        "Tap once for an instant cut-out, or download the best-quality on-device model for fuzzy hair and busy scenes. Refine the mask by hand when you want the last word — nothing leaves your device.",
+        "One tap gives you an instant cut-out. If the shot is harder — flyaway hair, a busy background — grab the best-quality model, which also runs on your Mac. Then refine the mask by hand if you want the last word.",
       bullets: ["Built-in remover, no download", "Optional best-quality on-device model", "Manual refine brush"],
       image: "/media/app/background-refine.jpg",
       imageAlt: "Refining a background cut-out in ImageKid",
@@ -48,9 +48,9 @@ const data: ProductPageData = {
     },
     {
       eyebrow: "Bigger & sharper",
-      title: "Enhance with quality grades, not model names.",
+      title: "Quality grades, not model names.",
       copy:
-        "Pick Quick for an instant built-in sharpen, or High and Max for on-device AI detail. Keep the same size or enlarge 2× / 4×. You choose the quality; ImageKid handles the model.",
+        "Nobody wants to choose between four checkpoints with version numbers. Pick Quick, High or Max. Keep the size or go 2× or 4×. The app works out the rest, on device.",
       bullets: ["Quick · High · Max grades", "Same size, 2×, or 4×", "Runs entirely on-device"],
       image: "/media/app/resize.jpg",
       imageAlt: "Resize and enhance controls in ImageKid",
@@ -59,9 +59,9 @@ const data: ProductPageData = {
     },
     {
       eyebrow: "Everyday tools",
-      title: "Crop, annotate, inspect, export.",
+      title: "The boring bits, done well.",
       copy:
-        "Crop to exact sizes, add shapes and text, sample colours, and export deliberate outputs rendered from your original plus your edits — never a lossy round-trip.",
+        "Crop to exact sizes. Add shapes and text. Sample a colour off the canvas. Every export is rendered fresh from your original plus your edits — never a lossy round-trip through a saved copy.",
       image: "/media/app/annotate.jpg",
       imageAlt: "Annotating an image in ImageKid",
       imageSide: "right",
@@ -69,7 +69,7 @@ const data: ProductPageData = {
     },
     {
       eyebrow: "Magic",
-      title: "AI edits — with your own key.",
+      title: "Magic, and the honest asterisk.",
       copy:
         "Magic is deliberately separate from the local tools. Describe an edit and ImageKid sends the image and prompt to your configured AI provider using your own key. No key, no sending — everything else stays local.",
       image: "/media/app/magic-provider-warning.jpg",

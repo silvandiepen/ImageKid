@@ -28,9 +28,9 @@ export const apps: AppMeta[] = [
   {
     id: "imagekid",
     name: "ImageKid",
-    tagline: "The complete local image editor.",
+    tagline: "Image editing that gets out of the way.",
     summary:
-      "Remove backgrounds, enhance and upscale, crop, annotate, and export — all on your device, no subscription.",
+      "Cut the background, make it bigger, crop it, mark it up. All on your Mac, no subscription.",
     icon: "/media/brand/imagekid.png",
     hero: "/media/hero/imagekid.jpg",
     accent: "primary",
@@ -42,9 +42,9 @@ export const apps: AppMeta[] = [
   {
     id: "fekthor",
     name: "Fekthor",
-    tagline: "A vector editor built for icon sets.",
+    tagline: "Vectors, without the ceremony.",
     summary:
-      "The basics of Illustrator, but better — trace, edit, and batch-export clean SVGs from a folder of icons.",
+      "Draw and trace vectors, then keep a whole folder of icons consistent. Plain SVG out, nothing uploaded.",
     icon: "/media/brand/fekthor.png",
     hero: "/media/hero/fekthor.jpg",
     accent: "fekthor",
@@ -56,7 +56,7 @@ export const apps: AppMeta[] = [
   {
     id: "upscale",
     name: "ImageKid Upscale",
-    tagline: "Batch upscaling, done locally.",
+    tagline: "Small pictures, made big.",
     summary:
       "Drop in a folder, pick a scale, and enlarge every image on-device. Pay once, keep using it.",
     icon: "/media/brand/upscale.png",
@@ -70,7 +70,7 @@ export const apps: AppMeta[] = [
   {
     id: "cutout",
     name: "ImageKid Cutout",
-    tagline: "Batch background removal.",
+    tagline: "Backgrounds, gone.",
     summary:
       "Drop product shots, portraits, or generated assets and get clean transparent PNGs — no service fees.",
     icon: "/media/brand/cutout.png",

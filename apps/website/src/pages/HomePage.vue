@@ -3,9 +3,9 @@
     <section :class="bemm('hero')">
       <div :class="bemm('hero-copy')">
         <p :class="bemm('eyebrow')">Native, local-first apps for Mac</p>
-        <h1 :class="bemm('title')">Powerful image tools that run on your device.</h1>
-        <p :class="bemm('lead')">A small family of native apps for editing images, removing backgrounds, upscaling, and drawing clean vectors — without accounts, subscriptions, or an upload step.</p>
-        <p :class="bemm('video-note')">The heavy processing runs on your Mac. The only exception is Magic, which uses your own AI provider key.</p>
+        <h1 :class="bemm('title')">Image tools that run on your Mac.</h1>
+        <p :class="bemm('lead')">Four native apps for images and vectors. No accounts, no subscriptions, no upload step. Your pictures stay where they are.</p>
+        <p :class="bemm('video-note')">Everything heavy happens on your Mac. Magic is the one exception, and it only runs on your own provider key.</p>
         <div :class="bemm('actions')">
           <Button to="/#apps" variant="primary">Explore the apps</Button>
           <Button to="/imagekid" variant="outline">Meet ImageKid</Button>
@@ -22,8 +22,8 @@
     <section id="apps" :class="bemm('apps')">
       <div :class="bemm('section-intro')">
         <p :class="bemm('eyebrow')">The apps</p>
-        <h2 :class="bemm('heading')">Four tools, one local-first foundation.</h2>
-        <p :class="bemm('section-copy')">Each app is built from the same on-device engine. Pick the full editor, a focused batch utility, or the vector studio.</p>
+        <h2 :class="bemm('heading')">Four apps. One stubborn principle.</h2>
+        <p :class="bemm('section-copy')">All four run on the same on-device engine. Take the full editor, a focused batch tool, or the vector one.</p>
       </div>
       <div :class="bemm('app-grid')">
         <RouterLink
@@ -68,7 +68,7 @@
           <p :class="bemm('eyebrow')">Flagship · {{ fekthor.platforms }}</p>
         </div>
         <h2 :class="bemm('heading')">Fekthor — vectors, built for icon sets.</h2>
-        <p :class="bemm('section-copy')">The basics of Illustrator, but better. Trace raster art into editable strokes, edit real vectors, and batch-export clean SVGs across a whole folder of icons.</p>
+        <p :class="bemm('section-copy')">Draw and trace real vectors, then keep a whole folder of icons in step — one colour change, two hundred icons updated. Plain SVG out.</p>
         <ul :class="bemm('showcase-list')">
           <li v-for="point in fekthorPoints" :key="point">{{ point }}</li>
         </ul>

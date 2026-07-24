@@ -76,8 +76,8 @@
         <figure v-if="section.image" :class="bemm('band-media')">
           <img :class="bemm('band-image')" :src="section.image" :alt="section.imageAlt ?? section.title" />
         </figure>
-        <div v-else :class="bemm('band-panel')" aria-hidden="true">
-          <img :src="data.icon" :alt="''" width="96" height="96" />
+        <div v-else-if="data.character" :class="bemm('band-character')" aria-hidden="true">
+          <img :class="bemm('band-character-image')" :src="data.character" alt="" loading="lazy" />
         </div>
       </div>
     </section>

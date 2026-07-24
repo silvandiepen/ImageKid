@@ -268,11 +268,31 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
 }
 
 /* Per-app accent — always an alias of a palette-mapped semantic token, never a raw value. Solid identity marks only; washes, borders, and shadows derive from background/foreground. */
-.home-page, .product-page { --app-accent: var(--color-primary); }
+// Each app owns two roles, not one. `--app-accent` is ink: text, markers,
+// buttons — it must clear AA on a light background, which is why the accents
+// are dark. `--app-surface` is the section fill, and `--app-on-surface` is
+// whatever is legible on top of it. Fekthor runs loud (a full orange section);
+// ImageKid is a light blue tint; Upscale and Cutout are quieter blues.
+.home-page, .product-page {
+  --app-accent: var(--color-primary);
+  --app-surface: #dceefb;
+  --app-on-surface: #10243a;
+}
+.section-tint {
+  background: var(--app-surface);
+  color: var(--app-on-surface);
+}
+// The loud treatment keeps Fekthor's real accent orange at full strength and
+// puts dark ink on it (6.1:1). Darkening the orange enough for white text
+// (#c1570d) muddies the brand colour, so ink wins.
+.section-tint--loud {
+  --app-accent: #151820;
+  padding-block: var(--space-xxl);
+}
 .home-page__app-card--imagekid, .home-page__showcase--imagekid, .product-page--imagekid, .product-page__family-card--imagekid { --app-accent: var(--color-primary); }
-.home-page__app-card--fekthor, .home-page__showcase--fekthor, .product-page--fekthor, .product-page__family-card--fekthor { --app-accent: var(--color-fekthor); }
-.home-page__app-card--upscale, .product-page--upscale, .product-page__family-card--upscale { --app-accent: var(--color-upscale); }
-.home-page__app-card--cutout, .product-page--cutout, .product-page__family-card--cutout { --app-accent: var(--color-cutout); }
+.home-page__app-card--fekthor, .home-page__showcase--fekthor, .product-page--fekthor, .product-page__family-card--fekthor { --app-accent: var(--color-fekthor); --app-surface: #f0741e; --app-on-surface: #151820; }
+.home-page__app-card--upscale, .product-page--upscale, .product-page__family-card--upscale { --app-accent: var(--color-upscale); --app-surface: #eaf2f8; --app-on-surface: #10243a; }
+.home-page__app-card--cutout, .product-page--cutout, .product-page__family-card--cutout { --app-accent: var(--color-cutout); --app-surface: #e8f0f4; --app-on-surface: #10243a; }
 
 /* Home — app family grid */
 .home-page__apps { scroll-margin-top: calc(var(--space-xxl) * 2); display: grid; gap: var(--space-xl); }
@@ -344,15 +364,31 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
   &__feature-copy { color: color-mix(in srgb, var(--color-foreground), transparent 32%); font-size: var(--font-size-s); }
 
   &__band { margin-inline: calc(50% - 50vw); padding: var(--space-xxl) max(var(--space-xl), calc((100vw - 1180px) / 2 + var(--space-xl))); }
-  &__band--tone-1 { background: color-mix(in srgb, var(--color-foreground), transparent 95%); }
-  &__band--tone-2 { background: color-mix(in srgb, var(--color-foreground), transparent 92%); }
-  &__band--tone-3 { background: color-mix(in srgb, var(--color-foreground), transparent 89%); }
-  &__band--tone-4 { background: color-mix(in srgb, var(--color-foreground), transparent 86%); }
-  &__band--tone-5 { background: color-mix(in srgb, var(--color-foreground), transparent 83%); }
+  // Bands carry the app's colour, not a neutral grey. Even tones run the
+  // surface at full strength — a whole orange section for Fekthor, a light
+  // blue one for ImageKid — with odd tones as a soft wash between them, so
+  // the page alternates loud/quiet instead of shouting all the way down.
+  &__band--tone-1, &__band--tone-3, &__band--tone-5 {
+    background: color-mix(in srgb, var(--app-surface), var(--color-background) 62%);
+  }
+  &__band--tone-2, &__band--tone-4 {
+    background: var(--app-surface);
+    color: var(--app-on-surface);
+
+    .product-page__band-lead,
+    .product-page__band-list li { color: color-mix(in srgb, var(--app-on-surface), transparent 18%); }
+    .product-page__eyebrow { color: color-mix(in srgb, var(--app-on-surface), transparent 32%); }
+    .product-page__band-list li::before { background: var(--app-on-surface); }
+  }
   &__band-inner { width: min(1180px, 100%); margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: var(--space-xl); }
   &__band--image-left &__band-copy { order: 2; }
   &__band--image-left &__band-media, &__band--image-left &__band-panel { order: 1; }
   &__band-copy { display: grid; gap: var(--space-m); }
+  // Character accents sit in the band with no frame — they are cut-outs, so a
+  // panel or shadow around them reads as a sticker.
+  &__band-character { display: grid; place-items: center; }
+  &__band-character-image { width: min(72%, 320px); height: auto; filter: drop-shadow(0 18px 28px rgb(20 16 8 / 0.22)); }
+
   &__band-title { font-size: clamp(var(--font-size-xl), 3vw, var(--font-size-xxl)); line-height: 1.15; }
   &__band-lead { max-width: 46ch; color: color-mix(in srgb, var(--color-foreground), transparent 26%); font-size: var(--font-size-l); }
   &__band-list { list-style: none; padding: 0; display: grid; gap: var(--space-s); }
