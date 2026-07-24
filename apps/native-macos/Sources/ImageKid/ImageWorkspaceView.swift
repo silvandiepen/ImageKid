@@ -508,15 +508,9 @@ struct ImageWorkspaceView: View {
         }
     }
 
-    @ViewBuilder
     private var canvasBackground: some View {
-        if settings.canvasBackground == .checkerboard {
-            CheckerboardBackground(cellSize: 18)
-                .ignoresSafeArea()
-        } else {
-            settings.canvasColor
-                .ignoresSafeArea()
-        }
+        CanvasBackgroundView(background: settings.canvasBackground, checkerCell: 18)
+            .ignoresSafeArea()
     }
 
     /// Dims everything outside the canvas rect so content that spills past the
@@ -533,7 +527,9 @@ struct ImageWorkspaceView: View {
 
     private func canvasBorder(in imageRect: CGRect) -> some View {
         RoundedRectangle(cornerRadius: imageCornerRadius(for: imageRect), style: .continuous)
-            .strokeBorder(canvasBorderColor, lineWidth: settings.canvasBackground == .checkerboard ? 1.5 : 1)
+            .strokeBorder(
+                canvasBorderColor,
+                lineWidth: settings.canvasBackground.style.isCheckerboard ? 1.5 : 1)
             .frame(width: imageRect.width, height: imageRect.height)
             .position(x: imageRect.midX, y: imageRect.midY)
             .allowsHitTesting(false)
@@ -544,22 +540,9 @@ struct ImageWorkspaceView: View {
     }
 
     private var canvasBorderColor: Color {
-        switch settings.canvasBackground {
-        case .dark:
-            return .white.opacity(0.28)
-        case .checkerboard:
-            return .accentColor.opacity(0.82)
-        case .custom:
-            return isCustomCanvasColorDark ? .white.opacity(0.34) : .black.opacity(0.32)
-        case .light:
-            return .black.opacity(0.26)
-        }
-    }
-
-    private var isCustomCanvasColorDark: Bool {
-        let color = settings.customCanvasBackground.usingColorSpace(.sRGB) ?? settings.customCanvasBackground
-        let luminance = 0.2126 * color.redComponent + 0.7152 * color.greenComponent + 0.0722 * color.blueComponent
-        return luminance < 0.45
+        let background = settings.canvasBackground
+        if background.style.isCheckerboard { return .accentColor.opacity(0.82) }
+        return background.readsAsDark ? .white.opacity(0.30) : .black.opacity(0.28)
     }
 
     @ViewBuilder

@@ -1139,7 +1139,7 @@ private struct ComparisonView: View {
             .padding(8)
             GeometryReader { inner in
                 ZStack {
-                    Rectangle().fill(CanvasAppearance.shared.effectiveBackground)
+                    CanvasBackgroundView(background: CanvasAppearance.shared.background)
                     content(inner.size)
                 }
                 .clipped()
@@ -1251,7 +1251,7 @@ private struct ComparisonView: View {
             }
             .padding(8)
             ZStack {
-                Rectangle().fill(CanvasAppearance.shared.effectiveBackground)
+                CanvasBackgroundView(background: CanvasAppearance.shared.background)
                 VectorEditLayer(model: model, zoom: $zoom, offset: $offset, busy: busy)
             }
             .clipped()
@@ -1268,7 +1268,7 @@ private struct ComparisonView: View {
             .padding(8)
             GeometryReader { _ in
                 ZStack {
-                    Rectangle().fill(CanvasAppearance.shared.effectiveBackground)
+                    CanvasBackgroundView(background: CanvasAppearance.shared.background)
                     if let image {
                         Image(nsImage: image)
                             .resizable()

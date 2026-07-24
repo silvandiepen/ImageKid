@@ -1,5 +1,6 @@
 import AppKit
 import FekthorKit
+import ImageKidKit
 import SwiftUI
 
 /// The editor canvas for an `EditorSession`: renders the GraphicDocument
@@ -157,7 +158,7 @@ struct EditorCanvasView: View {
             ZStack {
                 // Translucent surround (Settings ⌘, sets colour/opacity):
                 // the window's glass reads through like the header/footer.
-                Rectangle().fill(canvasAppearance.effectiveBackground)
+                CanvasBackgroundView(background: canvasAppearance.background)
                 // The animation clock: redraws every frame while playing,
                 // fully paused (zero cost) otherwise. Scrubbing renders the
                 // paused clock's time.

@@ -337,13 +337,13 @@ final class AppModel: ObservableObject {
         switch ProcessInfo.processInfo.environment["IMAGEKID_SCREENSHOT_COLOR_MODE"] {
         case "light":
             settings.appearanceMode = .light
-            settings.canvasBackground = .light
+            settings.canvasBackground.style = .light
         case "dark":
             settings.appearanceMode = .dark
-            settings.canvasBackground = .dark
+            settings.canvasBackground.style = .dark
         default:
             settings.appearanceMode = .light
-            settings.canvasBackground = .checkerboard
+            settings.canvasBackground.style = .checkerboard
         }
 
         let scenario = ProcessInfo.processInfo.environment["IMAGEKID_SCREENSHOT_SCENARIO"] ?? "empty"

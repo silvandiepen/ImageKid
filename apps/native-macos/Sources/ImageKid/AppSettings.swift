@@ -185,11 +185,6 @@ final class AppSettings: ObservableObject {
         set { appearanceModeRaw = newValue.rawValue }
     }
 
-    var canvasBackground: CanvasBackground {
-        get { CanvasBackground(rawValue: canvasBackgroundRaw) ?? .checkerboard }
-        set { canvasBackgroundRaw = newValue.rawValue }
-    }
-
     /// The shared canvas-background model, assembled from the three stored
     /// fields. Setting it (or mutating a sub-field) writes them back.
     var canvasBackground: CanvasBackground {
