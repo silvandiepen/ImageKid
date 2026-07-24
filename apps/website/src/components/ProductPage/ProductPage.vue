@@ -28,7 +28,13 @@
         <p :class="bemm('chips')"><span v-for="chip in data.chips" :key="chip">{{ chip }}</span></p>
       </div>
 
-      <figure v-if="data.heroImage" :class="bemm('hero-media')">
+      <AppHero
+        v-if="data.character"
+        :character="data.character"
+        :screenshot="data.heroImage"
+        :variant="data.id"
+      />
+      <figure v-else-if="data.heroImage" :class="bemm('hero-media')">
         <img :class="bemm('hero-image')" :src="data.heroImage" :alt="data.heroImageAlt ?? data.name" />
       </figure>
       <div v-else :class="bemm('hero-panel')" aria-hidden="true">
@@ -102,6 +108,7 @@
 import { computed } from "vue";
 import { Button } from "@sil/ui";
 import { useBemm } from "bemm";
+import AppHero from "../AppHero";
 import { RouterLink } from "vue-router";
 import { otherApps, appById } from "../../data/apps";
 import type { ProductPageData } from "./ProductPage.model";

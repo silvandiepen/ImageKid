@@ -11,6 +11,8 @@ const meta = appById("fekthor")!;
 const data: ProductPageData = {
   id: meta.id,
   name: meta.name,
+  character: "/media/character/fekthor.png",
+  heroImage: "/media/fekthor/home.jpg",
   icon: meta.icon,
   eyebrow: "Native macOS vector editor",
   tagline: "The basics of Illustrator, but better.",

@@ -8,8 +8,12 @@ export interface AppMeta {
   tagline: string;
   /** One or two sentences for cards. */
   summary: string;
-  /** Path to the rounded-square icon in /public/media/brand. */
+  /** Path to the shipping app icon, exported from the asset catalog. */
   icon: string;
+  /** Large character render for the product-page hero. */
+  hero: string;
+  /** Project-colour name driving the page accent. */
+  accent: string;
   /** Route to the product page. */
   to: string;
   /** Availability label, e.g. "Coming to the App Store". */
@@ -27,7 +31,9 @@ export const apps: AppMeta[] = [
     tagline: "The complete local image editor.",
     summary:
       "Remove backgrounds, enhance and upscale, crop, annotate, and export — all on your device, no subscription.",
-    icon: "/media/brand/imagekid.svg",
+    icon: "/media/brand/imagekid.png",
+    hero: "/media/hero/imagekid.jpg",
+    accent: "primary",
     to: "/imagekid",
     status: "Coming to the App Store",
     platforms: "macOS · iPad · iPhone",
@@ -39,7 +45,9 @@ export const apps: AppMeta[] = [
     tagline: "A vector editor built for icon sets.",
     summary:
       "The basics of Illustrator, but better — trace, edit, and batch-export clean SVGs from a folder of icons.",
-    icon: "/media/brand/fekthor.svg",
+    icon: "/media/brand/fekthor.png",
+    hero: "/media/hero/fekthor.jpg",
+    accent: "fekthor",
     to: "/fekthor",
     status: "In development",
     platforms: "macOS",
@@ -51,7 +59,9 @@ export const apps: AppMeta[] = [
     tagline: "Batch upscaling, done locally.",
     summary:
       "Drop in a folder, pick a scale, and enlarge every image on-device. Pay once, keep using it.",
-    icon: "/media/brand/upscale.svg",
+    icon: "/media/brand/upscale.png",
+    hero: "/media/hero/upscale.jpg",
+    accent: "upscale",
     to: "/upscale",
     status: "Coming soon",
     platforms: "macOS",
@@ -63,7 +73,9 @@ export const apps: AppMeta[] = [
     tagline: "Batch background removal.",
     summary:
       "Drop product shots, portraits, or generated assets and get clean transparent PNGs — no service fees.",
-    icon: "/media/brand/cutout.svg",
+    icon: "/media/brand/cutout.png",
+    hero: "/media/hero/cutout.jpg",
+    accent: "cutout",
     to: "/cutout",
     status: "Coming soon",
     platforms: "macOS",

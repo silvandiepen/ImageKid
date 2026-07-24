@@ -21,6 +21,7 @@ const data: ProductPageData = {
     { label: "Explore the features", to: "/features", variant: "primary" },
     { label: "Read the privacy note", to: "/privacy", variant: "outline" }
   ],
+  character: "/media/character/imagekid.png",
   heroImage: "/media/app/workspace.jpg",
   heroImageAlt: "The ImageKid editor with an image open and the tool palette visible",
   featuresEyebrow: "In the box",

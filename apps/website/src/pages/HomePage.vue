@@ -12,7 +12,11 @@
         </div>
         <p :class="bemm('status')"><span>macOS 14+</span><span>iPad &amp; iPhone</span><span>Local-first processing</span></p>
       </div>
-      <ProductPreview />
+      <AppHero
+        character="/media/character/imagekid.png"
+        screenshot="/media/app/workspace.jpg"
+        variant="imagekid"
+      />
     </section>
 
     <section id="apps" :class="bemm('apps')">
@@ -98,7 +102,7 @@
 import { Button } from "@sil/ui";
 import { useBemm } from "bemm";
 import { RouterLink } from "vue-router";
-import ProductPreview from "../components/ProductPreview";
+import AppHero from "../components/AppHero";
 import { apps, appById } from "../data/apps";
 
 const bemm = useBemm("home-page", { includeBaseClass: true });
