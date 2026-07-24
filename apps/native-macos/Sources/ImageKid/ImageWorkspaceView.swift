@@ -2198,25 +2198,31 @@ private struct DockablePanelsLayer: View {
     @State private var stackDragTranslation: CGSize = .zero
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
+        // The rail runs down the left edge at Fekthor's metrics, so the two
+        // apps present panel toggles identically. The panels themselves are
+        // laid out to the right of it.
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: PanelRailMetrics.spacing) {
                 Button {
                     appModel.isShowingNewFile = true
                 } label: {
                     Image(systemName: "plus")
-                        .font(.system(size: 16, weight: .bold))
-                        .frame(width: 38, height: 38)
-                        .background(Color.accentColor.opacity(0.9), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                        .font(.system(size: 14, weight: .bold))
+                        .frame(width: PanelRailMetrics.chip, height: PanelRailMetrics.chip)
+                        .background(
+                            Color.accentColor.opacity(0.9),
+                            in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                         .foregroundStyle(.white)
                 }
                 .buttonStyle(.plain)
                 .help("New File")
 
-                PanelDockRail(model: panelDock, axis: .horizontal)
+                PanelDockRail(model: panelDock, axis: .vertical)
 
                 ForegroundBackgroundChips(library: library, session: session)
-                    .padding(.leading, 4)
+                    .padding(.top, 4)
             }
+            .padding(PanelRailMetrics.padding)
 
             GeometryReader { geo in
                 let dock = geo.size

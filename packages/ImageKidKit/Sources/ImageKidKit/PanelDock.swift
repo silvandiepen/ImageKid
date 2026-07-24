@@ -607,24 +607,45 @@ public struct MinimizedPanelChip: View {
 /// Always-visible rail of toggle buttons — one per panel. Each button
 /// shows/hides its panel and is highlighted while the panel is open.
 /// Lay out vertically (default) or horizontally.
+/// Shared rail metrics. Fekthor arrived at these for a 14-palette rail and
+/// they are now the house style, so ImageKid's rail matches rather than
+/// inventing its own chrome.
+public enum PanelRailMetrics {
+    public static let chip: CGFloat = 32
+    public static let spacing: CGFloat = 6
+    public static let padding: CGFloat = 8
+    public static var step: CGFloat { chip + spacing }
+}
+
 public struct PanelDockRail<ID: Hashable>: View {
     @ObservedObject var model: PanelDockModel<ID>
     let axis: Axis
+    let chip: CGFloat
+    let spacing: CGFloat
 
-    public init(model: PanelDockModel<ID>, axis: Axis = .vertical) {
+    public init(
+        model: PanelDockModel<ID>,
+        axis: Axis = .vertical,
+        chip: CGFloat = PanelRailMetrics.chip,
+        spacing: CGFloat = PanelRailMetrics.spacing
+    ) {
         self.model = model
         self.axis = axis
+        self.chip = chip
+        self.spacing = spacing
     }
 
     public var body: some View {
         let layout = axis == .horizontal
-            ? AnyLayout(HStackLayout(spacing: 8))
-            : AnyLayout(VStackLayout(spacing: 8))
+            ? AnyLayout(HStackLayout(spacing: spacing))
+            : AnyLayout(VStackLayout(spacing: spacing))
         layout {
             ForEach(model.order, id: \.self) { id in
                 if let spec = model.spec(id) {
                     let isActive = model.isExpanded(id)
-                    MinimizedPanelChip(systemImage: spec.systemImage, isActive: isActive) {
+                    MinimizedPanelChip(
+                        systemImage: spec.systemImage, isActive: isActive, size: chip
+                    ) {
                         model.railToggle(id)
                     }
                     .help((isActive ? "Hide " : "Show ") + spec.title)
