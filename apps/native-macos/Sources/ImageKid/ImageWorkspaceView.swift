@@ -2202,7 +2202,11 @@ private struct DockablePanelsLayer: View {
         // apps present panel toggles identically. The panels themselves are
         // laid out to the right of it.
         HStack(alignment: .top, spacing: 12) {
+            // Same order as Fekthor's rail: colour wells on top, then the
+            // actions, then the panel toggles.
             VStack(alignment: .leading, spacing: PanelRailMetrics.spacing) {
+                ForegroundBackgroundChips(library: library, session: session)
+
                 Button {
                     appModel.isShowingNewFile = true
                 } label: {
@@ -2218,11 +2222,8 @@ private struct DockablePanelsLayer: View {
                 .help("New File")
 
                 PanelDockRail(model: panelDock, axis: .vertical)
-
-                ForegroundBackgroundChips(library: library, session: session)
-                    .padding(.top, 4)
             }
-            .padding(PanelRailMetrics.padding)
+            .panelRailChrome()
 
             GeometryReader { geo in
                 let dock = geo.size

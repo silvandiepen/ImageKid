@@ -237,6 +237,9 @@ struct ContentView: View {
     /// body stays type-checkable.
     private var objectCommandListeners: some View {
         Color.clear
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorUndo)) { _ in
+                editorSession?.undo()
+            }
             .onReceive(NotificationCenter.default.publisher(for: .fekthorSelectAll)) { _ in
                 editorSession?.selectAllVisible()
             }
@@ -1722,41 +1725,10 @@ struct EditorWorkspaceView: View {
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
-            Button {
-                session.undo()
-            } label: {
-                Label("Undo", systemImage: "arrow.uturn.backward")
-                    .labelStyle(.iconOnly)
-            }
-            .keyboardShortcut("z", modifiers: .command)
-            .disabled(!session.canUndo)
-            .help("Undo (⌘Z)")
-            .accessibilityIdentifier("editor.undo")
-            Button {
-                session.save()
-            } label: {
-                Label("Save", systemImage: "square.and.arrow.down")
-                    .labelStyle(.iconOnly)
-            }
-            .accessibilityIdentifier("editor.save")
-            // The one prominent header action: Save keeps the accent while
-            // there is something to save; everything else stays neutral.
-            .tint(session.dirty ? Color.fekthorAccent : .primary)
-            .help("Save (⌘S)")
-            // Compact access to the floating palettes (same set as the
-            // Panels menu): checkmarked toggles for Fill / Stroke / Opacity
-            // / Combine.
-            Menu {
-                ForEach(EditorPanel.allCases) { panel in
-                    Toggle(panel.title, isOn: panels.toggleBinding(panel))
-                }
-            } label: {
-                Label("Panels", systemImage: "square.grid.2x2")
-                    .labelStyle(.iconOnly)
-            }
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("Show or hide the floating panels")
+            // Undo, Save and the Panels menu used to live here. They are all
+            // reachable from the menu bar (⌘Z, ⌘S, the Panels menu) and the
+            // rail already toggles every palette, so the header keeps only
+            // the document identity. The dirty dot still reports unsaved work.
             // Backspace: while a pen path is in progress it removes the
             // last placed anchor; otherwise it deletes the selected nodes.
             Button {

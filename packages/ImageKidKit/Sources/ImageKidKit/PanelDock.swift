@@ -614,7 +614,33 @@ public enum PanelRailMetrics {
     public static let chip: CGFloat = 32
     public static let spacing: CGFloat = 6
     public static let padding: CGFloat = 8
+    public static let railRadius: CGFloat = 16
     public static var step: CGFloat { chip + spacing }
+}
+
+/// The rail's container chrome: a whisper of glass so the strip reads as one
+/// object over the canvas, matching the palettes. Fekthor arrived at these
+/// numbers; ImageKid now uses the same ones rather than floating bare chips.
+private struct PanelRailChrome: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        content
+            .padding(PanelRailMetrics.padding)
+            .background(
+                colorScheme == .dark ? Color.black.opacity(0.35) : Color.white.opacity(0.85),
+                in: RoundedRectangle(cornerRadius: PanelRailMetrics.railRadius))
+            .overlay(
+                RoundedRectangle(cornerRadius: PanelRailMetrics.railRadius)
+                    .strokeBorder(
+                        colorScheme == .dark ? .white.opacity(0.10) : .black.opacity(0.08),
+                        lineWidth: 1))
+    }
+}
+
+public extension View {
+    /// Wraps a rail in the shared container chrome.
+    func panelRailChrome() -> some View { modifier(PanelRailChrome()) }
 }
 
 public struct PanelDockRail<ID: Hashable>: View {

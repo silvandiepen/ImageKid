@@ -1,4 +1,5 @@
 import AppKit
+import ImageKidKit
 import SwiftUI
 
 enum AppearanceMode: String, CaseIterable, Identifiable {
@@ -25,23 +26,8 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
     }
 }
 
-enum CanvasBackground: String, CaseIterable, Identifiable {
-    case light
-    case dark
-    case checkerboard
-    case custom
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .light: "Light"
-        case .dark: "Dark"
-        case .checkerboard: "Checkerboard"
-        case .custom: "Custom"
-        }
-    }
-}
+// The canvas background model is shared with Fekthor — see
+// `ImageKidKit.CanvasBackground`.
 
 enum BackgroundRemovalEngine: String, CaseIterable, Identifiable {
     case builtIn
@@ -155,11 +141,18 @@ final class AppSettings: ObservableObject {
         willSet { objectWillChange.send() }
     }
 
-    @AppStorage("canvasBackground") var canvasBackgroundRaw = CanvasBackground.checkerboard.rawValue {
+    // The canvas background: a style, the Custom-style colour, and the
+    // opacity wash — the three fields of the shared `CanvasBackground`,
+    // stored separately so existing installs keep their style/colour.
+    @AppStorage("canvasBackground") var canvasBackgroundRaw = CanvasBackground.imageKidDefault.style.rawValue {
         willSet { objectWillChange.send() }
     }
 
-    @AppStorage("customCanvasBackground") var customCanvasBackgroundRaw = "#7ABBDC" {
+    @AppStorage("customCanvasBackground") var customCanvasBackgroundRaw = CanvasBackground.defaultCustomHex {
+        willSet { objectWillChange.send() }
+    }
+
+    @AppStorage("canvasBackgroundOpacity") var canvasBackgroundOpacity = 1.0 {
         willSet { objectWillChange.send() }
     }
 
@@ -197,17 +190,19 @@ final class AppSettings: ObservableObject {
         set { canvasBackgroundRaw = newValue.rawValue }
     }
 
-    var customCanvasBackground: NSColor {
-        get { NSColor(hexString: customCanvasBackgroundRaw) ?? NSColor(red: 0.47, green: 0.73, blue: 0.86, alpha: 1) }
-        set { customCanvasBackgroundRaw = newValue.hexString }
-    }
-
-    var canvasColor: Color {
-        switch canvasBackground {
-        case .light: Color(red: 0.94, green: 0.94, blue: 0.92)
-        case .dark: Color(red: 0.08, green: 0.085, blue: 0.095)
-        case .checkerboard: Color(nsColor: .underPageBackgroundColor)
-        case .custom: Color(nsColor: customCanvasBackground)
+    /// The shared canvas-background model, assembled from the three stored
+    /// fields. Setting it (or mutating a sub-field) writes them back.
+    var canvasBackground: CanvasBackground {
+        get {
+            CanvasBackground(
+                style: CanvasBackground.Style(rawValue: canvasBackgroundRaw) ?? .checkerboard,
+                customHex: customCanvasBackgroundRaw,
+                opacity: canvasBackgroundOpacity)
+        }
+        set {
+            canvasBackgroundRaw = newValue.style.rawValue
+            customCanvasBackgroundRaw = newValue.customHex
+            canvasBackgroundOpacity = newValue.opacity
         }
     }
 

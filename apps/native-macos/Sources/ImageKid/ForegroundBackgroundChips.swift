@@ -1,5 +1,6 @@
 import AppKit
 import ImageKidCore
+import ImageKidKit
 import SwiftUI
 
 /// Photoshop-style foreground / background colour chips with a swap control.
@@ -26,28 +27,31 @@ struct ForegroundBackgroundChips: View {
         return library.background
     }
 
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            chip(color: currentBackground, slot: .background)
-                .offset(x: 13, y: 13)
-            chip(color: currentForeground, slot: .foreground)
+    /// Which well the rail is acting on. ImageKid has no persistent notion of
+    /// an "active" paint the way Fekthor does, so foreground leads.
+    @State private var active: PaintWellSlot = .primary
 
-            Button {
-                swap()
-            } label: {
-                Image(systemName: "arrow.2.squarepath")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 16, height: 16)
-                    .background(Color.black.opacity(0.7), in: Circle())
-                    .overlay(Circle().strokeBorder(.white.opacity(0.25)))
+    var body: some View {
+        // Shared with Fekthor — see PaintWellsBar in ImageKidKit.
+        PaintWellsBar(
+            active: $active,
+            primaryHelp: "Foreground",
+            secondaryHelp: "Background",
+            onEdit: { slot in editing = slot == .primary ? .foreground : .background },
+            onSwap: swap,
+            primary: {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color(nsColor: currentForeground))
+            },
+            secondary: {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color(nsColor: currentBackground))
             }
-            .buttonStyle(.plain)
-            .offset(x: 22, y: -3)
-            .help("Swap foreground and background")
-        }
-        .frame(width: 40, height: 38)
-        .popover(isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } }), arrowEdge: .bottom) {
+        )
+        .popover(
+            isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } }),
+            arrowEdge: .trailing
+        ) {
             editor
         }
     }

@@ -11,6 +11,7 @@ extension Notification.Name {
     static let fekthorSaveAs = Notification.Name("fekthor.saveAs")
     static let fekthorTraceImage = Notification.Name("fekthor.traceImage")
     static let fekthorSelectAll = Notification.Name("fekthor.selectAll")
+    static let fekthorUndo = Notification.Name("fekthor.undo")
     static let fekthorGroup = Notification.Name("fekthor.group")
     static let fekthorUngroup = Notification.Name("fekthor.ungroup")
     static let fekthorBringForward = Notification.Name("fekthor.bringForward")
@@ -184,6 +185,13 @@ struct FekthorApp: App {
                         NotificationCenter.default.post(name: .fekthorExportPDF, object: nil)
                     }
                 }
+                .disabled(!menuState.editorOpen)
+            }
+            CommandGroup(replacing: .undoRedo) {
+                Button("Undo") {
+                    NotificationCenter.default.post(name: .fekthorUndo, object: nil)
+                }
+                .keyboardShortcut("z", modifiers: .command)
                 .disabled(!menuState.editorOpen)
             }
             CommandGroup(after: .pasteboard) {

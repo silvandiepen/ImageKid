@@ -736,13 +736,8 @@ struct EditorPanelsLayer: View {
                     panels: panels, dragging: $draggingRailPanel)
             }
         }
-        // A whisper of chrome so the rail reads as one strip over the
-        // canvas, matching the palettes' dark glass.
-        .padding(RailMetrics.padding)
-        .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 16))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(.white.opacity(0.10), lineWidth: 1))
+        // Shared with ImageKid — see PanelRailChrome in ImageKidKit.
+        .panelRailChrome()
     }
 
     /// One rail button: toggles its palette, drags to reorder, and can be
@@ -985,12 +980,13 @@ struct EditorPanelsLayer: View {
 /// is recomputed from the live canvas height, so a short window keeps a
 /// usable rail instead of running its buttons off the bottom edge.
 enum RailMetrics {
-    static let chip: CGFloat = 32
-    static let spacing: CGFloat = 6
-    static let padding: CGFloat = 8
+    // Delegated to ImageKidKit so Fekthor and ImageKid cannot drift apart.
+    static let chip = PanelRailMetrics.chip
+    static let spacing = PanelRailMetrics.spacing
+    static let padding = PanelRailMetrics.padding
     /// The fill/stroke wells + swap button that sit above the chips.
     static let wellsHeight: CGFloat = 69
-    static let step: CGFloat = chip + spacing
+    static let step = PanelRailMetrics.step
 
     /// How many chips fit in `height`, and which panels those are. When
     /// something has to give, the ⋯ button takes the last slot and the tail
@@ -1026,11 +1022,8 @@ private struct RailOverflowButton: View {
         ) {
             showing.toggle()
         }
-        .modifier(
-            RailHoverTip(
-                text: openCount > 0
-                    ? "\(hidden.count) more palettes · \(openCount) open"
-                    : "\(hidden.count) more palettes"))
+        // No hover tip: the ⋯ is just the affordance for "more panels".
+        // The system tooltip still carries the words for VoiceOver.
         .help("More palettes — drag buttons in and out to choose what the rail shows")
         .accessibilityLabel("More palettes")
         .accessibilityIdentifier("rail.overflow")
@@ -1038,9 +1031,6 @@ private struct RailOverflowButton: View {
         .onDrop(of: [.text], delegate: RailDemoteDelegate(panels: panels, dragging: $dragging))
         .popover(isPresented: $showing, arrowEdge: .trailing) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("More palettes")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 LazyVGrid(
                     columns: Array(
                         repeating: GridItem(.fixed(RailMetrics.chip), spacing: RailMetrics.spacing),
@@ -1556,36 +1546,30 @@ struct RailPaintWells: View {
         let selection = StyleSelection(session: session)
         let fill = selection.summary(of: { $0.fill })
         let stroke = selection.summary(of: { $0.stroke })
-        VStack(spacing: 6) {
-            FillStrokeWells(fill: fill, stroke: stroke, target: $session.paintTarget) { _ in
-                editorShown = true
-            }
-            .popover(isPresented: $editorShown, arrowEdge: .trailing) {
-                PaintWellEditor(session: session, workspace: workspace)
-            }
-            swapButton
+        // Shared with ImageKid — see PaintWellsBar in ImageKidKit.
+        PaintWellsBar(
+            active: Binding(
+                get: { session.paintTarget == .fill ? .primary : .secondary },
+                set: { session.paintTarget = $0 == .primary ? .fill : .stroke }),
+            primaryHelp: "Fill",
+            secondaryHelp: "Stroke",
+            onEdit: { _ in editorShown = true },
+            onSwap: swapPaints,
+            primary: { PaintWellGlyph(summary: fill, ring: false) },
+            secondary: { PaintWellGlyph(summary: stroke, ring: true) }
+        )
+        .popover(isPresented: $editorShown, arrowEdge: .trailing) {
+            PaintWellEditor(session: session, workspace: workspace)
         }
-        .padding(.bottom, 4)
     }
 
-    private var swapButton: some View {
-        Button {
-            session.editSelectionStyle("swap-paints", label: "Swap fill & stroke") { style in
-                let fill = style.fill
-                style.fill = style.stroke
-                style.stroke = fill
-            }
-            session.endStyleEdit()
-        } label: {
-            Image(systemName: "arrow.left.arrow.right")
-                .font(.system(size: 9, weight: .semibold))
-                .frame(width: 20, height: 20)
-                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
-                .contentShape(RoundedRectangle(cornerRadius: 6))
+    private func swapPaints() {
+        session.editSelectionStyle("swap-paints", label: "Swap fill & stroke") { style in
+            let fill = style.fill
+            style.fill = style.stroke
+            style.stroke = fill
         }
-        .buttonStyle(.plain)
-        .help("Swap fill and stroke")
-        .accessibilityIdentifier("swatches.swap")
+        session.endStyleEdit()
     }
 }
 
