@@ -149,19 +149,36 @@ public enum LiveCorners {
     public static func rounded(
         path rp: RefinedPath, radius: Double, corners: Set<Int>? = nil
     ) -> RefinedPath {
-        guard radius > 1e-9, let ring = ring(of: rp) else { return rp }
+        guard radius > 1e-9 else { return rp }
+        return rounded(path: rp) { i in (corners?.contains(i) ?? true) ? radius : 0 }
+    }
+
+    /// The path with each corner anchor filleted by its OWN radius (keyed by
+    /// the `pathAnchors` index). Anchors with no entry — or radius ≤ 0 — stay
+    /// sharp. This is what `RefinedPath.flattenedCorners` calls.
+    public static func rounded(path rp: RefinedPath, radii: [Int: Double]) -> RefinedPath {
+        guard radii.values.contains(where: { $0 > 1e-9 }) else { return rp }
+        return rounded(path: rp) { radii[$0] ?? 0 }
+    }
+
+    private struct Fillet {
+        var p1: Pt  // tangency on the incoming edge
+        var c1: Pt
+        var c2: Pt
+        var p2: Pt  // tangency on the outgoing edge
+    }
+
+    /// Shared core: fillet each corner by the radius `radiusAt` returns for it.
+    private static func rounded(
+        path rp: RefinedPath, radiusAt: (Int) -> Double
+    ) -> RefinedPath {
+        guard let ring = ring(of: rp) else { return rp }
         let n = ring.anchors.count
 
-        struct Fillet {
-            var p1: Pt  // tangency on the incoming edge
-            var c1: Pt
-            var c2: Pt
-            var p2: Pt  // tangency on the outgoing edge
-        }
         var fillets: [Int: Fillet] = [:]
         for i in ring.anchors.indices {
-            if let corners, !corners.contains(i) { continue }
-            guard let c = cornerAt(ring, i) else { continue }
+            let radius = radiusAt(i)
+            guard radius > 1e-9, let c = cornerAt(ring, i) else { continue }
             // Tangent length for radius r at turn angle φ: t = r·tan(φ/2),
             // clamped to half of each adjacent edge (shared edges stay safe).
             var t = radius * tan(c.turn / 2)
@@ -208,13 +225,12 @@ public enum LiveCorners {
             for i in 0..<n {
                 emitEdge(i, endAnchor: (i + 1) % n)
             }
-            // A rounded seam ends on its own exit point (the new start); a
-            // sharp seam keeps the explicit close back to the start anchor.
         } else {
             for i in 0..<(n - 1) {
                 emitEdge(i, endAnchor: i + 1)
             }
         }
+        // The rebuilt geometry is the baked form — it carries no live radii.
         return RefinedPath(start: start, segments: segments, closed: ring.closed)
     }
 }

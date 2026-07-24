@@ -109,6 +109,13 @@ public struct Workfile: Codable, Equatable, Sendable {
         /// Grid line strength multiplier (1 = the editor's standard look;
         /// lower fades the grid, higher darkens it). nil = 1.
         public var gridOpacity: Double?
+        /// Grid line colour as "#rrggbb"; nil = the editor's standard
+        /// slate blue-grey.
+        public var gridColor: String?
+        /// Subdivision lines' own opacity/colour; nil = LINKED, they
+        /// follow gridOpacity/gridColor (split sets both explicitly).
+        public var gridSubOpacity: Double?
+        public var gridSubColor: String?
         /// Defaults applied to newly drawn shapes and new icons.
         public var defaultStrokeColor: String?
         public var defaultStrokeWidth: Double?
@@ -125,6 +132,8 @@ public struct Workfile: Codable, Equatable, Sendable {
         public init(
             iconWidth: Double? = nil, iconHeight: Double? = nil, gridSpacing: Double? = nil,
             gridSubdivisions: Int? = nil, snapToGrid: Bool? = nil, gridOpacity: Double? = nil,
+            gridColor: String? = nil, gridSubOpacity: Double? = nil,
+            gridSubColor: String? = nil,
             defaultStrokeColor: String? = nil, defaultStrokeWidth: Double? = nil,
             defaultFill: String? = nil, guideIcon: String? = nil, showGuide: Bool? = nil,
             animations: AnimationSettings? = nil
@@ -135,6 +144,9 @@ public struct Workfile: Codable, Equatable, Sendable {
             self.gridSubdivisions = gridSubdivisions
             self.snapToGrid = snapToGrid
             self.gridOpacity = gridOpacity
+            self.gridColor = gridColor
+            self.gridSubOpacity = gridSubOpacity
+            self.gridSubColor = gridSubColor
             self.defaultStrokeColor = defaultStrokeColor
             self.defaultStrokeWidth = defaultStrokeWidth
             self.defaultFill = defaultFill

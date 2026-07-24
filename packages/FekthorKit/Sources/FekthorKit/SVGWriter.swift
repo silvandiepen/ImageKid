@@ -123,7 +123,9 @@ public enum SVGWriter {
 
             switch s.kind {
             case .path(let paths):
-                attrs += " d=\"\(SVGPathData.serialize(paths, emitArcs: options.emitArcs))\""
+                // Export bakes live corners — SVG has no per-vertex radius.
+                let baked = paths.map { $0.flattenedCorners }
+                attrs += " d=\"\(SVGPathData.serialize(baked, emitArcs: options.emitArcs))\""
             case .line(let a, let b):
                 attrs +=
                     " x1=\"\(SVGNum.text(a.x))\" y1=\"\(SVGNum.text(a.y))\""

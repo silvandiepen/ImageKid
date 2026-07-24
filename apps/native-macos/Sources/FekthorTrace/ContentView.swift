@@ -6,6 +6,9 @@ struct ContentView: View {
     @StateObject private var model = ConversionModel()
     @StateObject private var workspaceSession = WorkspaceSession()
     @ObservedObject private var menuState = MenuState.shared
+    /// Observed for the detached-editor grid (the Grid palette edits it);
+    /// workspace grids ride the workspace session's own publishes.
+    @ObservedObject private var gridStore = GridPresetStore.shared
     @State private var editorSession: EditorSession? = nil
     @State private var showInspector = true
     @State private var zoom: CGFloat = 1
@@ -450,20 +453,33 @@ struct ContentView: View {
     }
 
     /// The grid the editor canvas draws/snaps: workspace standards when a
-    /// workspace is open, the engine's `.standard` for detached editors.
-    /// Visibility (⌘') and snap (⇧⌘') come from the menu state.
+    /// workspace is open, the app-global detached grid (Grid palette)
+    /// otherwise. Visibility (⌘') and snap (⇧⌘') come from the menu state.
     private var editorGrid: EditorGridConfig? {
-        let std =
-            workspaceSession.workspace != nil
-            ? workspaceSession.effectiveStandards
-            : Workfile.WorkspaceSettings.standard
-        guard let spacing = std.gridSpacing, spacing > 0 else { return nil }
+        if workspaceSession.workspace != nil {
+            let std = workspaceSession.effectiveStandards
+            guard let spacing = std.gridSpacing, spacing > 0 else { return nil }
+            return EditorGridConfig(
+                spacing: spacing,
+                subdivisions: std.gridSubdivisions ?? 0,
+                visible: menuState.showGrid,
+                snap: menuState.snapToGrid,
+                opacity: std.gridOpacity ?? 1,
+                colorHex: std.gridColor,
+                subOpacity: std.gridSubOpacity,
+                subColorHex: std.gridSubColor)
+        }
+        let detached = gridStore.detached
+        guard detached.spacing > 0 else { return nil }
         return EditorGridConfig(
-            spacing: spacing,
-            subdivisions: std.gridSubdivisions ?? 0,
+            spacing: detached.spacing,
+            subdivisions: detached.subdivisions,
             visible: menuState.showGrid,
             snap: menuState.snapToGrid,
-            opacity: std.gridOpacity ?? 1)
+            opacity: detached.opacity,
+            colorHex: detached.color,
+            subOpacity: detached.subOpacity,
+            subColorHex: detached.subColor)
     }
 
     /// The workspace guide icon drawn dimmed behind the open icon. nil when
@@ -882,6 +898,8 @@ enum CompareMode: String, CaseIterable {
 
 private struct ComparisonView: View {
     @ObservedObject var model: ConversionModel
+    /// Observed so a Settings change repaints the trace panes live too.
+    @ObservedObject private var canvasAppearance = CanvasAppearance.shared
     @Binding var mode: CompareMode
     @Binding var zoom: CGFloat
     @Binding var offset: CGSize
@@ -1028,7 +1046,7 @@ private struct ComparisonView: View {
             .padding(8)
             GeometryReader { inner in
                 ZStack {
-                    Rectangle().fill(Color(nsColor: .textBackgroundColor))
+                    Rectangle().fill(CanvasAppearance.shared.effectiveBackground)
                     content(inner.size)
                 }
                 .clipped()
@@ -1140,7 +1158,7 @@ private struct ComparisonView: View {
             }
             .padding(8)
             ZStack {
-                Rectangle().fill(Color(nsColor: .textBackgroundColor))
+                Rectangle().fill(CanvasAppearance.shared.effectiveBackground)
                 VectorEditLayer(model: model, zoom: $zoom, offset: $offset, busy: busy)
             }
             .clipped()
@@ -1157,7 +1175,7 @@ private struct ComparisonView: View {
             .padding(8)
             GeometryReader { _ in
                 ZStack {
-                    Rectangle().fill(Color(nsColor: .textBackgroundColor))
+                    Rectangle().fill(CanvasAppearance.shared.effectiveBackground)
                     if let image {
                         Image(nsImage: image)
                             .resizable()
@@ -1707,6 +1725,7 @@ struct EditorWorkspaceView: View {
     private var toolShelf: some View {
         HStack(spacing: 4) {
             shelfButton(.select, "cursorarrow", "Select", "V or ⌘1")
+            shelfButton(.directSelect, "cursorarrow.motionlines", "Direct Select", "A")
             shelfButton(.rect, "square", "Rectangle", "M or ⌘2")
             shelfButton(.ellipse, "circle", "Ellipse", "L or ⌘3")
             shelfButton(.line, "line.diagonal", "Line", "\\ or ⌘4")
@@ -1874,7 +1893,8 @@ private struct ToolShortcutMonitor: NSViewRepresentable {
 
         private static func tool(for letter: String) -> EditorSession.Tool? {
             switch letter {
-            case "v", "a": return .select
+            case "v": return .select
+            case "a": return .directSelect
             case "m": return .rect
             case "l": return .ellipse
             case "\\": return .line

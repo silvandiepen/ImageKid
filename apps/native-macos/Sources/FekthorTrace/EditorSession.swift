@@ -7,6 +7,18 @@ import UniformTypeIdentifiers
 /// a plain .svg or a .fekthor workfile. Cleanly separate from the trace-only
 /// `ConversionModel`. Snapshot undo, node-id selection, dirty tracking, and
 /// sandbox-scoped save-in-place.
+/// A path anchor, hashable for multi-point selection (Direct Select).
+struct AnchorRef: Hashable {
+    let path: Int
+    let index: Int
+}
+
+/// Which paint well is active — the target swatch clicks feed.
+enum PaintTarget {
+    case fill
+    case stroke
+}
+
 @MainActor
 final class EditorSession: ObservableObject {
     enum FileKind {
@@ -19,6 +31,7 @@ final class EditorSession: ObservableObject {
     /// click (or click-drag) at a time.
     enum Tool: String, CaseIterable {
         case select
+        case directSelect
         case rect
         case ellipse
         case line
@@ -35,7 +48,19 @@ final class EditorSession: ObservableObject {
     }
 
     @Published var document: GraphicDocument
-    @Published var selection: Set<Int> = []
+    @Published var selection: Set<Int> = [] {
+        // A point selection belongs to the node(s) it was made on — any
+        // node-selection change invalidates it (canvas or Layers alike).
+        didSet { if selection != oldValue { selectedAnchors = [] } }
+    }
+    /// The selected points (Direct Select), session-side so palettes can
+    /// target them too (Corners applies only to selected points). The
+    /// canvas owns the interactions; move and corner-radius act on all.
+    @Published var selectedAnchors: Set<AnchorRef> = []
+    /// The active paint well (the fill/stroke pair on the panel rail):
+    /// the target swatch clicks feed. Session-side so the rail wells and
+    /// the Swatches palette share it.
+    @Published var paintTarget: PaintTarget = .fill
     /// App-side node locks (Layers palette): locked nodes are skipped by
     /// canvas hit-testing, marquee and selection. Session-only — the SVG on
     /// disk never carries lock state.
@@ -225,6 +250,19 @@ final class EditorSession: ObservableObject {
         mutate { $0.replaceShape(id: id, with: moved) }
     }
 
+    /// Move several anchors of one shape to absolute targets in one mutation —
+    /// multi-point drag / nudge. Caller snapshots once (beginGesture).
+    func moveAnchors(node id: Int, moves: [(path: Int, anchor: Int, to: Pt)]) {
+        guard !moves.isEmpty else { return }
+        mutate { doc in
+            guard var shape = doc.firstShape(id: id) else { return }
+            for m in moves {
+                shape = Editing2.moveAnchor(shape, path: m.path, anchor: m.anchor, to: m.to)
+            }
+            doc.replaceShape(id: id, with: shape)
+        }
+    }
+
     func moveHandle(
         node id: Int, path: Int, segment: Int, kind: Editing.HandleKind, to: Pt, mirror: Bool
     ) {
@@ -392,6 +430,27 @@ final class EditorSession: ObservableObject {
             let moved = Editing2.translated(shape, dx: dx, dy: dy)
             mutate { $0.replaceShape(id: id, with: moved) }
         }
+    }
+
+    /// Duplicate the selected shapes, offset by (dx, dy), and select the
+    /// copies — Option-drag / Option-arrow, Illustrator-style. One undo step.
+    @discardableResult
+    func duplicateSelection(dx: Double, dy: Double) -> Set<Int> {
+        let ids = selection.sorted()
+        guard !ids.isEmpty else { return [] }
+        beginGesture(label: "Duplicate")
+        var newIDs: Set<Int> = []
+        mutate { doc in
+            for id in ids {
+                guard let shape = doc.firstShape(id: id) else { continue }
+                var copy = Editing2.translated(shape, dx: dx, dy: dy)
+                copy.id = doc.nextNodeID
+                doc.nodes.append(.shape(copy))
+                newIDs.insert(copy.id)
+            }
+        }
+        if !newIDs.isEmpty { selection = newIDs }
+        return newIDs
     }
 
     // MARK: - Transforms (scale/rotate drags; caller snapshots once)
@@ -707,6 +766,12 @@ final class EditorSession: ObservableObject {
     /// index → anchor indices; nil rounds every corner of every subpath.
     /// V1 is destructive (Illustrator pre-live-corners): geometry changes,
     /// nothing is stored.
+    /// Set a live corner radius: the sharp anchors are kept and the radius is
+    /// stored per corner (applied only when the geometry is drawn/exported), so
+    /// a rounded corner stays one editable point and radius 0 restores it. A
+    /// plain rect keeps its parametric `rx`; everything else stores per-anchor
+    /// radii on the path. `corners` scopes to specific anchors (nil = every
+    /// fillet-able corner of the shape).
     static func roundedShape(
         _ shape: ShapeNode, radius: Double, corners: [Int: Set<Int>]? = nil
     ) -> ShapeNode {
@@ -720,13 +785,46 @@ final class EditorSession: ObservableObject {
             return out
         }
         var out = Editing2.editable(shape)
-        guard case .path(let paths) = out.kind else { return shape }
-        out.kind = .path(
-            paths.enumerated().map { pi, rp in
-                LiveCorners.rounded(
-                    path: rp, radius: radius, corners: corners.map { $0[pi] ?? [] })
-            })
+        guard case .path(var paths) = out.kind else { return shape }
+        for pi in paths.indices {
+            let targets: Set<Int> =
+                corners.map { $0[pi] ?? [] }
+                ?? Set(LiveCorners.cornerAnchors(of: paths[pi]).map(\.index))
+            guard !targets.isEmpty else { continue }
+            var radii = paths[pi].cornerRadii
+            for idx in targets {
+                if radius > 0.001 { radii[idx] = radius } else { radii[idx] = nil }
+            }
+            paths[pi].cornerRadii = radii
+        }
+        out.kind = .path(paths)
         return out
+    }
+
+    /// The stored live radius of one anchor of the single selected shape
+    /// (0 = sharp) — for the panel field and the canvas corner handle's base.
+    func cornerRadius(path: Int, anchor: Int) -> Double {
+        guard selection.count == 1, let id = selection.first,
+            let shape = document.firstShape(id: id),
+            case .path(let paths) = Editing2.editable(shape).kind, path < paths.count
+        else { return 0 }
+        return paths[path].cornerRadii[anchor] ?? 0
+    }
+
+    /// Set the live radius of one anchor of the single selected shape.
+    func setCornerRadius(radius: Double, path: Int, anchor: Int) {
+        guard selection.count == 1, let id = selection.first, radius.isFinite, radius >= 0
+        else { return }
+        let key = "corner-anchor|\(id)|\(path)|\(anchor)"
+        if styleEditKey != key {
+            beginGesture(label: "Corner radius")
+            styleEditKey = key
+        }
+        mutate { doc in
+            guard let shape = doc.firstShape(id: id) else { return }
+            doc.replaceShape(
+                id: id, with: Self.roundedShape(shape, radius: radius, corners: [path: [anchor]]))
+        }
     }
 
     /// Corner radius on every selected shape (Corners palette, canvas

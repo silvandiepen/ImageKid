@@ -330,5 +330,11 @@ struct FekthorApp: App {
                 }
             }
         }
+        // Fekthor ▸ Settings… (⌘,): app-wide appearance preferences.
+        Settings {
+            FekthorSettingsView()
+                .tint(.fekthorAccent)
+                .preferredColorScheme(.dark)
+        }
     }
 }
