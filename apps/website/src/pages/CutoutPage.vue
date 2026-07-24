@@ -13,36 +13,38 @@ const data: ProductPageData = {
   name: meta.name,
   icon: meta.icon,
   eyebrow: "Batch background remover for Mac",
-  tagline: "Transparent cut-outs, a folder at a time.",
+  tagline: "Backgrounds, gone.",
   lead:
-    "ImageKid Cutout removes backgrounds from a whole batch on your Mac and writes clean transparent PNGs. Perfect for product shots, portraits, icons, and generated assets — no service fees, no uploads.",
+    "Point it at a folder of product shots, portraits or generated assets. It hands back transparent PNGs, cut on your Mac, with nothing uploaded and nothing billed per image.",
   chips: ["macOS", "On-device", "No subscription"],
   actions: [
     { label: "Get notified", to: "mailto:hello@hakobs.com?subject=ImageKid%20Cutout", variant: "primary", external: true },
     { label: "See ImageKid", to: "/imagekid", variant: "outline" }
   ],
   featuresEyebrow: "How it works",
-  featuresTitle: "Drop, remove, generate.",
+  featuresTitle: "Three steps. That is the whole app.",
   features: [
-    { title: "Drag in a batch", description: "Drop files or add them from the Open panel. Each row shows a thumbnail, status, and progress." },
-    { title: "Built-in or Best Quality", description: "Apple Vision removal is always available; an optional on-device Core ML model handles hair and tricky edges." },
-    { title: "Transparent PNGs", description: "Outputs PNGs with a real alpha channel so your cut-outs drop straight onto any background." },
-    { title: "Safe output", description: "Writes to a sibling ImageKid Cutouts folder with collision-safe names. Originals are left untouched." },
-    { title: "Serial & predictable", description: "One image at a time to stay light on memory and heat, with per-file errors and cancel." },
-    { title: "Shared model cache", description: "Best-quality models live in the shared ImageKid App Group, downloaded once across the family." }
+    { title: "Drag in a batch", description: "Drop the files in. Each row shows a thumbnail, a status and a progress bar." },
+    { title: "Two levels of good", description: "Apple Vision is always there and instant. Best Quality downloads a model that copes with hair and other nightmares — still on your Mac." },
+    { title: "Real transparency", description: "PNGs with a proper alpha channel, so the cut-outs drop onto any background without a white halo." },
+    { title: "Your originals survive", description: "Results go to a sibling folder with collision-safe names. The files you dropped in are left alone." },
+    { title: "One at a time, on purpose", description: "Serial processing keeps memory and heat sane on a laptop. Cancel whenever; finished files stay finished." },
+    { title: "Downloads models once", description: "The big models live in a shared cache, so nothing in the family fetches the same one twice." }
   ],
   sections: [
     {
       eyebrow: "Why it exists",
-      title: "Repeated cut-outs shouldn't cost a subscription.",
+      title: "You should not rent this.",
       copy:
-        "If your recurring job is removing backgrounds from a batch, a hosted tool charges every time. Cutout is a small, one-time-purchase utility built on the same local engine as ImageKid.",
-      bullets: ["No subscription or credits", "No account, no telemetry", "Runs fully on-device"],
+        "If cutting backgrounds out of a batch is a thing you do every week, a hosted tool charges you every week. This is a small one-time-purchase utility on the same local engine as ImageKid.",
+      bullets: ["No subscription, no credits", "No account, no telemetry", "Never leaves your Mac"],
+      image: "/media/accent/cutout-checker.jpg",
+      imageAlt: "",
       imageSide: "right",
-      tone: 1
+      tone: 2
     }
   ],
-  closingTitle: "Part of the ImageKid family.",
-  closingCopy: "Want the full editor or batch upscaling instead? They share the same local-first foundation."
+  closingTitle: "One of four.",
+  closingCopy: "Want the full editor, or the one that makes things bigger instead? Same engine underneath."
 };
 </script>
