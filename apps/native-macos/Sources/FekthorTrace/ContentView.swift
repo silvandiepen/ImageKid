@@ -1488,7 +1488,6 @@ struct EditorWorkspaceView: View {
     let workspace: WorkspaceSession
     var onClose: () -> Void
 
-    @ObservedObject private var panels = EditorPanelsState.shared
     @State private var confirmClose = false
     /// Animation preview clock + overrides, shared by the canvas, the
     /// Animation palette, and the timeline drawer.
@@ -1626,41 +1625,30 @@ struct EditorWorkspaceView: View {
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
+            // ⌘Z stays available even though the header has no visible
+            // Undo button (Panels toggles likewise live only in the
+            // app-level Panels menu).
             Button {
                 session.undo()
-            } label: {
-                Label("Undo", systemImage: "arrow.uturn.backward")
-                    .labelStyle(.iconOnly)
-            }
-            .keyboardShortcut("z", modifiers: .command)
-            .disabled(!session.canUndo)
-            .help("Undo (⌘Z)")
-            .accessibilityIdentifier("editor.undo")
+            } label: { EmptyView() }
+                .keyboardShortcut("z", modifiers: .command)
+                .disabled(!session.canUndo)
+                .frame(width: 0, height: 0)
+                .opacity(0)
             Button {
                 session.save()
             } label: {
-                Label("Save", systemImage: "square.and.arrow.down")
-                    .labelStyle(.iconOnly)
+                Text(session.dirty ? "Save" : "Saved")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 5)
+                    .background(session.dirty ? Color.orange : Color.gray, in: Capsule())
             }
+            .buttonStyle(.plain)
+            .disabled(!session.dirty)
             .accessibilityIdentifier("editor.save")
-            // The one prominent header action: Save keeps the accent while
-            // there is something to save; everything else stays neutral.
-            .tint(session.dirty ? Color.fekthorAccent : .primary)
             .help("Save (⌘S)")
-            // Compact access to the floating palettes (same set as the
-            // Panels menu): checkmarked toggles for Fill / Stroke / Opacity
-            // / Combine.
-            Menu {
-                ForEach(EditorPanel.allCases) { panel in
-                    Toggle(panel.title, isOn: panels.toggleBinding(panel))
-                }
-            } label: {
-                Label("Panels", systemImage: "square.grid.2x2")
-                    .labelStyle(.iconOnly)
-            }
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("Show or hide the floating panels")
             // Backspace: while a pen path is in progress it removes the
             // last placed anchor; otherwise it deletes the selected nodes.
             Button {
@@ -1706,7 +1694,8 @@ struct EditorWorkspaceView: View {
                 .frame(width: 0, height: 0)
                 .opacity(0)
         }
-        // Header controls stay neutral; only Save-when-dirty keeps the accent.
+        // Header controls stay neutral; the Save capsule carries its own
+        // orange/gray fill.
         .tint(.primary)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
