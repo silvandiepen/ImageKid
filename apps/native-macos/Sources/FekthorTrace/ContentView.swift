@@ -6,6 +6,9 @@ struct ContentView: View {
     @StateObject private var model = ConversionModel()
     @StateObject private var workspaceSession = WorkspaceSession()
     @ObservedObject private var menuState = MenuState.shared
+    /// Observed for the detached-editor grid (the Grid palette edits it);
+    /// workspace grids ride the workspace session's own publishes.
+    @ObservedObject private var gridStore = GridPresetStore.shared
     @State private var editorSession: EditorSession? = nil
     @State private var showInspector = true
     @State private var zoom: CGFloat = 1
@@ -434,20 +437,27 @@ struct ContentView: View {
     }
 
     /// The grid the editor canvas draws/snaps: workspace standards when a
-    /// workspace is open, the engine's `.standard` for detached editors.
-    /// Visibility (⌘') and snap (⇧⌘') come from the menu state.
+    /// workspace is open, the app-global detached grid (Grid palette)
+    /// otherwise. Visibility (⌘') and snap (⇧⌘') come from the menu state.
     private var editorGrid: EditorGridConfig? {
-        let std =
-            workspaceSession.workspace != nil
-            ? workspaceSession.effectiveStandards
-            : Workfile.WorkspaceSettings.standard
-        guard let spacing = std.gridSpacing, spacing > 0 else { return nil }
+        if workspaceSession.workspace != nil {
+            let std = workspaceSession.effectiveStandards
+            guard let spacing = std.gridSpacing, spacing > 0 else { return nil }
+            return EditorGridConfig(
+                spacing: spacing,
+                subdivisions: std.gridSubdivisions ?? 0,
+                visible: menuState.showGrid,
+                snap: menuState.snapToGrid,
+                opacity: std.gridOpacity ?? 1)
+        }
+        let detached = gridStore.detached
+        guard detached.spacing > 0 else { return nil }
         return EditorGridConfig(
-            spacing: spacing,
-            subdivisions: std.gridSubdivisions ?? 0,
+            spacing: detached.spacing,
+            subdivisions: detached.subdivisions,
             visible: menuState.showGrid,
             snap: menuState.snapToGrid,
-            opacity: std.gridOpacity ?? 1)
+            opacity: detached.strength)
     }
 
     /// The workspace guide icon drawn dimmed behind the open icon. nil when

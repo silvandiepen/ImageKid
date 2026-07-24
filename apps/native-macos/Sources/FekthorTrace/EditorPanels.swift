@@ -24,6 +24,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
     case transform
     case combine
     case align
+    case grid
     case history
     case layers
 
@@ -40,6 +41,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         case .transform: return "Transform"
         case .combine: return "Combine"
         case .align: return "Align"
+        case .grid: return "Grid"
         case .history: return "History"
         case .layers: return "Layers"
         }
@@ -56,6 +58,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         case .transform: return "skew"
         case .combine: return "square.on.square.intersection.dashed"
         case .align: return "align.horizontal.left"
+        case .grid: return "grid"
         case .history: return "clock.arrow.circlepath"
         case .layers: return "square.3.stack.3d"
         }
@@ -71,7 +74,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         .fill, .stroke, .opacity, .corners, .transform, .combine,
     ]
     private static let leftColumn: [EditorPanel] = [
-        .layers, .swatches, .styles, .align, .history,
+        .layers, .swatches, .styles, .align, .grid, .history,
     ]
 
     /// Rough on-screen height (chrome + content), used to stack the default
@@ -89,6 +92,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         case .swatches: return 260
         case .styles: return 240
         case .align: return 200
+        case .grid: return 400
         case .history: return 200
         }
     }
@@ -127,6 +131,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         case .transform: return CGSize(width: 400, height: 380)
         case .combine: return CGSize(width: 400, height: 480)
         case .align: return CGSize(width: 280, height: 420)
+        case .grid: return CGSize(width: 280, height: 220)
         case .history: return CGSize(width: 400, height: 16)
         }
     }
@@ -597,6 +602,9 @@ struct EditorPanelsLayer: View {
             }
             if panels.isExpanded(.align) {
                 palette(.align, in: dock) { AlignPanelContent(session: session) }
+            }
+            if panels.isExpanded(.grid) {
+                palette(.grid, in: dock) { GridPanelContent(workspace: workspace) }
             }
             if panels.isExpanded(.history) {
                 palette(.history, in: dock) { HistoryPanelContent(session: session) }
