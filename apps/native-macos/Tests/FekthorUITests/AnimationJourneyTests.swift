@@ -1,8 +1,8 @@
 import XCTest
 
-/// The animation authoring journey: apply a preset from the Animation
-/// palette, see its track + keyframes in the timeline drawer, run the
-/// transport, and undo the binding away.
+/// The animation authoring journey: apply a preset via Object ▸ Animate,
+/// see its track + keyframes in the timeline drawer, run the transport,
+/// and undo the binding away.
 final class AnimationJourneyTests: FekthorUITestCase {
 
     func testApplyPresetTimelineAndUndo() {
@@ -10,16 +10,20 @@ final class AnimationJourneyTests: FekthorUITestCase {
         openBlankEditor(app)
         drawRect(app)
 
-        // Open the Animation palette from the rail and apply "spin".
-        element(app, "rail.animation").click()
-        assertAppears(element(app, "animation.apply"), "the Animation palette should open")
-        element(app, "animation.apply").click()
+        // Apply "spin" from the menu bar (Object ▸ Animate ▸ spin) — the
+        // path that works with any palette layout.
+        let objectMenu = app.menuBars.menuBarItems["Object"]
+        assertAppears(objectMenu, "the Object menu should exist")
+        objectMenu.click()
+        let animate = app.menuItems["Animate"]
+        assertAppears(animate, "Object should offer the Animate submenu")
+        animate.hover()
         let spin = app.menuItems["spin"]
-        assertAppears(spin, "the apply menu should list the built-in presets")
+        assertAppears(spin, "the Animate submenu should list the presets")
         spin.click()
 
-        // The timeline drawer shows the new track with its keyframes.
-        element(app, "animation.timeline").click()
+        // The timeline drawer (⌥⌘T) shows the new track with keyframes.
+        app.typeKey("t", modifierFlags: [.command, .option])
         assertAppears(element(app, "timeline.drawer"))
         assertAppears(
             element(app, "timeline.keyframe"),

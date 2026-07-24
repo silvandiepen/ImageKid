@@ -80,6 +80,9 @@ struct EditorTimelineDrawer: View {
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        // A real container element: without `.contain`, the identifier
+        // would attach to the first child button and hijack its identity.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("timeline.drawer")
     }
 
