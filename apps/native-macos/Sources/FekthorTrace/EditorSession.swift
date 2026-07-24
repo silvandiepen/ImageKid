@@ -94,6 +94,9 @@ final class EditorSession: ObservableObject {
 
     private(set) var fileURL: URL?
     private(set) var fileKind: FileKind
+    /// Supplies the open workspace's workfile (animation defs + defaults)
+    /// at save time; nil for detached files.
+    var workfileProvider: (() -> Workfile?)? = nil
     /// The undo stack, with a short op label per snapshot (History palette).
     /// Not @Published — every append rides a `canUndo`/`generation` publish.
     private(set) var history: [HistoryEntry] = []
@@ -139,6 +142,17 @@ final class EditorSession: ObservableObject {
 
     static func blank(size: Double = 72) -> EditorSession {
         EditorSession(document: .blank(width: size, height: size))
+    }
+
+    /// The keyframes-namespacing slug for file-LOCAL animation defs: the
+    /// file base name as a CSS identifier ("Spinner Check.svg" →
+    /// "spinner-check").
+    static func iconSlug(for url: URL) -> String {
+        let base = url.deletingPathExtension().lastPathComponent.lowercased()
+        var slug = String(
+            base.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" ? $0 : "-" })
+        if slug.first?.isLetter != true { slug = "i" + slug }
+        return slug
     }
 
     /// Open a .svg or .fekthor file.
@@ -740,11 +754,16 @@ final class EditorSession: ObservableObject {
 
     // MARK: - File-local swatches & styles (FileMeta)
 
-    /// The metadata block the next save writes (empty = none).
+    /// The metadata block the next save writes (empty = none). Swatches and
+    /// styles are session-authoritative (the @Published mirrors); the
+    /// ANIMATION fields live in the document's own block — they are edited
+    /// through `mutate{}` so undo covers them — and must be carried through,
+    /// not clobbered.
     private var fileMeta: FileMeta.Meta {
-        FileMeta.Meta(
-            swatches: fileSwatches.isEmpty ? nil : fileSwatches,
-            styles: fileStyles.isEmpty ? nil : fileStyles)
+        var meta = FileMeta.read(from: document) ?? FileMeta.Meta()
+        meta.swatches = fileSwatches.isEmpty ? nil : fileSwatches
+        meta.styles = fileStyles.isEmpty ? nil : fileStyles
+        return meta
     }
 
     func addFileSwatch(_ hex: String) {
@@ -1288,7 +1307,13 @@ final class EditorSession: ObservableObject {
         do {
             // File-local swatches/styles land in (or leave) the metadata
             // block at save time; the in-memory document stays untouched.
-            let svg = SVGWriter.write(FileMeta.writing(fileMeta, to: document))
+            // The generated animation <style> block recompiles from that
+            // meta + the workspace's defs/defaults on every save.
+            let composed = FileMeta.writing(fileMeta, to: document)
+            let baked = AnimationEngine.applyingStyleBlock(
+                to: composed, workspace: workfileProvider?(),
+                iconSlug: Self.iconSlug(for: url))
+            let svg = SVGWriter.write(baked)
             switch fileKind {
             case .svg:
                 try svg.write(to: url, atomically: true, encoding: .utf8)

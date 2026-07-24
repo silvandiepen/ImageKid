@@ -1456,6 +1456,9 @@ struct EditorWorkspaceView: View {
 
     @ObservedObject private var panels = EditorPanelsState.shared
     @State private var confirmClose = false
+    /// Animation preview clock + overrides, shared by the canvas, the
+    /// Animation palette, and the timeline drawer.
+    @StateObject private var preview = AnimationPreviewController()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1464,7 +1467,7 @@ struct EditorWorkspaceView: View {
             ZStack(alignment: .bottom) {
                 EditorCanvasView(
                     session: session, zoom: $zoom, offset: $offset, grid: grid,
-                    guide: guide, snapToPoints: snapToPoints)
+                    guide: guide, snapToPoints: snapToPoints, preview: preview)
                     .overlay(
                         TrackpadCatcher(
                             onPan: { dx, dy in
@@ -1526,6 +1529,10 @@ struct EditorWorkspaceView: View {
             MenuState.shared.canCombine = session.selection.count >= 2
             MenuState.shared.canAlign = !session.selection.isEmpty
             MenuState.shared.editorOpen = true
+            // Animations: baked style blocks and previews need the
+            // workspace's defs/defaults at save/render time.
+            preview.workspaceSettings = workspace.settings.settings?.animations
+            session.workfileProvider = { [weak workspace] in workspace?.settings }
         }
         .onDisappear {
             MenuState.shared.canCombine = false

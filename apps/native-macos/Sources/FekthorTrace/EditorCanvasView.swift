@@ -44,6 +44,10 @@ struct EditorCanvasView: View {
     /// selections magnet onto other shapes' anchors and bounds
     /// corners/centres. Point snap WINS over grid snap; ⌃ disables both.
     var snapToPoints: Bool = false
+    /// Animation playback: per-node render overrides at the preview clock's
+    /// time. Playback never mutates the session — the canvas just renders
+    /// the same tree with per-frame deltas.
+    @ObservedObject var preview: AnimationPreviewController
 
     @State private var activeAnchor: (path: Int, index: Int)? = nil
     @State private var draggingAnchor: (path: Int, index: Int)? = nil
@@ -117,12 +121,18 @@ struct EditorCanvasView: View {
         GeometryReader { geo in
             ZStack {
                 Rectangle().fill(Color(nsColor: .textBackgroundColor))
-                canvas(in: geo.size)
-                    .overlay(
-                        RightClickCatcher { point, size in
-                            menuItems(at: point, in: size)
-                        }
-                    )
+                // The animation clock: redraws every frame while playing,
+                // fully paused (zero cost) otherwise. Scrubbing renders the
+                // paused clock's time.
+                TimelineView(.animation(minimumInterval: nil, paused: !preview.isPlaying)) {
+                    timeline in
+                    canvas(in: geo.size, previewDate: timeline.date)
+                }
+                .overlay(
+                    RightClickCatcher { point, size in
+                        menuItems(at: point, in: size)
+                    }
+                )
             }
             .clipped()
             // Arrow keys nudge the selected point. Focus follows a click on
@@ -155,8 +165,10 @@ struct EditorCanvasView: View {
         return true
     }
 
-    private func canvas(in size: CGSize) -> some View {
+    private func canvas(in size: CGSize, previewDate: Date) -> some View {
         let _ = session.generation
+        let overrides = preview.overrides(
+            for: session, at: preview.time(at: previewDate))
         return Canvas { ctx, canvasSize in
             let doc = session.document
             let t = transform(doc: doc, in: canvasSize)
@@ -177,7 +189,9 @@ struct EditorCanvasView: View {
             }
             ctx.stroke(Path(board), with: .color(.gray.opacity(0.4)), lineWidth: 1)
 
-            drawNodes(session.document.nodes, into: &ctx, base: cg, scale: t.s, opacity: 1)
+            drawNodes(
+                session.document.nodes, into: &ctx, base: cg, scale: t.s, opacity: 1,
+                overrides: overrides)
 
             // Selection highlight.
             for id in session.selection.sorted() {
@@ -445,8 +459,11 @@ struct EditorCanvasView: View {
 
     private func drawNodes(
         _ nodes: [GraphicNode], into ctx: inout GraphicsContext, base: CGAffineTransform,
-        scale: CGFloat, opacity: Double
+        scale: CGFloat, opacity: Double, overrides: [Int: AnimatedOverride] = [:]
     ) {
+        func affine(_ m: [Double]) -> CGAffineTransform {
+            CGAffineTransform(a: m[0], b: m[1], c: m[2], d: m[3], tx: m[4], ty: m[5])
+        }
         for node in nodes {
             switch node {
             case .raw:
@@ -455,34 +472,34 @@ struct EditorCanvasView: View {
                 let groupStyle = g.renderStyle
                 // Layers hide: display:none skips the whole subtree.
                 if groupStyle.isDisplayNone { continue }
+                let anim = overrides[g.id]
+                if anim?.hidden == true { continue }
                 var groupBase = base
+                // Animated transform wraps OUTSIDE the node's own transform
+                // (bound nodes normally carry none — transforms are baked).
+                if let m = anim?.transform { groupBase = affine(m).concatenating(groupBase) }
                 if let t = g.transform {
-                    let m = t.matrix
-                    groupBase =
-                        CGAffineTransform(
-                            a: m[0], b: m[1], c: m[2], d: m[3], tx: m[4], ty: m[5]
-                        ).concatenating(base)
+                    groupBase = affine(t.matrix).concatenating(groupBase)
                 }
-                let groupOpacity = opacity * (groupStyle.opacity ?? 1)
+                let groupOpacity = opacity * (anim?.opacity ?? groupStyle.opacity ?? 1)
                 drawNodes(
                     g.children, into: &ctx, base: groupBase, scale: scale,
-                    opacity: groupOpacity)
+                    opacity: groupOpacity, overrides: overrides)
             case .shape(let s):
                 let style = s.renderStyle
                 if style.isDisplayNone { continue }
+                let anim = overrides[s.id]
+                if anim?.hidden == true { continue }
                 var shapeBase = base
+                if let m = anim?.transform { shapeBase = affine(m).concatenating(shapeBase) }
                 if let t = s.transform {
-                    let m = t.matrix
-                    shapeBase =
-                        CGAffineTransform(
-                            a: m[0], b: m[1], c: m[2], d: m[3], tx: m[4], ty: m[5]
-                        ).concatenating(base)
+                    shapeBase = affine(t.matrix).concatenating(shapeBase)
                 }
-                let nodeOpacity = opacity * (style.opacity ?? 1)
+                let nodeOpacity = opacity * (anim?.opacity ?? style.opacity ?? 1)
                 var p = Path(CGPathBuilder.path(for: s.kind))
                 p = p.applying(shapeBase)
 
-                if let fill = style.fill ?? defaultFill(for: s) {
+                if let fill = anim?.fill ?? style.fill ?? defaultFill(for: s) {
                     var rule = FillStyle(eoFill: false)
                     if case .keyword("evenodd")? = style.value(of: "fill-rule") {
                         rule = FillStyle(eoFill: true)
@@ -501,8 +518,8 @@ struct EditorCanvasView: View {
                         ctx.fill(p, with: .color(color(c).opacity(alpha)), style: rule)
                     }
                 }
-                if let stroke = style.stroke, let c = stroke.renderColor {
-                    let width = style.strokeWidth ?? 1
+                if let stroke = anim?.stroke ?? style.stroke, let c = stroke.renderColor {
+                    let width = anim?.strokeWidth ?? style.strokeWidth ?? 1
                     // Zero-length round-capped lines are DOTS in SVG; the
                     // path stroke would draw nothing.
                     if case .line(let a, let b) = s.kind, a.x == b.x, a.y == b.y,
@@ -532,6 +549,12 @@ struct EditorCanvasView: View {
                         if !parts.isEmpty {
                             strokeStyle.dash = parts.map { CGFloat($0) * scale }
                         }
+                    }
+                    // Animated draw-on: one dash period covering the whole
+                    // path, phased by the animated offset.
+                    if let dash = anim?.strokeDasharray {
+                        strokeStyle.dash = [CGFloat(dash) * scale, CGFloat(dash) * scale]
+                        strokeStyle.dashPhase = CGFloat(anim?.strokeDashoffset ?? 0) * scale
                     }
                     if let shading = gradientShading(stroke, base: shapeBase, alpha: nodeOpacity) {
                         ctx.stroke(p, with: shading, style: strokeStyle)
