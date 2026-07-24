@@ -95,6 +95,15 @@ Exit criteria: annotation boundaries are frame-correct and exports remain synchr
 - Complete offline release test.
 - Final project licence and contribution policy.
 
+## Inka (drawing & illustration app)
+
+A separate flagship track, sequenced in its own plan (`docs/inka/PLAN.md`).
+Shared brush engine (`BrushKit` + Metal `BrushRender`) plus an Inka-specific
+document (`InkaKit`) and macOS + iPad shells. P0 foundations and the P1 walking
+skeleton are in; P2 (serious brushes) is the next milestone. The engine is built
+to be shared, so ImageKid can later adopt it (P7). Does not block the ImageKid
+or Fekthor milestones above.
+
 ## Future research, not commitments
 
 - Batch processing.

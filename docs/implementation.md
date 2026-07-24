@@ -10,7 +10,7 @@ The package form keeps the initial repository small, reviewable, and directly te
 
 - SwiftUI application lifecycle and native command menus.
 - SwiftUI empty drop state with app-controlled light/dark appearance, native drop target, Open action, and asset slots for character and plant artwork.
-- macOS Settings scene with System integration preferences, Appearance, light/dark/checkerboard/custom canvas background, background-removal engine/model install state, upscale engine/runtime install state, and secure OpenAI API key storage.
+- macOS Settings scene with System integration preferences, Appearance, canvas background (Light/Dark/Transparent checkerboard/Custom colour plus an opacity wash — the shared `ImageKidKit.CanvasBackground` model and controls, identical to Fekthor's), background-removal engine/model install state, upscale engine/runtime install state, and secure OpenAI API key storage.
 - Open panel, drag and drop, URL paste, and image paste.
 - Images opened from Finder ("Open With", double-click) or dropped on the Dock icon open in the workspace: the bundle declares `public.image` as an Editor document type at Alternate rank, so Preview stays the system default while ImageKid becomes a first-class handler.
 - Image loading with `NSImage`.
@@ -59,10 +59,37 @@ as base64 PNG (documents stay one self-contained SVG), select, move, scale
 and rotate like any node, and right-click ▸ Vectorize traces one in place —
 Save swaps the traced geometry in at the image's exact frame as a single
 undo step. The floating panel system lives in
-`packages/ImageKidKit` (48 unit tests) and is shared across the family.
+`packages/ImageKidKit` (54 unit tests) and is shared across the family.
 Fekthor depends on FekthorKit, ImageKidKit, and ImageKidInference; like all
 apps here it never imports from another app. Thor remains the app's
 mascot/branding.
+
+## Inka (drawing & illustration)
+
+Inka is the family's third flagship: a macOS + iPad drawing/illustration app
+built around a serious brush engine (`com.hakobs.inka`; `apps/native-macos/
+Sources/Inka` and `apps/native-ios/Sources/InkaiOS`). The brush engine is a
+**shared family package**, not locked in Inka: `BrushKit` holds the app-neutral,
+CoreGraphics-testable core — `Brush` presets (+`.inkbrush` codec), captured
+`StrokeInput` with smoothing, deterministic stamp-based `BrushEngine` dab
+generation, `BrushStroke`, a reference renderer and a `brush` CLI (19 unit
+tests) — and `BrushRender` is the shared Metal compositor that stamps those dabs
+into a texture (3 unit tests, runtime-compiled shader). `InkaKit` (7 unit tests,
+`inka` CLI) is Inka-specific: the vector+raster hybrid `InkaDocument` (a layer is
+editable brush strokes, flat raster, or an imported image), the `.inka` workfile
+codec, and non-destructive flatten (stroke layers re-rasterize on demand, so
+changing a brush or colour re-renders cleanly). Both app shells (P1 walking
+skeleton) boot to the shared `HomeScreen`, open a Metal canvas, paint a
+pressure-varying stroke (NSEvent tablet pressure on Mac; Apple Pencil force/tilt
+on iPad), and export a PNG. The engine (P2 done) carries real depth: response
+curves on pressure/velocity, tilt→size/angle, hue jitter, procedural paper
+**grain** applied per-pixel identically in the CPU reference renderer and the
+Metal shader, square tips, and a 1€ live-smoothing filter — five built-in
+brushes (Ink Pen, Pencil, Charcoal, Airbrush, Marker) show the range, and Inka's
+macOS **brush editor** exposes every parameter with a live preview and
+`.inkbrush` save/load. Inka depends on BrushKit, BrushRender, InkaKit,
+ImageKidKit and ImageKidCore; like every app here it never imports another app.
+Hybrid layers and the website/brand assets are planned — see `docs/inka/PLAN.md`.
 
 ## Incomplete or provisional
 

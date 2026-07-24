@@ -229,6 +229,19 @@ Chrome (spin/hover-draw/gated).
 - **Pen cursor** hotspot moved to the nib at the TOP of the glyph (it was
   clicking a glyph-height below where the tip is drawn).
 
+## Shared canvas background (2026-07-24, Sil)
+
+Fekthor and ImageKid now share ONE canvas-background model and editor —
+`ImageKidKit.CanvasBackground` (a style: Light / Dark / Transparent
+checkerboard / Custom colour, a custom hex, and an opacity wash) plus
+`CanvasBackgroundView` (renders it) and `CanvasBackgroundControls` (the
+Settings editor both apps embed). So the options and the look match across
+the family; each app just keeps its own default (ImageKid = checkerboard,
+Fekthor = pure glass = a wash at zero opacity) and persists the three fields
+under its own keys. `CheckerboardBackground` moved into the Kit; both apps'
+private copies retired. Fekthor's surround gained the colour presets and the
+transparency checkerboard; ImageKid gained the opacity slider.
+
 ## Open items
 
 - Undo architecture decision (snapshots vs commands) due at P3 exit.

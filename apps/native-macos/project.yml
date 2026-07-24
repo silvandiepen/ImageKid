@@ -17,6 +17,12 @@ packages:
     path: ../../packages/ImageKidCore
   FekthorKit:
     path: ../../packages/FekthorKit
+  BrushKit:
+    path: ../../packages/BrushKit
+  BrushRender:
+    path: ../../packages/BrushRender
+  InkaKit:
+    path: ../../packages/InkaKit
 targets:
   ImageKid:
     type: application
@@ -152,6 +158,36 @@ targets:
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.graphics-design
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_STYLE: Automatic
+  Inka:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/Inka
+    resources:
+      - path: Sources/Inka/Resources/Assets.xcassets
+    dependencies:
+      - package: InkaKit
+      - package: BrushKit
+      - package: BrushRender
+      - package: ImageKidKit
+      - package: ImageKidCore
+    entitlements:
+      path: Sources/Inka/Inka.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-write: true
+        # Local-first: no network entitlement.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hakobs.inka
+        PRODUCT_NAME: Inka
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Inka
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.graphics-design
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_STYLE: Automatic
   FekthorUITests:
     type: bundle.ui-testing
     platform: macOS
@@ -193,6 +229,12 @@ schemes:
     test:
       targets:
         - FekthorUITests
+  Inka:
+    build:
+      targets:
+        Inka: all
+    run:
+      config: Debug
   FekthorUITests:
     build:
       targets:
