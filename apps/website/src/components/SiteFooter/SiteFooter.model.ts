@@ -1,1 +1,1 @@
-export interface FooterLink { label: string; to: string; external?: boolean; }
+export interface FooterLink { label: string; to: string; external?: boolean; icon?: string; }

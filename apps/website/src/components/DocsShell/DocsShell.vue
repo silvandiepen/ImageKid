@@ -1,7 +1,10 @@
 <template>
   <div :class="bemm()">
     <aside :class="bemm('sidebar')">
-      <RouterLink :class="bemm('index-link')" to="/docs">Documentation</RouterLink>
+      <RouterLink :class="bemm('index-link')" to="/docs">
+        <Icon name="ui/book" size="small" aria-hidden="true" />
+        Documentation
+      </RouterLink>
       <nav :class="bemm('nav')" aria-label="Documentation">
         <RouterLink
           v-for="item in docsNavigation"
@@ -10,6 +13,7 @@
           :aria-current="route.path === item.to ? 'page' : undefined"
           :to="item.to"
         >
+          <Icon :name="item.icon" size="small" aria-hidden="true" />
           {{ item.label }}
         </RouterLink>
       </nav>
@@ -21,6 +25,7 @@
 </template>
 
 <script setup lang="ts">
+import { Icon } from "@sil/ui";
 import { useBemm } from "bemm";
 import { useRoute, RouterLink } from "vue-router";
 import { docsNavigation } from "./DocsShell.model";

@@ -59,6 +59,7 @@
       </div>
       <div :class="bemm('boundary-grid')">
         <article v-for="item in boundaryItems" :key="item.title" :class="bemm('boundary-item')">
+          <Icon :class="bemm('boundary-icon')" :name="item.icon" size="large" aria-hidden="true" />
           <h3 :class="bemm('boundary-title')">{{ item.title }}</h3>
           <p :class="bemm('boundary-copy')">{{ item.copy }}</p>
         </article>
@@ -68,6 +69,7 @@
 </template>
 
 <script setup lang="ts">
+import { Icon } from "@sil/ui";
 import { useBemm } from "bemm";
 
 const bemm = useBemm("features-page", { includeBaseClass: true });
@@ -166,9 +168,9 @@ const featureSections = [
   }
 ];
 const boundaryItems = [
-  { title: "Local tools stay local", copy: "Crop, resize, annotate, export, background removal, upscaling, and batches are designed for on-device processing." },
-  { title: "Magic uses your provider", copy: "Prompted edits can use OpenAI first, with room for other providers later. That usage depends on your own provider account." },
-  { title: "No implicit overwrites", copy: "ImageKid exports a new result instead of silently replacing the source file." },
-  { title: "Video is separate", copy: "Video playback exists, while video editing and export remain outside the main image workflow." }
+  { title: "Local tools stay local", icon: "media/laptop", copy: "Crop, resize, annotate, export, background removal, upscaling, and batches are designed for on-device processing." },
+  { title: "Magic uses your provider", icon: "misc/ai-stars", copy: "Prompted edits can use OpenAI first, with room for other providers later. That usage depends on your own provider account." },
+  { title: "No implicit overwrites", icon: "ui/file-check", copy: "ImageKid exports a new result instead of silently replacing the source file." },
+  { title: "Video is separate", icon: "media/video-camera", copy: "Video playback exists, while video editing and export remain outside the main image workflow." }
 ];
 </script>

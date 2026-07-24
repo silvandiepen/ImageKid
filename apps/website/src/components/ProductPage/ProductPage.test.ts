@@ -4,7 +4,8 @@ import ProductPage from "./ProductPage.vue";
 import type { ProductPageData } from "./ProductPage.model";
 
 vi.mock("@sil/ui", () => ({
-  Button: { props: ["to", "href", "variant"], template: "<a :href=\"href ?? to\"><slot /></a>" }
+  Button: { props: ["to", "href", "variant"], template: "<a :href=\"href ?? to\"><slot /></a>" },
+  Icon: { props: ["name", "size"], template: "<i :data-icon=\"name\" />" }
 }));
 
 const data: ProductPageData = {

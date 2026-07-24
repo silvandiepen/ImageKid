@@ -24,12 +24,12 @@ const data: ProductPageData = {
   featuresEyebrow: "How it works",
   featuresTitle: "Three steps. That is the whole app.",
   features: [
-    { title: "Drag in a batch", description: "Drop the files in. The queue shows a thumbnail, a status and a progress bar for each one." },
-    { title: "Pick a scale", description: "2×, 4× or 8×. Set it once; it applies to everything in the queue." },
-    { title: "Two levels of good", description: "Standard is instant and always there. Best Quality downloads a model that squeezes out more detail — still on your Mac." },
-    { title: "Your originals survive", description: "Results go to a sibling folder with collision-safe names. Nothing is overwritten unless you ask for it." },
-    { title: "One at a time, on purpose", description: "Serial processing keeps memory and heat sane on a laptop. Cancel whenever; finished files stay finished." },
-    { title: "Downloads models once", description: "The big models live in a shared cache, so ImageKid and Upscale never fetch the same one twice." }
+    { title: "Drag in a batch", icon: "ui/box-in", description: "Drop the files in. The queue shows a thumbnail, a status and a progress bar for each one." },
+    { title: "Pick a scale", icon: "arrows/arrow-headed-out-center", description: "2×, 4× or 8×. Set it once; it applies to everything in the queue." },
+    { title: "Two levels of good", icon: "ui/chart-bars-squared", description: "Standard is instant and always there. Best Quality downloads a model that squeezes out more detail — still on your Mac." },
+    { title: "Your originals survive", icon: "ui/folder-check", description: "Results go to a sibling folder with collision-safe names. Nothing is overwritten unless you ask for it." },
+    { title: "One at a time, on purpose", icon: "ui/list-numbered", description: "Serial processing keeps memory and heat sane on a laptop. Cancel whenever; finished files stay finished." },
+    { title: "Downloads models once", icon: "arrows/arrow-download", description: "The big models live in a shared cache, so ImageKid and Upscale never fetch the same one twice." }
   ],
   sections: [
     {
