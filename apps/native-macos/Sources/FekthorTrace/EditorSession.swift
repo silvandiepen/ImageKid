@@ -144,15 +144,10 @@ final class EditorSession: ObservableObject {
         EditorSession(document: .blank(width: size, height: size))
     }
 
-    /// The keyframes-namespacing slug for file-LOCAL animation defs: the
-    /// file base name as a CSS identifier ("Spinner Check.svg" →
-    /// "spinner-check").
+    /// The keyframes-namespacing slug for file-LOCAL animation defs, from
+    /// the file base name ("Spinner Check.svg" → "spinner-check").
     static func iconSlug(for url: URL) -> String {
-        let base = url.deletingPathExtension().lastPathComponent.lowercased()
-        var slug = String(
-            base.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" ? $0 : "-" })
-        if slug.first?.isLetter != true { slug = "i" + slug }
-        return slug
+        AnimationEngine.iconSlug(from: url.deletingPathExtension().lastPathComponent)
     }
 
     /// Open a .svg or .fekthor file.

@@ -6,6 +6,18 @@ import Foundation
 /// hook. Pure functions; callers wrap them in their own undo.
 public enum AnimationEngine {
 
+    /// The keyframes-namespacing slug for file-LOCAL animation defs: the
+    /// icon/file name as a CSS identifier ("Spinner Check" →
+    /// "spinner-check", never starting with a non-letter).
+    public static func iconSlug(from name: String) -> String {
+        var slug = String(
+            name.lowercased().map {
+                $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" ? $0 : "-"
+            })
+        if slug.first?.isLetter != true { slug = "i" + slug }
+        return slug
+    }
+
     /// The marker class a def binds with by default: `fk-anim-spin`.
     public static func defaultTarget(for def: AnimationDef, settings: AnimationSettings)
         -> String

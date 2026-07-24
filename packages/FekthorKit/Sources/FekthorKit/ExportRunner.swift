@@ -86,17 +86,46 @@ public enum ExportRunner {
     /// classes are FLATTENED away before the actions run (values are inline
     /// already) unless a style opts in with `exportClass: true`. User
     /// classes always pass through. Pass `[]` (the default) to skip.
+    ///
+    /// Animations: `strip-animations` is hoisted to run first,
+    /// `bake-animations` deferred to run last (over post-action reality).
+    /// A profile naming NEITHER falls back to the toggles — enabled icons
+    /// re-bake, disabled ones strip (`FileMeta.animationsEnabled ??
+    /// workspace ?? true`). FileMeta itself is stripped AFTER the actions,
+    /// so they can consult the bindings; deliverables never carry it.
     public static func apply(
         profile: Workfile.ExportProfile, to doc: GraphicDocument, name: String,
-        namedStyles: [NamedStyle] = []
+        namedStyles: [NamedStyle] = [], workspace: Workfile? = nil
     ) throws -> (fileName: String, document: GraphicDocument) {
-        // Editor metadata (file-local swatches/styles) is an authoring aid;
-        // deliverables never carry it.
-        var out = FileMeta.removing(from: doc)
-        out = NamedStyles.strippingStyleClasses(out, styles: namedStyles)
-        for action in try actions(of: profile) {
-            out = action.applied(to: out)
+        var out = NamedStyles.strippingStyleClasses(doc, styles: namedStyles)
+        let context = ExportAction.Context(
+            workspace: workspace, iconSlug: AnimationEngine.iconSlug(from: name))
+
+        var parsed = try actions(of: profile)
+        let stripsAnimations = parsed.contains(.stripAnimations)
+        let bakesAnimations = parsed.contains(.bakeAnimations)
+        parsed.removeAll { $0 == .stripAnimations || $0 == .bakeAnimations }
+
+        if stripsAnimations {
+            out = ExportAction.stripAnimations.applied(to: out, context: context)
         }
+        for action in parsed {
+            out = action.applied(to: out, context: context)
+        }
+        if !stripsAnimations {
+            let meta = FileMeta.read(from: out)
+            let enabled = meta?.animationsEnabled
+                ?? AnimationSettings.resolved(
+                    workspace: workspace?.settings?.animations,
+                    icon: meta?.animationSettings
+                ).enabled ?? true
+            if bakesAnimations || enabled {
+                out = ExportAction.bakeAnimations.applied(to: out, context: context)
+            } else {
+                out = ExportAction.stripAnimations.applied(to: out, context: context)
+            }
+        }
+        out = FileMeta.removing(from: out)
         return (fileName(profile: profile, name: name), out)
     }
 
@@ -105,7 +134,7 @@ public enum ExportRunner {
     /// dictionary's iteration order.
     public static func run(
         profile: Workfile.ExportProfile, over documents: [String: GraphicDocument],
-        namedStyles: [NamedStyle] = []
+        namedStyles: [NamedStyle] = [], workspace: Workfile? = nil
     ) throws -> [(fileName: String, document: GraphicDocument)] {
         var out: [(fileName: String, document: GraphicDocument)] = []
         out.reserveCapacity(documents.count)
@@ -113,7 +142,7 @@ public enum ExportRunner {
             out.append(
                 try apply(
                     profile: profile, to: documents[name]!, name: name,
-                    namedStyles: namedStyles))
+                    namedStyles: namedStyles, workspace: workspace))
         }
         out.sort { $0.fileName < $1.fileName }
         return out
