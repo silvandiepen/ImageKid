@@ -92,7 +92,7 @@ const data: ProductPageData = {
         "Export the whole matrix in one pass"
       ],
       imageSide: "left",
-      tone: 1
+      tone: 2
     },
     {
       eyebrow: "Animation",

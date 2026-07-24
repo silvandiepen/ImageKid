@@ -74,7 +74,7 @@
           </ul>
         </div>
         <figure v-if="section.image" :class="bemm('band-media')">
-          <img :class="bemm('band-image')" :src="section.image" :alt="section.imageAlt ?? section.title" />
+          <AppShot :class="bemm('band-image')" :src="section.image" :alt="section.imageAlt ?? section.title" />
         </figure>
         <div v-else-if="data.character" :class="bemm('band-character')" aria-hidden="true">
           <img :class="bemm('band-character-image')" :src="data.character" alt="" loading="lazy" />
@@ -109,6 +109,7 @@ import { computed } from "vue";
 import { Button } from "@sil/ui";
 import { useBemm } from "bemm";
 import AppHero from "../AppHero";
+import AppShot from "../AppShot";
 import { RouterLink } from "vue-router";
 import { otherApps, appById } from "../../data/apps";
 import type { ProductPageData } from "./ProductPage.model";
