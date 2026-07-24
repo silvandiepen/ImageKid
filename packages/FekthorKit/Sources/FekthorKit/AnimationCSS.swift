@@ -180,8 +180,9 @@ public enum AnimationCSS {
     // MARK: - Emission
 
     /// Keyframe declaration order: animatables in a fixed canonical order,
-    /// unknown extras alphabetical, per-segment easing always last.
-    static let declarationOrder: [String] = [
+    /// unknown extras alphabetical, per-segment easing always last. Public
+    /// because editor UIs list properties in the same order.
+    public static let declarationOrder: [String] = [
         "transform", "transform-origin", "opacity", "fill", "stroke",
         "stroke-width", "stroke-dasharray", "stroke-dashoffset", "visibility",
     ]

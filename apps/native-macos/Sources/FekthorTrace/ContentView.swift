@@ -1538,6 +1538,7 @@ struct EditorWorkspaceView: View {
             // workspace's defs/defaults at save/render time.
             preview.workspaceSettings = workspace.settings.settings?.animations
             session.workfileProvider = { [weak workspace] in workspace?.settings }
+            session.animationPlayheadTime = { [weak preview] in preview?.pausedTime ?? 0 }
         }
         .onDisappear {
             MenuState.shared.canCombine = false

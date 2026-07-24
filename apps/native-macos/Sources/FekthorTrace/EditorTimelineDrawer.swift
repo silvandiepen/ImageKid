@@ -7,8 +7,17 @@ import SwiftUI
 /// diamonds and a scrubbable playhead. The floating palettes stay 240 pt
 /// wide — a ruler needs the window's width, hence a drawer, not a palette.
 ///
-/// This surface READS the scene and drives the preview clock; keyframe
-/// editing (drags, easing, record) layers on top of the same geometry.
+/// Editing model:
+/// - Diamonds drag on a 1% grid (⇧ = free). A union diamond (collapsed
+///   track) moves the whole keyframe; expanded per-property lanes move one
+///   property between frames.
+/// - Click a diamond → popover: values, per-segment easing (presets +
+///   cubic-bezier pad), delete. Double-click a lane adds a keyframe there.
+/// - The span's edges drag the binding's delay/duration overrides.
+/// - Record (●): style edits on bound elements become keyframes at the
+///   playhead instead of base edits (`EditorSession.recordStyleEdit`).
+/// All edits land in FileMeta via `editScene`-style session calls, so undo
+/// covers them; workspace defs fork to file-local copies on first edit.
 struct EditorTimelineDrawer: View {
     @ObservedObject var session: EditorSession
     @ObservedObject var preview: AnimationPreviewController
@@ -17,10 +26,36 @@ struct EditorTimelineDrawer: View {
     /// Horizontal zoom. Persisted per session only — like the canvas zoom,
     /// it is working state, not document state.
     @State private var pixelsPerSecond: CGFloat = 120
+    /// Tracks disclosed into per-property lanes.
+    @State private var expanded: Set<String> = []
+    /// In-flight diamond drag: which keyframe left from where.
+    @State private var diamondDrag: DiamondDrag? = nil
+    /// The diamond whose popover editor is open.
+    @State private var editingKeyframe: KeyframeRef? = nil
+    /// In-flight span-edge drag (delay or duration override).
+    @State private var spanDrag: SpanDrag? = nil
+
+    private struct DiamondDrag: Equatable {
+        var target: String
+        var property: String?
+        var from: Double
+    }
+
+    struct KeyframeRef: Equatable {
+        var target: String
+        var property: String?
+        var offset: Double
+    }
+
+    private struct SpanDrag: Equatable {
+        var target: String
+        var leadingEdge: Bool
+    }
 
     private let trackColumnWidth: CGFloat = 200
     private let rulerHeight: CGFloat = 22
     private let rowHeight: CGFloat = 30
+    private let laneSpace = "timeline.lanes"
     private let trackTints: [Color] = [
         .blue, .orange, .green, .purple, .pink, .teal, .red, .indigo,
     ]
@@ -46,6 +81,42 @@ struct EditorTimelineDrawer: View {
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .accessibilityIdentifier("timeline.drawer")
+    }
+
+    // MARK: - Rows (shared by the left column and the lanes)
+
+    private enum Row: Identifiable {
+        case track(AnimationBinding, Color)
+        case property(AnimationBinding, String, Color)
+
+        var id: String {
+            switch self {
+            case .track(let b, _): return b.target
+            case .property(let b, let p, _): return "\(b.target)|\(p)"
+            }
+        }
+    }
+
+    private var rows: [Row] {
+        var out: [Row] = []
+        for (index, binding) in bindings.enumerated() {
+            let tint = trackTints[index % trackTints.count]
+            out.append(.track(binding, tint))
+            if expanded.contains(binding.target) {
+                for property in animatedProperties(binding) {
+                    out.append(.property(binding, property, tint))
+                }
+            }
+        }
+        return out
+    }
+
+    private func animatedProperties(_ binding: AnimationBinding) -> [String] {
+        guard let def = session.animationDef(named: binding.animation) else { return [] }
+        var seen = Set<String>()
+        for frame in def.keyframes { seen.formUnion(frame.declarations.keys) }
+        let ordered = AnimationCSS.declarationOrder.filter(seen.contains)
+        return ordered + seen.subtracting(ordered).sorted()
     }
 
     // MARK: - Chrome
@@ -98,6 +169,15 @@ struct EditorTimelineDrawer: View {
             Toggle(isOn: $preview.loop) { Image(systemName: "repeat") }
                 .toggleStyle(.button)
                 .help("Loop")
+
+            Toggle(isOn: $session.animationRecordArmed) {
+                Image(systemName: "record.circle")
+                    .foregroundStyle(session.animationRecordArmed ? .red : .secondary)
+            }
+            .toggleStyle(.button)
+            .disabled(bindings.isEmpty)
+            .help("Record: style edits on bound elements become keyframes at the playhead")
+            .accessibilityIdentifier("timeline.record")
 
             timeReadout
 
@@ -178,8 +258,13 @@ struct EditorTimelineDrawer: View {
             }
             .frame(height: rulerHeight)
             .padding(.horizontal, 8)
-            ForEach(Array(bindings.enumerated()), id: \.element.target) { index, binding in
-                trackHeader(binding, tint: trackTints[index % trackTints.count])
+            ForEach(rows) { row in
+                switch row {
+                case .track(let binding, let tint):
+                    trackHeader(binding, tint: tint)
+                case .property(_, let property, let tint):
+                    propertyHeader(property, tint: tint)
+                }
             }
         }
         .frame(width: trackColumnWidth, alignment: .leading)
@@ -204,7 +289,19 @@ struct EditorTimelineDrawer: View {
     private func trackHeader(_ binding: AnimationBinding, tint: Color) -> some View {
         let bound = AnimationEngine.boundNodeIDs(in: session.document, target: binding.target)
         let selected = !Set(bound).isDisjoint(with: session.selection)
+        let isExpanded = expanded.contains(binding.target)
         return HStack(spacing: 6) {
+            Button {
+                if isExpanded {
+                    expanded.remove(binding.target)
+                } else {
+                    expanded.insert(binding.target)
+                }
+            } label: {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            .buttonStyle(.borderless)
             Circle().fill(tint).frame(width: 8, height: 8)
             VStack(alignment: .leading, spacing: 0) {
                 Text(trackName(binding, bound: bound))
@@ -233,6 +330,18 @@ struct EditorTimelineDrawer: View {
             // Track click ↔ canvas selection sync.
             if !bound.isEmpty { session.selection = Set(bound) }
         }
+    }
+
+    private func propertyHeader(_ property: String, tint: Color) -> some View {
+        HStack {
+            Text(property)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.leading, 36)
+        .padding(.trailing, 8)
+        .frame(height: rowHeight * 0.75)
     }
 
     private func trackName(_ binding: AnimationBinding, bound: [Int]) -> String {
@@ -295,17 +404,21 @@ struct EditorTimelineDrawer: View {
     private var lanes: some View {
         VStack(alignment: .leading, spacing: 0) {
             ruler
-            ForEach(Array(bindings.enumerated()), id: \.element.target) { index, binding in
-                laneRow(binding, tint: trackTints[index % trackTints.count])
+            ForEach(rows) { row in
+                switch row {
+                case .track(let binding, let tint):
+                    laneRow(binding, tint: tint)
+                case .property(let binding, let property, let tint):
+                    propertyLane(binding, property: property, tint: tint)
+                }
             }
         }
         .frame(width: laneWidth, alignment: .leading)
+        .coordinateSpace(name: laneSpace)
         .overlay(playhead, alignment: .topLeading)
-        .contentShape(Rectangle())
-        .gesture(scrubGesture)
     }
 
-    /// Ticks every 0.1 s, labelled majors every 0.5 s.
+    /// Ticks every 0.1 s, labelled majors every 0.5 s. Dragging scrubs.
     private var ruler: some View {
         Canvas { ctx, size in
             let secondary = Color.secondary.opacity(0.55)
@@ -329,6 +442,13 @@ struct EditorTimelineDrawer: View {
             }
         }
         .frame(height: rulerHeight)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    preview.scrub(to: Double(value.location.x / pixelsPerSecond))
+                }
+        )
         .accessibilityIdentifier("timeline.ruler")
     }
 
@@ -339,24 +459,14 @@ struct EditorTimelineDrawer: View {
                 .fill(Color.secondary.opacity(0.06))
                 .frame(height: rowHeight - 6)
             if let geometry {
-                // Delay lead-in (dimmed) + active span (tinted).
                 if geometry.delay > 0 {
                     RoundedRectangle(cornerRadius: 3)
                         .fill(tint.opacity(0.12))
                         .frame(
                             width: CGFloat(geometry.delay) * pixelsPerSecond,
                             height: rowHeight - 12)
-                        .offset(x: 0)
                 }
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(tint.opacity(0.28))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 3)
-                            .strokeBorder(tint.opacity(0.5), lineWidth: 1))
-                    .frame(
-                        width: max(CGFloat(geometry.duration) * pixelsPerSecond, 2),
-                        height: rowHeight - 12)
-                    .offset(x: CGFloat(geometry.delay) * pixelsPerSecond)
+                activeSpan(binding, geometry: geometry, tint: tint)
                 if geometry.iterations == .infinity {
                     Image(systemName: "infinity")
                         .font(.system(size: 8))
@@ -365,23 +475,229 @@ struct EditorTimelineDrawer: View {
                             x: CGFloat(geometry.delay + geometry.duration) * pixelsPerSecond
                                 + 4)
                 }
-                // Union keyframe diamonds (one per distinct offset).
-                ForEach(geometry.diamondTimes, id: \.self) { t in
-                    Diamond()
-                        .fill(tint)
-                        .frame(width: 9, height: 9)
-                        .offset(x: CGFloat(t) * pixelsPerSecond - 4.5)
+                ForEach(geometry.diamondOffsets, id: \.self) { offset in
+                    diamond(
+                        binding, geometry: geometry, offset: offset, property: nil,
+                        tint: tint)
                 }
             }
         }
         .frame(height: rowHeight, alignment: .leading)
+        .contentShape(Rectangle())
+        .gesture(addKeyframeGesture(binding, property: nil))
+    }
+
+    private func propertyLane(
+        _ binding: AnimationBinding, property: String, tint: Color
+    ) -> some View {
+        let geometry = trackGeometry(binding)
+        return ZStack(alignment: .leading) {
+            Rectangle()
+                .fill(Color.secondary.opacity(0.03))
+                .frame(height: rowHeight * 0.75 - 4)
+            if let geometry, let def = session.animationDef(named: binding.animation) {
+                let offsets = def.keyframes
+                    .filter { $0.declarations[property] != nil }
+                    .map(\.offset)
+                ForEach(Array(Set(offsets)).sorted(), id: \.self) { offset in
+                    diamond(
+                        binding, geometry: geometry, offset: offset, property: property,
+                        tint: tint.opacity(0.8), small: true)
+                }
+            }
+        }
+        .frame(height: rowHeight * 0.75, alignment: .leading)
+        .contentShape(Rectangle())
+        .gesture(addKeyframeGesture(binding, property: property))
+    }
+
+    /// The tinted active span with delay/duration drag handles on its edges.
+    private func activeSpan(
+        _ binding: AnimationBinding, geometry: TrackGeometry, tint: Color
+    ) -> some View {
+        let width = max(CGFloat(geometry.duration) * pixelsPerSecond, 2)
+        return RoundedRectangle(cornerRadius: 3)
+            .fill(tint.opacity(0.28))
+            .overlay(
+                RoundedRectangle(cornerRadius: 3)
+                    .strokeBorder(tint.opacity(0.5), lineWidth: 1))
+            .frame(width: width, height: rowHeight - 12)
+            .overlay(alignment: .leading) {
+                spanHandle(binding, leadingEdge: true, geometry: geometry)
+            }
+            .overlay(alignment: .trailing) {
+                spanHandle(binding, leadingEdge: false, geometry: geometry)
+            }
+            .offset(x: CGFloat(geometry.delay) * pixelsPerSecond)
+    }
+
+    private func spanHandle(
+        _ binding: AnimationBinding, leadingEdge: Bool, geometry: TrackGeometry
+    ) -> some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(width: 7)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                if inside { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .named(laneSpace))
+                    .onChanged { value in
+                        spanDrag = SpanDrag(target: binding.target, leadingEdge: leadingEdge)
+                        let t = max(0, Double(value.location.x / pixelsPerSecond))
+                        if leadingEdge {
+                            session.updateAnimationBinding(
+                                target: binding.target, label: "Delay",
+                                coalesceKey: "span-delay|\(binding.target)"
+                            ) { $0.delay = (t * 100).rounded() / 100 }
+                        } else {
+                            let duration = max(0.05, t - geometry.delay)
+                            session.updateAnimationBinding(
+                                target: binding.target, label: "Duration",
+                                coalesceKey: "span-duration|\(binding.target)"
+                            ) { $0.duration = (duration * 100).rounded() / 100 }
+                        }
+                    }
+                    .onEnded { _ in
+                        spanDrag = nil
+                        session.endStyleEdit()
+                    }
+            )
+    }
+
+    // MARK: - Diamonds
+
+    private func diamond(
+        _ binding: AnimationBinding, geometry: TrackGeometry, offset: Double,
+        property: String?, tint: Color, small: Bool = false
+    ) -> some View {
+        let time = geometry.delay + offset / 100 * geometry.duration
+        let side: CGFloat = small ? 7 : 9
+        let ref = KeyframeRef(target: binding.target, property: property, offset: offset)
+        return Diamond()
+            .fill(tint)
+            .frame(width: side, height: side)
+            .frame(width: 16, height: rowHeight - 6)  // hit target
+            .contentShape(Rectangle())
+            .offset(x: CGFloat(time) * pixelsPerSecond - 8)
+            .gesture(diamondDragGesture(binding, geometry: geometry, offset: offset,
+                                        property: property))
+            .onTapGesture { editingKeyframe = ref }
+            .popover(
+                isPresented: Binding(
+                    get: { editingKeyframe == ref },
+                    set: { shown in if !shown { editingKeyframe = nil } })
+            ) {
+                KeyframePopover(
+                    session: session, target: binding.target, property: property,
+                    offset: currentOffset(of: ref))
+            }
+            .accessibilityIdentifier("timeline.keyframe")
+    }
+
+    /// A drag may have moved the keyframe since the popover opened; follow
+    /// the live scene, not the captured ref.
+    private func currentOffset(of ref: KeyframeRef) -> Double {
+        ref.offset
+    }
+
+    private func diamondDragGesture(
+        _ binding: AnimationBinding, geometry: TrackGeometry, offset: Double,
+        property: String?
+    ) -> some Gesture {
+        DragGesture(minimumDistance: 3, coordinateSpace: .named(laneSpace))
+            .onChanged { value in
+                if diamondDrag == nil {
+                    diamondDrag = DiamondDrag(
+                        target: binding.target, property: property, from: offset)
+                }
+                guard let drag = diamondDrag else { return }
+                let time = Double(value.location.x / pixelsPerSecond)
+                var newOffset =
+                    (time - geometry.delay) / max(geometry.duration, 1e-9) * 100
+                if !NSEvent.modifierFlags.contains(.shift) {
+                    newOffset = newOffset.rounded()  // 1% grid
+                }
+                newOffset = min(100, max(0, newOffset))
+                guard newOffset != drag.from else { return }
+                moveKeyframe(drag: drag, to: newOffset)
+                diamondDrag?.from = newOffset
+            }
+            .onEnded { _ in
+                diamondDrag = nil
+                session.endStyleEdit()
+            }
+    }
+
+    private func moveKeyframe(drag: DiamondDrag, to newOffset: Double) {
+        let coalesceKey = "kf-move|\(drag.target)|\(drag.property ?? "*")"
+        session.editAnimationDef(
+            bindingTarget: drag.target, label: "Move keyframe", coalesceKey: coalesceKey
+        ) { def in
+            if let property = drag.property {
+                // Move ONE property between frames.
+                guard
+                    let source = def.keyframes.firstIndex(where: {
+                        $0.offset == drag.from && $0.declarations[property] != nil
+                    }), let value = def.keyframes[source].declarations[property]
+                else { return }
+                def.keyframes[source].declarations.removeValue(forKey: property)
+                if def.keyframes[source].declarations.isEmpty {
+                    def.keyframes.remove(at: source)
+                }
+                if let dest = def.keyframes.firstIndex(where: { $0.offset == newOffset }) {
+                    def.keyframes[dest].declarations[property] = value
+                } else {
+                    def.keyframes.append(
+                        AnimationKeyframe(
+                            offset: newOffset, declarations: [property: value]))
+                }
+            } else {
+                // Move the whole frame (union diamond).
+                if let i = def.keyframes.firstIndex(where: { $0.offset == drag.from }) {
+                    def.keyframes[i].offset = newOffset
+                }
+            }
+        }
+    }
+
+    /// Double-click a lane adds a keyframe at that time, holding the
+    /// previous frame's values (predictable; tweak via record/popover).
+    private func addKeyframeGesture(
+        _ binding: AnimationBinding, property: String?
+    ) -> some Gesture {
+        SpatialTapGesture(count: 2, coordinateSpace: .named(laneSpace))
+            .onEnded { value in
+                guard let geometry = trackGeometry(binding) else { return }
+                let time = Double(value.location.x / pixelsPerSecond)
+                let offset = min(
+                    100,
+                    max(0, ((time - geometry.delay) / max(geometry.duration, 1e-9) * 100)
+                            .rounded()))
+                session.editAnimationDef(
+                    bindingTarget: binding.target, label: "Add keyframe"
+                ) { def in
+                    guard !def.keyframes.contains(where: { $0.offset == offset }) else {
+                        return
+                    }
+                    let previous = def.keyframes.last { $0.offset < offset }
+                        ?? def.keyframes.first
+                    var declarations = previous?.declarations ?? [:]
+                    if let property {
+                        declarations = declarations.filter { $0.key == property }
+                    }
+                    def.keyframes.append(
+                        AnimationKeyframe(offset: offset, declarations: declarations))
+                }
+            }
     }
 
     private struct TrackGeometry {
         var delay: Double
         var duration: Double
         var iterations: Double
-        var diamondTimes: [Double]
+        var diamondOffsets: [Double]
     }
 
     private func trackGeometry(_ binding: AnimationBinding) -> TrackGeometry? {
@@ -393,7 +709,7 @@ struct EditorTimelineDrawer: View {
             delay: timing.delay,
             duration: timing.duration,
             iterations: timing.iterations,
-            diamondTimes: offsets.map { timing.delay + $0 / 100 * timing.duration })
+            diamondOffsets: offsets)
     }
 
     /// The playhead: its own clock overlay, so only this layer redraws per
@@ -417,13 +733,194 @@ struct EditorTimelineDrawer: View {
         }
         .accessibilityIdentifier("timeline.playhead")
     }
+}
 
-    /// Click/drag anywhere on the lanes scrubs the paused clock.
-    private var scrubGesture: some Gesture {
-        DragGesture(minimumDistance: 0)
-            .onChanged { value in
-                preview.scrub(to: Double(value.location.x / pixelsPerSecond))
+// MARK: - Keyframe popover
+
+/// Value + easing editor for one keyframe (or one property of it): text
+/// fields per declaration, easing presets + cubic-bezier pad (the easing
+/// shapes the segment LEAVING this frame), delete.
+private struct KeyframePopover: View {
+    @ObservedObject var session: EditorSession
+    let target: String
+    let property: String?
+    let offset: Double
+
+    private var keyframe: AnimationKeyframe? {
+        guard
+            let binding = session.animationBindings.first(where: { $0.target == target }),
+            let def = session.animationDef(named: binding.animation)
+        else { return nil }
+        return def.keyframes.first { $0.offset == offset }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let keyframe {
+                Text(String(format: "Keyframe at %.0f%%", offset))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(properties(of: keyframe), id: \.self) { name in
+                    declarationRow(name, keyframe: keyframe)
+                }
+                addPropertyMenu(keyframe)
+                Divider()
+                easingSection(keyframe)
+                Divider()
+                Button(role: .destructive) {
+                    deleteKeyframe()
+                } label: {
+                    Label(
+                        property == nil ? "Delete Keyframe" : "Remove Property Here",
+                        systemImage: "trash")
+                }
+                .controlSize(.small)
+            } else {
+                Text("Keyframe removed.").foregroundStyle(.secondary)
             }
+        }
+        .padding(12)
+        .frame(width: 230)
+    }
+
+    private func properties(of keyframe: AnimationKeyframe) -> [String] {
+        let all = AnimationCSS.declarationOrder.filter { keyframe.declarations[$0] != nil }
+            + keyframe.declarations.keys
+            .filter { !AnimationCSS.declarationOrder.contains($0) }.sorted()
+        if let property { return all.filter { $0 == property } }
+        return all
+    }
+
+    private func declarationRow(_ name: String, keyframe: AnimationKeyframe) -> some View {
+        HStack(spacing: 6) {
+            Text(name)
+                .font(.caption)
+                .frame(width: 92, alignment: .trailing)
+                .foregroundStyle(.secondary)
+            TextField(
+                "value",
+                text: Binding(
+                    get: { keyframe.declarations[name] ?? "" },
+                    set: { text in
+                        guard AnimationLint.isSafeValue(text) else { return }
+                        session.editAnimationDef(
+                            bindingTarget: target, label: "Keyframe value",
+                            coalesceKey: "kf-value|\(target)|\(offset)|\(name)"
+                        ) { def in
+                            guard
+                                let i = def.keyframes.firstIndex(where: {
+                                    $0.offset == offset
+                                })
+                            else { return }
+                            def.keyframes[i].declarations[name] = text
+                        }
+                    })
+            )
+            .textFieldStyle(.roundedBorder)
+            .controlSize(.small)
+            .onSubmit { session.endStyleEdit() }
+        }
+    }
+
+    private func addPropertyMenu(_ keyframe: AnimationKeyframe) -> some View {
+        let missing = AnimationLint.animatableProperties
+            .subtracting(keyframe.declarations.keys)
+            .sorted()
+        return Menu {
+            ForEach(missing, id: \.self) { name in
+                Button(name) {
+                    session.editAnimationDef(
+                        bindingTarget: target, label: "Add property"
+                    ) { def in
+                        guard
+                            let i = def.keyframes.firstIndex(where: { $0.offset == offset })
+                        else { return }
+                        def.keyframes[i].declarations[name] = defaultValue(for: name)
+                    }
+                }
+            }
+        } label: {
+            Label("Add Property", systemImage: "plus")
+        }
+        .controlSize(.small)
+        .disabled(missing.isEmpty || property != nil)
+    }
+
+    private func defaultValue(for property: String) -> String {
+        switch property {
+        case "transform": return "rotate(0deg)"
+        case "opacity": return "1"
+        case "stroke-width": return "2"
+        case "stroke-dashoffset", "stroke-dasharray": return "100"
+        case "visibility": return "visible"
+        case "transform-origin": return "center"
+        default: return "#010101"
+        }
+    }
+
+    private func easingSection(_ keyframe: AnimationKeyframe) -> some View {
+        let easingBinding = Binding(
+            get: { keyframe.easing ?? "" },
+            set: { text in
+                session.editAnimationDef(
+                    bindingTarget: target, label: "Easing",
+                    coalesceKey: "kf-easing|\(target)|\(offset)"
+                ) { def in
+                    guard let i = def.keyframes.firstIndex(where: { $0.offset == offset })
+                    else { return }
+                    def.keyframes[i].easing = text.isEmpty ? nil : text
+                }
+            })
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("Easing out of this frame")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Picker("Easing", selection: presetSelection(easingBinding)) {
+                Text("Inherit").tag("")
+                Text("linear").tag("linear")
+                Text("ease").tag("ease")
+                Text("ease-in").tag("ease-in")
+                Text("ease-out").tag("ease-out")
+                Text("ease-in-out").tag("ease-in-out")
+                Text("steps(2)").tag("steps(2, end)")
+                Text("steps(4)").tag("steps(4, end)")
+                Text("custom curve").tag("custom")
+            }
+            .labelsHidden()
+            .controlSize(.small)
+            if isCustom(easingBinding.wrappedValue) {
+                BezierCurveEditor(easing: easingBinding)
+            }
+        }
+    }
+
+    private func isCustom(_ easing: String) -> Bool {
+        easing.hasPrefix("cubic-bezier(")
+    }
+
+    private func presetSelection(_ easing: Binding<String>) -> Binding<String> {
+        Binding(
+            get: { isCustom(easing.wrappedValue) ? "custom" : easing.wrappedValue },
+            set: { picked in
+                easing.wrappedValue =
+                    picked == "custom" ? "cubic-bezier(.25, .1, .25, 1)" : picked
+            })
+    }
+
+    private func deleteKeyframe() {
+        session.editAnimationDef(bindingTarget: target, label: "Delete keyframe") { def in
+            guard let i = def.keyframes.firstIndex(where: { $0.offset == offset }) else {
+                return
+            }
+            if let property {
+                def.keyframes[i].declarations.removeValue(forKey: property)
+                if def.keyframes[i].declarations.isEmpty {
+                    def.keyframes.remove(at: i)
+                }
+            } else {
+                def.keyframes.remove(at: i)
+            }
+        }
     }
 }
 
