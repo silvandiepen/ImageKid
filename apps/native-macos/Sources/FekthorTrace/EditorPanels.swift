@@ -25,6 +25,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
     case combine
     case align
     case grid
+    case gridPresets
     case history
     case layers
 
@@ -42,6 +43,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         case .combine: return "Combine"
         case .align: return "Align"
         case .grid: return "Grid"
+        case .gridPresets: return "Grid Presets"
         case .history: return "History"
         case .layers: return "Layers"
         }
@@ -59,6 +61,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         case .combine: return "square.on.square.intersection.dashed"
         case .align: return "align.horizontal.left"
         case .grid: return "grid"
+        case .gridPresets: return "square.grid.3x3"
         case .history: return "clock.arrow.circlepath"
         case .layers: return "square.3.stack.3d"
         }
@@ -74,7 +77,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         .fill, .stroke, .opacity, .corners, .transform, .combine,
     ]
     private static let leftColumn: [EditorPanel] = [
-        .layers, .swatches, .styles, .align, .grid, .history,
+        .layers, .swatches, .styles, .align, .grid, .gridPresets, .history,
     ]
 
     /// Rough on-screen height (chrome + content), used to stack the default
@@ -89,10 +92,11 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         case .transform: return 280
         case .combine: return 150
         case .layers: return 360
-        case .swatches: return 260
+        case .swatches: return 330
         case .styles: return 240
         case .align: return 200
-        case .grid: return 400
+        case .grid: return 420
+        case .gridPresets: return 260
         case .history: return 200
         }
     }
@@ -132,6 +136,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         case .combine: return CGSize(width: 400, height: 480)
         case .align: return CGSize(width: 280, height: 420)
         case .grid: return CGSize(width: 280, height: 220)
+        case .gridPresets: return CGSize(width: 320, height: 260)
         case .history: return CGSize(width: 400, height: 16)
         }
     }
@@ -606,6 +611,11 @@ struct EditorPanelsLayer: View {
             if panels.isExpanded(.grid) {
                 palette(.grid, in: dock) { GridPanelContent(workspace: workspace) }
             }
+            if panels.isExpanded(.gridPresets) {
+                palette(.gridPresets, in: dock) {
+                    GridPresetsPanelContent(workspace: workspace)
+                }
+            }
             if panels.isExpanded(.history) {
                 palette(.history, in: dock) { HistoryPanelContent(session: session) }
             }
@@ -985,8 +995,21 @@ struct SwatchesPanelContent: View {
         return nil
     }
 
+    /// The always-there starter palette: black → white, then a basic colour
+    /// wheel — read-only, like Illustrator's default swatch library.
+    private static let standardSwatches: [String] = [
+        "#000000", "#404040", "#808080", "#c0c0c0", "#ffffff",
+        "#e53935", "#f57c00", "#fdd835", "#43a047", "#00897b",
+        "#1e88e5", "#3949ab", "#8e24aa", "#d81b60", "#6d4c41",
+    ]
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Text("Standard")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            swatchGrid(Self.standardSwatches, editable: false)
+            Divider()
             HStack {
                 Text("Workspace")
                     .font(.caption)

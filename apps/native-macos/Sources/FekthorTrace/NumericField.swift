@@ -1,8 +1,12 @@
+import AppKit
 import SwiftUI
 
 /// The palettes' numeric text field: commits on Return like a plain
 /// TextField, and steps with the arrow keys — ↑/↓ ±1, ⇧↑/⇧↓ ±10 — with
 /// every step committing like a typed edit (Illustrator field behaviour).
+/// Return also hands keyboard focus back to the canvas, so the single-letter
+/// tool shortcuts (V/A/M/L/P) work right after a typed edit instead of
+/// landing in the field.
 /// One reusable component swapped in everywhere instead of per-field hacks.
 struct NumericField: View {
     var placeholder: String = "—"
@@ -23,6 +27,11 @@ struct NumericField: View {
             .onSubmit {
                 if let v = Double(text.trimmingCharacters(in: .whitespaces)) {
                     onCommit(v)
+                }
+                // Release focus AFTER the commit ran, off this event cycle —
+                // resigning first responder mid-submit re-fires onSubmit.
+                DispatchQueue.main.async {
+                    NSApp.keyWindow?.makeFirstResponder(nil)
                 }
             }
             .numericArrowKeys(text: $text, step: step, range: range, onStep: onCommit)

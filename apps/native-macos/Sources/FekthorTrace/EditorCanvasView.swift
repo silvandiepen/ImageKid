@@ -18,9 +18,11 @@ struct EditorGridConfig: Equatable {
     var subdivisions: Int
     var visible: Bool
     var snap: Bool
-    /// Workspace "Grid strength" multiplier on the line opacities
+    /// Workspace grid-opacity multiplier on the line opacities
     /// (1 = standard; the draw clamps so heavy values never overwhelm).
     var opacity: Double = 1
+    /// Grid line colour as "#rrggbb"; nil = the standard slate blue-grey.
+    var colorHex: String? = nil
 }
 
 /// The workspace guide icon drawn dimmed between the artboard fill and the
@@ -406,7 +408,7 @@ struct EditorCanvasView: View {
         let majorPx = g.spacing * Double(t.s)
         guard majorPx >= 4 else { return }
         let fade = min(1.0, (majorPx - 4) / 8)
-        let line = Color(red: 0.42, green: 0.47, blue: 0.58)
+        let line = GridLook.lineColor(hex: g.colorHex)
         let strength = max(0, g.opacity)
         let subAlpha = min(0.45, 0.12 * strength) * fade
         let majorAlpha = min(0.45, 0.22 * strength) * fade

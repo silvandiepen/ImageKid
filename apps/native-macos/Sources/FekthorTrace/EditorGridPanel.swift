@@ -1,35 +1,80 @@
+import AppKit
 import FekthorKit
 import SwiftUI
 
-/// A named grid configuration the Grid palette applies in one click:
-/// spacing, subdivisions and line strength. Visibility and snap stay live
-/// toggles (⌘' / ⇧⌘') — they are how you work, not which grid you use.
+/// The grid's shared look, used by the canvas draw AND the palette preview
+/// so they can never drift apart: the standard slate blue-grey line colour
+/// (overridable per grid) and the clamped alpha formula the opacity
+/// multiplier feeds.
+enum GridLook {
+    /// The standard slate blue-grey — reads better on the white artboard
+    /// than pure gray.
+    static let standardColor = Color(red: 0.42, green: 0.47, blue: 0.58)
+
+    static func lineColor(hex: String?) -> Color {
+        guard let hex, let c = PaintValue.parseHex(hex) else { return standardColor }
+        return Color(
+            red: Double(c.r) / 255, green: Double(c.g) / 255, blue: Double(c.b) / 255)
+    }
+
+    /// Line alphas for an opacity multiplier (1 = standard), clamped so
+    /// cranked-up grids never overwhelm the artwork.
+    static func alphas(opacity: Double) -> (major: Double, sub: Double) {
+        let strength = max(0, opacity)
+        return (min(0.45, 0.22 * strength), min(0.45, 0.12 * strength))
+    }
+}
+
+/// One grid configuration: spacing, subdivisions, line opacity and colour.
+/// The palette edits one of these; a preset is a named copy. Visibility and
+/// snap stay live toggles (⌘' / ⇧⌘') — they are how you work, not which
+/// grid you use.
+struct GridValues: Equatable {
+    var spacing: Double
+    var subdivisions: Int
+    var opacity: Double
+    /// "#rrggbb"; nil = the standard slate blue-grey.
+    var color: String?
+}
+
+/// A named grid configuration the Grid Presets palette applies in one click.
 struct GridPreset: Codable, Equatable, Identifiable {
     var name: String
     var spacing: Double
     var subdivisions: Int
-    var strength: Double
+    var opacity: Double
+    var color: String?
+
+    // "strength" stays the stored key for opacity — presets saved before
+    // the rename must keep decoding.
+    private enum CodingKeys: String, CodingKey {
+        case name, spacing, subdivisions, color
+        case opacity = "strength"
+    }
 
     var id: String { name }
+
+    var values: GridValues {
+        GridValues(spacing: spacing, subdivisions: subdivisions, opacity: opacity, color: color)
+    }
 
     /// Compact "8 pt ÷ 4" detail shown next to the name.
     var detail: String {
         var out = NumericField.format(spacing) + " pt"
         if subdivisions > 0 { out += " ÷ \(subdivisions)" }
-        if abs(strength - 1) >= 0.005 {
-            out += String(format: " · %.0f%%", strength * 100)
+        if abs(opacity - 1) >= 0.005 {
+            out += String(format: " · %.0f%%", opacity * 100)
         }
         return out
     }
 
-    func matches(spacing: Double, subdivisions: Int, strength: Double) -> Bool {
-        abs(self.spacing - spacing) < 0.001
-            && self.subdivisions == subdivisions
-            && abs(self.strength - strength) < 0.005
+    func matches(_ v: GridValues) -> Bool {
+        abs(spacing - v.spacing) < 0.001 && subdivisions == v.subdivisions
+            && abs(opacity - v.opacity) < 0.005 && color == v.color
     }
 }
 
-/// App-global grid state the Grid palette owns: the user's saved presets
+/// App-global grid state the Grid palettes own: the user's saved presets
 /// (available in every workspace) and the grid DETACHED editors use — with
 /// a workspace open the grid lives in the workfile instead, shared like
 /// swatches. Both persist through `AppDefaults`.
@@ -39,18 +84,25 @@ final class GridPresetStore: ObservableObject {
 
     /// Starting points for the 24pt icon artboards new icons default to.
     static let builtins: [GridPreset] = [
-        GridPreset(name: "1 pt", spacing: 1, subdivisions: 0, strength: 1),
-        GridPreset(name: "2 pt", spacing: 2, subdivisions: 2, strength: 1),
-        GridPreset(name: "4 pt", spacing: 4, subdivisions: 4, strength: 1),
-        GridPreset(name: "8 pt", spacing: 8, subdivisions: 4, strength: 1),
+        GridPreset(name: "1 pt", spacing: 1, subdivisions: 0, opacity: 1),
+        GridPreset(name: "2 pt", spacing: 2, subdivisions: 2, opacity: 1),
+        GridPreset(name: "4 pt", spacing: 4, subdivisions: 4, opacity: 1),
+        GridPreset(name: "8 pt", spacing: 8, subdivisions: 4, opacity: 1),
     ]
 
     /// The grid for editors opened WITHOUT a workspace (plain SVGs) —
     /// nothing on disk to keep it in, so it persists app-globally.
+    /// ("strength" stays the stored key for opacity, as in GridPreset.)
     struct DetachedGrid: Codable, Equatable {
         var spacing: Double = 1
         var subdivisions: Int = 0
-        var strength: Double = 1
+        var opacity: Double = 1
+        var color: String? = nil
+
+        private enum CodingKeys: String, CodingKey {
+            case spacing, subdivisions, color
+            case opacity = "strength"
+        }
     }
 
     @Published private(set) var userPresets: [GridPreset] {
@@ -101,47 +153,91 @@ final class GridPresetStore: ObservableObject {
     }
 }
 
+/// The single read/write path both grid palettes share: the workfile with a
+/// workspace open (shared, like swatches — the Workspace Settings sheet
+/// edits the same fields), the app-global store without one.
+@MainActor
+private struct GridAccess {
+    let workspace: WorkspaceSession
+    let store: GridPresetStore
+
+    var current: GridValues {
+        if workspace.workspace != nil {
+            let std = workspace.effectiveStandards
+            return GridValues(
+                spacing: std.gridSpacing ?? 1,
+                subdivisions: std.gridSubdivisions ?? 0,
+                opacity: std.gridOpacity ?? 1,
+                color: std.gridColor)
+        }
+        let d = store.detached
+        return GridValues(
+            spacing: d.spacing, subdivisions: d.subdivisions, opacity: d.opacity,
+            color: d.color)
+    }
+
+    func apply(_ v: GridValues) {
+        if workspace.workspace != nil {
+            workspace.updateSettings { workfile in
+                var s = workfile.settings ?? Workfile.WorkspaceSettings()
+                s.gridSpacing = v.spacing
+                s.gridSubdivisions = v.subdivisions
+                s.gridOpacity = v.opacity
+                s.gridColor = v.color
+                workfile.settings = s
+            }
+        } else {
+            store.detached = GridPresetStore.DetachedGrid(
+                spacing: v.spacing, subdivisions: v.subdivisions, opacity: v.opacity,
+                color: v.color)
+        }
+    }
+
+    /// Applying a preset while the grid is hidden also shows it — an
+    /// invisible change reads as a broken button.
+    func apply(_ preset: GridPreset) {
+        apply(preset.values)
+        if !MenuState.shared.showGrid { MenuState.shared.showGrid = true }
+    }
+}
+
 // MARK: - Grid palette
 
-/// The Grid palette: the live Show/Snap toggles (the same state ⌘'/⇧⌘'
-/// drive), the grid's spacing, subdivisions and strength, and one-click
-/// presets — built-ins first, then the user's own, saved with "+". With a
-/// workspace open edits persist through the workfile (the Workspace
-/// Settings sheet edits the same fields); detached editors keep theirs
-/// app-globally in the preset store.
+/// The Grid palette: a collapsible live preview, the Show/Snap switches
+/// (the same state ⌘'/⇧⌘' drive), spacing + subdivisions side by side,
+/// line opacity and colour — and a button into the Grid Presets palette.
 struct GridPanelContent: View {
     @ObservedObject var workspace: WorkspaceSession
     @ObservedObject private var menuState = MenuState.shared
     @ObservedObject private var store = GridPresetStore.shared
+    @ObservedObject private var panels = EditorPanelsState.shared
 
     @State private var spacingText = ""
     @State private var subdivisionsText = ""
-    @State private var strength: Double = 1
-    @State private var savePopoverShown = false
-    @State private var newPresetName = ""
+    @State private var opacity: Double = 1
+    @AppStorage("fekthor.gridPreviewCollapsed", store: AppDefaults.store)
+    private var previewCollapsed = false
 
-    private static let spacingRange = 0.1...256.0
-    private static let subdivisionsRange = 0.0...12.0
-    private static let strengthRange = 0.25...2.0
+    static let spacingRange = 0.1...256.0
+    static let subdivisionsRange = 0.0...12.0
+    static let opacityRange = 0.25...2.0
 
-    /// The values the canvas currently draws with.
-    private var current: (spacing: Double, subdivisions: Int, strength: Double) {
-        if workspace.workspace != nil {
-            let std = workspace.effectiveStandards
-            return (std.gridSpacing ?? 1, std.gridSubdivisions ?? 0, std.gridOpacity ?? 1)
-        }
-        return (store.detached.spacing, store.detached.subdivisions, store.detached.strength)
-    }
+    private var access: GridAccess { GridAccess(workspace: workspace, store: store) }
 
-    /// External-change token: any edit from the settings sheet, another
-    /// preset or a workspace switch re-syncs the fields.
+    /// External-change token: an edit from the settings sheet, a preset
+    /// click or a workspace switch re-syncs the fields.
     private var syncKey: String {
-        let cur = current
-        return "\(cur.spacing)|\(cur.subdivisions)|\(cur.strength)|\(workspace.workspace != nil)"
+        let cur = access.current
+        return "\(cur.spacing)|\(cur.subdivisions)|\(cur.opacity)|\(cur.color ?? "-")|\(workspace.workspace != nil)"
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            previewHeader
+            if !previewCollapsed {
+                GridPreviewSwatch(values: access.current, artboardUnits: artboardUnits)
+            }
+            Divider()
             HStack(spacing: 12) {
                 Toggle("Show", isOn: $menuState.showGrid)
                     .help("Show the grid (⌘')")
@@ -162,20 +258,264 @@ struct GridPanelContent: View {
             .toggleStyle(.switch)
             .controlSize(.mini)
             Divider()
-            numberRow(
-                "Spacing", text: $spacingText, range: Self.spacingRange,
-                identifier: "grid.spacing"
-            ) { v in
-                applyGrid(spacing: clamp(v, to: Self.spacingRange))
+            HStack(alignment: .top, spacing: 8) {
+                labeledField(
+                    "Spacing", text: $spacingText, range: Self.spacingRange,
+                    identifier: "grid.spacing"
+                ) { v in
+                    change { $0.spacing = clamp(v, to: Self.spacingRange) }
+                }
+                labeledField(
+                    "Subdivide", text: $subdivisionsText, range: Self.subdivisionsRange,
+                    identifier: "grid.subdivisions"
+                ) { v in
+                    change {
+                        $0.subdivisions = Int(clamp(v.rounded(), to: Self.subdivisionsRange))
+                    }
+                }
             }
-            numberRow(
-                "Subdivide", text: $subdivisionsText, range: Self.subdivisionsRange,
-                identifier: "grid.subdivisions"
-            ) { v in
-                applyGrid(subdivisions: Int(clamp(v.rounded(), to: Self.subdivisionsRange)))
-            }
-            strengthRow
+            opacityRow
+            colorRow
             Divider()
+            presetsButton
+            Text(
+                workspace.workspace != nil
+                    ? "Grid changes save into the workspace."
+                    : "No workspace open — the grid is kept app-wide."
+            )
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+        }
+        .onAppear { sync() }
+        .onChange(of: syncKey) { sync() }
+    }
+
+    /// The preview scales to the workspace's artboard width so it shows the
+    /// grid as new icons will actually wear it.
+    private var artboardUnits: Double {
+        workspace.effectiveStandards.iconWidth ?? 24
+    }
+
+    // MARK: Rows
+
+    private var previewHeader: some View {
+        Button {
+            previewCollapsed.toggle()
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: previewCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+                Text("Preview")
+                    .font(.caption)
+                Spacer()
+            }
+            .foregroundStyle(.secondary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(previewCollapsed ? "Show the grid preview" : "Hide the grid preview")
+        .accessibilityIdentifier("grid.previewToggle")
+    }
+
+    private func labeledField(
+        _ label: String, text: Binding<String>, range: ClosedRange<Double>,
+        identifier: String, onCommit: @escaping (Double) -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            NumericField(text: text, step: 1, range: range, onCommit: onCommit)
+                .accessibilityIdentifier(identifier)
+        }
+    }
+
+    private var opacityRow: some View {
+        HStack(spacing: 8) {
+            Text("Opacity")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 52, alignment: .leading)
+            Slider(value: $opacity, in: Self.opacityRange) { editing in
+                if !editing { change { $0.opacity = opacity } }
+            }
+            .accessibilityIdentifier("grid.opacity")
+            Text(String(format: "%.0f%%", opacity * 100))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 38, alignment: .trailing)
+        }
+    }
+
+    private var colorRow: some View {
+        let custom = access.current.color != nil
+        return HStack(spacing: 8) {
+            Text("Color")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 52, alignment: .leading)
+            ColorPicker(
+                "",
+                selection: Binding(
+                    get: { GridLook.lineColor(hex: access.current.color) },
+                    set: { picked in change { $0.color = hex(from: picked) } }),
+                supportsOpacity: false
+            )
+            .labelsHidden()
+            .controlSize(.small)
+            .accessibilityIdentifier("grid.color")
+            Spacer()
+            if custom {
+                Button {
+                    change { $0.color = nil }
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 9, weight: .semibold))
+                        .frame(width: 18, height: 18)
+                        .background(
+                            .white.opacity(0.08), in: RoundedRectangle(cornerRadius: 5))
+                        .contentShape(RoundedRectangle(cornerRadius: 5))
+                }
+                .buttonStyle(.plain)
+                .help("Back to the standard grid colour")
+                .accessibilityIdentifier("grid.colorReset")
+            }
+        }
+    }
+
+    private var presetsButton: some View {
+        Button {
+            panels.railToggle(.gridPresets)
+        } label: {
+            HStack {
+                Image(systemName: "square.grid.3x3")
+                    .font(.system(size: 10, weight: .medium))
+                Text("Presets…")
+                    .font(.caption)
+                Spacer()
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                .white.opacity(panels.isExpanded(.gridPresets) ? 0.18 : 0.08),
+                in: RoundedRectangle(cornerRadius: 7))
+            .contentShape(RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .help("Open the Grid Presets palette")
+        .accessibilityIdentifier("grid.openPresets")
+    }
+
+    // MARK: Apply / sync
+
+    private func change(_ edit: (inout GridValues) -> Void) {
+        var v = access.current
+        edit(&v)
+        access.apply(v)
+        sync()
+    }
+
+    private func sync() {
+        let cur = access.current
+        spacingText = NumericField.format(cur.spacing)
+        subdivisionsText = String(cur.subdivisions)
+        opacity = cur.opacity
+    }
+
+    private func hex(from color: Color) -> String {
+        let ns = NSColor(color).usingColorSpace(.sRGB) ?? .black
+        return String(
+            format: "#%02x%02x%02x",
+            Int(round(ns.redComponent * 255)),
+            Int(round(ns.greenComponent * 255)),
+            Int(round(ns.blueComponent * 255)))
+    }
+
+    private func clamp(_ v: Double, to range: ClosedRange<Double>) -> Double {
+        min(max(v, range.lowerBound), range.upperBound)
+    }
+}
+
+/// A small white artboard swatch wearing the current grid — spacing scaled
+/// to the workspace's artboard width, subdivisions, colour and opacity all
+/// live, using the same alpha formula as the canvas draw.
+private struct GridPreviewSwatch: View {
+    var values: GridValues
+    var artboardUnits: Double
+
+    var body: some View {
+        Canvas { ctx, size in
+            let shape = Path(
+                roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 6)
+            ctx.fill(shape, with: .color(.white))
+            ctx.clip(to: shape)
+            let scale = size.width / max(1, artboardUnits)
+            let majorPx = values.spacing * scale
+            guard majorPx >= 2 else { return }
+            let line = GridLook.lineColor(hex: values.color)
+            let (majorAlpha, subAlpha) = GridLook.alphas(opacity: values.opacity)
+            let subs = max(0, values.subdivisions)
+            if subs > 0 {
+                let subStep = majorPx / Double(subs + 1)
+                if subStep >= 2.5 {
+                    var p = Path()
+                    addLines(&p, step: subStep, skipEvery: subs + 1, in: size)
+                    ctx.stroke(p, with: .color(line.opacity(subAlpha)), lineWidth: 0.5)
+                }
+            }
+            var p = Path()
+            addLines(&p, step: majorPx, skipEvery: 0, in: size)
+            ctx.stroke(p, with: .color(line.opacity(majorAlpha)), lineWidth: 0.5)
+        }
+        .frame(height: 84)
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .strokeBorder(.white.opacity(0.25), lineWidth: 1))
+        .accessibilityIdentifier("grid.preview")
+    }
+
+    private func addLines(_ p: inout Path, step: Double, skipEvery: Int, in size: CGSize) {
+        var i = 0
+        while true {
+            let x = Double(i) * step
+            if x > size.width + 1e-9 { break }
+            if skipEvery == 0 || i % skipEvery != 0 {
+                p.move(to: CGPoint(x: x, y: 0))
+                p.addLine(to: CGPoint(x: x, y: size.height))
+            }
+            i += 1
+        }
+        i = 0
+        while true {
+            let y = Double(i) * step
+            if y > size.height + 1e-9 { break }
+            if skipEvery == 0 || i % skipEvery != 0 {
+                p.move(to: CGPoint(x: 0, y: y))
+                p.addLine(to: CGPoint(x: size.width, y: y))
+            }
+            i += 1
+        }
+    }
+}
+
+// MARK: - Grid Presets palette
+
+/// The Grid Presets palette, opened from the Grid palette (or the rail /
+/// Panels menu): built-ins first, then the user's own, saved with "+".
+/// Clicking a preset applies it (and shows the grid if it was hidden); the
+/// one matching the current grid is highlighted. Right-click a saved preset
+/// to overwrite it with the current grid or delete it.
+struct GridPresetsPanelContent: View {
+    @ObservedObject var workspace: WorkspaceSession
+    @ObservedObject private var store = GridPresetStore.shared
+
+    @State private var savePopoverShown = false
+    @State private var newPresetName = ""
+
+    private var access: GridAccess { GridAccess(workspace: workspace, store: store) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Presets")
                     .font(.caption)
@@ -191,61 +531,22 @@ struct GridPanelContent: View {
                     presetRow(preset, editable: true)
                 }
             }
-            Text(
-                workspace.workspace != nil
-                    ? "Grid changes save into the workspace."
-                    : "No workspace open — the grid is kept app-wide."
-            )
-            .font(.caption2)
-            .foregroundStyle(.tertiary)
-        }
-        .onAppear { sync() }
-        .onChange(of: syncKey) { sync() }
-    }
-
-    // MARK: Rows
-
-    private func numberRow(
-        _ label: String, text: Binding<String>, range: ClosedRange<Double>,
-        identifier: String, onCommit: @escaping (Double) -> Void
-    ) -> some View {
-        HStack(spacing: 8) {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(width: 62, alignment: .leading)
-            NumericField(text: text, step: 1, range: range, onCommit: onCommit)
-                .accessibilityIdentifier(identifier)
+            Text("A preset stores spacing, subdivide, opacity and colour.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
         }
     }
-
-    private var strengthRow: some View {
-        HStack(spacing: 8) {
-            Text("Strength")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(width: 62, alignment: .leading)
-            Slider(value: $strength, in: Self.strengthRange) { editing in
-                if !editing { applyGrid(strength: strength) }
-            }
-            .accessibilityIdentifier("grid.strength")
-            Text(String(format: "%.0f%%", strength * 100))
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(width: 38, alignment: .trailing)
-        }
-    }
-
-    // MARK: Presets
 
     private func presetRow(_ preset: GridPreset, editable: Bool) -> some View {
-        let cur = current
-        let active = preset.matches(
-            spacing: cur.spacing, subdivisions: cur.subdivisions, strength: cur.strength)
+        let active = preset.matches(access.current)
         return Button {
-            apply(preset)
+            access.apply(preset)
         } label: {
-            HStack {
+            HStack(spacing: 6) {
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(GridLook.lineColor(hex: preset.color))
+                    .frame(width: 8, height: 8)
+                    .opacity(preset.color == nil ? 0.5 : 1)
                 Text(preset.name)
                     .font(.caption)
                     .lineLimit(1)
@@ -265,14 +566,10 @@ struct GridPanelContent: View {
         .help("Apply \(preset.name) (\(preset.detail))")
         .accessibilityIdentifier("grid.preset.\(preset.name)")
         .contextMenu {
-            Button("Apply") { apply(preset) }
+            Button("Apply") { access.apply(preset) }
             if editable {
                 Button("Overwrite with Current Grid") {
-                    let cur = current
-                    store.save(
-                        GridPreset(
-                            name: preset.name, spacing: cur.spacing,
-                            subdivisions: cur.subdivisions, strength: cur.strength))
+                    store.save(currentPreset(named: preset.name))
                 }
                 Divider()
                 Button("Delete", role: .destructive) { store.remove(named: preset.name) }
@@ -322,63 +619,23 @@ struct GridPanelContent: View {
 
     /// "8 pt ÷ 4"-style default name from the current values.
     private var suggestedName: String {
-        let cur = current
+        let cur = access.current
         var name = NumericField.format(cur.spacing) + " pt"
         if cur.subdivisions > 0 { name += " ÷ \(cur.subdivisions)" }
         return name
     }
 
+    private func currentPreset(named name: String) -> GridPreset {
+        let cur = access.current
+        return GridPreset(
+            name: name, spacing: cur.spacing, subdivisions: cur.subdivisions,
+            opacity: cur.opacity, color: cur.color)
+    }
+
     private func savePreset() {
         let name = newPresetName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
-        let cur = current
-        store.save(
-            GridPreset(
-                name: name, spacing: cur.spacing, subdivisions: cur.subdivisions,
-                strength: cur.strength))
+        store.save(currentPreset(named: name))
         savePopoverShown = false
-    }
-
-    // MARK: Apply
-
-    /// Applying a preset while the grid is hidden also shows it — an
-    /// invisible change reads as a broken button.
-    private func apply(_ preset: GridPreset) {
-        applyGrid(
-            spacing: preset.spacing, subdivisions: preset.subdivisions,
-            strength: preset.strength)
-        if !menuState.showGrid { menuState.showGrid = true }
-    }
-
-    /// The single write path for grid values: the workfile with a workspace
-    /// open (shared, like swatches), the app-global store without one.
-    private func applyGrid(
-        spacing: Double? = nil, subdivisions: Int? = nil, strength: Double? = nil
-    ) {
-        if workspace.workspace != nil {
-            workspace.updateSettings { workfile in
-                var s = workfile.settings ?? Workfile.WorkspaceSettings()
-                if let spacing { s.gridSpacing = spacing }
-                if let subdivisions { s.gridSubdivisions = subdivisions }
-                if let strength { s.gridOpacity = strength }
-                workfile.settings = s
-            }
-        } else {
-            if let spacing { store.detached.spacing = spacing }
-            if let subdivisions { store.detached.subdivisions = subdivisions }
-            if let strength { store.detached.strength = strength }
-        }
-        sync()
-    }
-
-    private func sync() {
-        let cur = current
-        spacingText = NumericField.format(cur.spacing)
-        subdivisionsText = String(cur.subdivisions)
-        strength = cur.strength
-    }
-
-    private func clamp(_ v: Double, to range: ClosedRange<Double>) -> Double {
-        min(max(v, range.lowerBound), range.upperBound)
     }
 }
