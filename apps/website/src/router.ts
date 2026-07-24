@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 
+import AcknowledgementsPage from "./pages/AcknowledgementsPage.vue";
 import ArchitecturePage from "./pages/ArchitecturePage.vue";
 import CutoutPage from "./pages/CutoutPage.vue";
 import DocsIndexPage from "./pages/DocsIndexPage.vue";
@@ -27,6 +28,7 @@ export const router = createRouter({
     { path: "/docs/workflows", component: WorkflowsPage }, { path: "/docs/architecture", component: ArchitecturePage },
     { path: "/docs/roadmap", component: RoadmapPage }, { path: "/support", component: SupportPage },
     { path: "/privacy", component: PrivacyPage }, { path: "/terms", component: TermsPage },
+    { path: "/acknowledgements", component: AcknowledgementsPage },
     { path: "/not-found", component: NotFoundPage }, { path: "/:pathMatch(.*)*", redirect: "/not-found" }
   ]
 });
