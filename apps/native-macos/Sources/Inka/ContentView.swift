@@ -49,13 +49,18 @@ struct ContentView: View {
                     title: "Square Canvas",
                     subtitle: "1024 × 1024",
                     action: { newCanvas(width: 1024, height: 1024) }),
+                HomeAction(
+                    id: "inka.open",
+                    icon: "folder",
+                    title: "Open…",
+                    subtitle: "an .inka file",
+                    action: { model.openDocument(); hasCanvas = true }),
             ],
             recents: { EmptyView() })
     }
 
     private func newCanvas(width: Int, height: Int) {
-        model.document = .blank(width: width, height: height)
-        model.clearCanvas()
+        model.newDocument(width: width, height: height)
         hasCanvas = true
     }
 
@@ -64,7 +69,7 @@ struct ContentView: View {
             toolbar
             Divider()
             InkaCanvasView(model: model)
-                .background(Color(white: 0.5))
+                .background(Color(white: 0.28))
                 // The panels float over the canvas on the RIGHT: dockable
                 // Brushes/Brush panels, then the rail hard against the frame
                 // edge — all ImageKidKit.
@@ -99,6 +104,17 @@ struct ContentView: View {
                             onDragChanged: { dock.dragChanged(.brush, translation: $0, in: size) },
                             onDragEnded: { _ in dock.dragEnded(.brush, in: size) })
                     }
+                    if dock.model.isExpanded(.layers) {
+                        InkaLayersPanel(
+                            model: model, offset: dock.offsetBinding(.layers, in: size),
+                            size: dock.model.sizeBinding(.layers),
+                            onMinimize: { dock.model.minimize(.layers) },
+                            stackEdges: dock.model.stackEdges(of: .layers),
+                            dockEdges: dock.model.dockEdges(of: .layers, in: size),
+                            isStackFollower: dock.model.isStackFollower(.layers),
+                            onDragChanged: { dock.dragChanged(.layers, translation: $0, in: size) },
+                            onDragEnded: { _ in dock.dragEnded(.layers, in: size) })
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .animation(.spring(response: 0.34, dampingFraction: 0.82), value: dock.model.presented)
@@ -128,43 +144,62 @@ struct ContentView: View {
         let key = "inka.paneldock.rightDefault.v1"
         guard size.width > 0, !UserDefaults.standard.bool(forKey: key) else { return }
         let x = size.width - InkaPanel.panelWidth - PanelPlacement.margin
-        dock.model.setPosition(.brushes, to: CGSize(width: x, height: 8), in: size)
-        let below = 8 + dock.model.size(.brushes).height + PanelPlacement.gap
-        dock.model.setPosition(.brush, to: CGSize(width: x, height: below), in: size)
+        var y: CGFloat = 8
+        for panel in [InkaPanel.brushes, .brush, .layers] {
+            dock.model.setPosition(panel, to: CGSize(width: x, height: y), in: size)
+            y += dock.model.size(panel).height + PanelPlacement.gap
+        }
         UserDefaults.standard.set(true, forKey: key)
     }
 
     private var toolbar: some View {
-        HStack(spacing: 12) {
-            Button {
-                hasCanvas = false
-            } label: { Label("Home", systemImage: "chevron.left") }
+        HStack(spacing: 10) {
+            Button { hasCanvas = false } label: { Label("Home", systemImage: "chevron.left") }
 
             Divider().frame(height: 20)
 
-            ColorPicker("", selection: $model.color, supportsOpacity: false)
-                .labelsHidden()
+            Button { model.undo() } label: { Image(systemName: "arrow.uturn.backward") }
+                .keyboardShortcut("z", modifiers: .command).disabled(!model.canUndo).help("Undo")
+            Button { model.redo() } label: { Image(systemName: "arrow.uturn.forward") }
+                .keyboardShortcut("z", modifiers: [.command, .shift]).disabled(!model.canRedo).help("Redo")
 
+            Divider().frame(height: 20)
+
+            ColorPicker("", selection: $model.color, supportsOpacity: false).labelsHidden()
             HStack(spacing: 6) {
                 Image(systemName: "circle.fill").font(.system(size: 8))
-                Slider(value: sizeBinding, in: 1...200).frame(width: 130)
+                Slider(value: sizeBinding, in: 1...200).frame(width: 120)
                 Image(systemName: "circle.fill").font(.system(size: 16))
                 Text("\(Int(model.brush.size))")
                     .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                    .frame(width: 30, alignment: .trailing)
+                    .frame(width: 28, alignment: .trailing)
             }
-
             Text(model.brush.name).font(.callout).foregroundStyle(.secondary)
 
             Spacer()
 
-            Button { model.clearCanvas() } label: { Label("Clear", systemImage: "trash") }
-            Button { model.exportPNG() } label: { Label("Export PNG", systemImage: "square.and.arrow.up") }
+            Button { model.renderer?.fit(); model.requestRedraw?(); nudge() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
+                .keyboardShortcut("0", modifiers: .command).help("Fit")
+            Button { model.clearActiveLayer() } label: { Image(systemName: "trash") }
+                .help("Clear layer")
+
+            Divider().frame(height: 20)
+
+            Button { model.openDocument() } label: { Image(systemName: "folder") }
+                .keyboardShortcut("o", modifiers: .command).help("Open .inka")
+            Button { model.saveDocument() } label: { Image(systemName: "square.and.arrow.down") }
+                .keyboardShortcut("s", modifiers: .command).help("Save .inka")
+            Button { model.exportPNG() } label: { Label("Export", systemImage: "square.and.arrow.up") }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.ultraThinMaterial)
     }
+
+    /// Fit changes the transform, which the MTKView already redraws each frame;
+    /// this just pokes SwiftUI so any dependent chrome refreshes.
+    @State private var fitTick = 0
+    private func nudge() { fitTick &+= 1 }
 
     private var sizeBinding: Binding<Double> {
         Binding(get: { model.brush.size }, set: { model.brush.size = $0 })

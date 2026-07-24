@@ -67,15 +67,25 @@ re-rasterization both rely on it. No `Math.random`.
   reusable `PanelDockController` in ImageKidKit; Inka uses it. (ImageKid and
   Fekthor keep their own copies for now — they can migrate onto the controller
   later; not done here to avoid destabilising them.) The iPad shell keeps its
-  simple toolbar for now; adopting the panel dock there is P4.
-- **P3 Hybrid layers** — non-destructive vector-stroke layers, raster + imported
-  layers, per-layer blend/opacity/masks; layers panel.
-- **P4 Illustration workflow** — colour (palette/harmony/eyedropper), selections,
-  transform, undo/history, canvas nav (rotate/flip/zoom), reference layer.
+  simple toolbar for now; adopting the panel dock there is P6.
+- **P3 Hybrid layers** — DONE (macOS): non-destructive vector-stroke layers. The
+  renderer rebuilds its committed texture from the document on every change, so
+  the document is the source of truth; a **Layers panel** (ImageKidKit floating
+  panel) with add / delete / reorder, per-layer visibility + opacity, and
+  active-layer selection; strokes land on the active stroke layer (a new stroke
+  layer is spun up if the active one can't take strokes). Raster + imported layers
+  round-trip in `InkaDocument` and rasterize on export, but the app only *creates*
+  stroke layers so far. Per-layer masks/blend modes beyond opacity are P5.
+- **P4 Illustration workflow** — DONE (macOS core): **undo/redo** (⌘Z / ⌘⇧Z, a
+  40-deep document-snapshot history), **`.inka` save/open** (⌘S / ⌘O) + New with a
+  size, **canvas nav** (pinch-zoom, scroll-pan, ⌘0 fit), clear-layer, PNG export
+  via the exact CPU rasterizer. Still open here: colour tools (palette/harmony/
+  eyedropper), selections, transform, canvas rotate/flip, reference layer.
 - **P5 Brush breadth + export** — wet/smudge/blur, brush groups, custom brush
   import, perf passes; layered export.
-- **P6 Polish & launch** — iPad gestures, **website Inka page + brand assets**
-  (deferred here to avoid broken image refs), release-boundary entry.
+- **P6 Polish & launch** — iPad workflow (panel dock + gestures — the iPad shell
+  is still the P1 skeleton), **website Inka page + brand assets** (deferred here to
+  avoid broken image refs), release-boundary entry.
 - **P7 (opt-in) ImageKid adoption** — route ImageKid's freehand through
   `BrushKit`/`BrushRender`, retiring `MaskPainter.paintStroke` / the iOS
   `Brush.swift` presets.

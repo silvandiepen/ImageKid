@@ -1,5 +1,6 @@
 import BrushKit
 import ImageKidKit
+import InkaKit
 import SwiftUI
 
 /// Inka's dockable panels. The dock mechanics (model, rail, floating chrome,
@@ -9,6 +10,7 @@ import SwiftUI
 enum InkaPanel: String, CaseIterable, Identifiable, Hashable {
     case brushes
     case brush
+    case layers
 
     var id: String { rawValue }
 
@@ -26,7 +28,12 @@ enum InkaPanel: String, CaseIterable, Identifiable, Hashable {
             DockPanelSpec(
                 id: self, title: "Brush", systemImage: "slider.horizontal.3",
                 defaultPosition: CGSize(width: 0, height: 166),
-                defaultSize: CGSize(width: Self.panelWidth, height: 560))
+                defaultSize: CGSize(width: Self.panelWidth, height: 460))
+        case .layers:
+            DockPanelSpec(
+                id: self, title: "Layers", systemImage: "square.3.layers.3d",
+                defaultPosition: CGSize(width: 0, height: 640),
+                defaultSize: CGSize(width: Self.panelWidth, height: 260))
         }
     }
 
@@ -40,8 +47,106 @@ extension PanelDockModel where ID == InkaPanel {
             gridStep: InkaPanel.gridStep,
             minSize: CGSize(width: 260, height: 140),
             maxSize: CGSize(width: 360, height: 900),
-            initiallyPresented: [.brushes, .brush],
+            initiallyPresented: [.brushes, .brush, .layers],
             defaultsKey: "inka.paneldock")
+    }
+}
+
+/// The Layers panel: the document's layers newest-on-top, with add/delete/
+/// reorder, per-layer visibility and opacity, and active-layer selection.
+struct InkaLayersPanel: View {
+    @ObservedObject var model: InkaModel
+    @Binding var offset: CGSize
+    let size: Binding<CGSize>
+    let onMinimize: () -> Void
+    let stackEdges: (topFlat: Bool, bottomFlat: Bool)
+    let dockEdges: (leadingFlat: Bool, trailingFlat: Bool)
+    let isStackFollower: Bool
+    let onDragChanged: (CGSize) -> Void
+    let onDragEnded: (CGSize) -> Void
+
+    var body: some View {
+        FloatingToolPanel(
+            title: "Layers", systemImage: "square.3.layers.3d",
+            width: InkaPanel.panelWidth, offset: $offset, onMinimize: onMinimize,
+            snapStep: InkaPanel.gridStep, resizable: true, size: size,
+            minSize: CGSize(width: 260, height: 160), maxSize: CGSize(width: 360, height: 700),
+            stackEdges: stackEdges, dockEdges: dockEdges, isStackFollower: isStackFollower,
+            onDragChanged: onDragChanged, onDragEnded: onDragEnded
+        ) {
+            VStack(spacing: 8) {
+                HStack {
+                    Button { model.addLayer() } label: { Image(systemName: "plus") }
+                        .help("New layer")
+                    Button { model.moveLayer(model.activeLayerID, up: true) } label: {
+                        Image(systemName: "arrow.up")
+                    }.help("Move up")
+                    Button { model.moveLayer(model.activeLayerID, up: false) } label: {
+                        Image(systemName: "arrow.down")
+                    }.help("Move down")
+                    Spacer()
+                    Button(role: .destructive) { model.deleteLayer(model.activeLayerID) } label: {
+                        Image(systemName: "trash")
+                    }
+                    .disabled(model.document.layers.count <= 1)
+                    .help("Delete layer")
+                }
+                .buttonStyle(.bordered)
+
+                // Newest on top, like every layers panel.
+                ForEach(model.document.layers.reversed()) { layer in
+                    row(layer)
+                }
+            }
+        }
+    }
+
+    private func row(_ layer: Layer) -> some View {
+        let active = layer.id == model.activeLayerID
+        return VStack(spacing: 4) {
+            HStack(spacing: 8) {
+                Button {
+                    model.setLayerVisible(layer.id, !layer.isVisible)
+                } label: {
+                    Image(systemName: layer.isVisible ? "eye" : "eye.slash")
+                        .foregroundStyle(layer.isVisible ? .primary : .secondary)
+                }
+                .buttonStyle(.plain)
+
+                Text(layer.name).font(.callout).lineLimit(1)
+                Spacer()
+                Text(kindLabel(layer)).font(.caption2).foregroundStyle(.tertiary)
+            }
+            if active {
+                HStack(spacing: 6) {
+                    Image(systemName: "circle.lefthalf.filled").font(.caption2)
+                    Slider(
+                        value: Binding(
+                            get: { layer.opacity },
+                            set: { model.setLayerOpacity(layer.id, $0) }), in: 0...1)
+                    Text("\(Int(layer.opacity * 100))%")
+                        .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                        .frame(width: 34, alignment: .trailing)
+                }
+            }
+        }
+        .padding(8)
+        .background(
+            active ? Color.accentColor.opacity(0.22) : Color.white.opacity(0.04),
+            in: RoundedRectangle(cornerRadius: 7))
+        .overlay(
+            RoundedRectangle(cornerRadius: 7)
+                .strokeBorder(active ? Color.accentColor : .clear, lineWidth: 1))
+        .contentShape(Rectangle())
+        .onTapGesture { model.activeLayerID = layer.id }
+    }
+
+    private func kindLabel(_ layer: Layer) -> String {
+        switch layer.content {
+        case .strokes: "strokes"
+        case .raster: "raster"
+        case .imported: "image"
+        }
     }
 }
 
