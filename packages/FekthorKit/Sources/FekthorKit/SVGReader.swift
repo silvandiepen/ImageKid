@@ -254,8 +254,11 @@ public enum SVGReader {
                 }
             default:
                 // Raw passthrough (defs, style, clipPath, title, unknown).
+                // Fekthor's own generated animation block is derived output
+                // (regenerated on save, never parsed): keep it out of
+                // `parseCSS` so its rules can't leak into classStyle.
                 rawDepth = 1
-                rawIsStyle = name == "style"
+                rawIsStyle = name == "style" && attrs["id"] != AnimationCSS.styleElementID
                 styleText = ""
                 rawBuffer = rawOpenTag(name, attrs)
             }
