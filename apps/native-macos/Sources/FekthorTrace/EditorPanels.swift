@@ -26,6 +26,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
     case align
     case history
     case layers
+    case animation
 
     var id: String { rawValue }
 
@@ -42,6 +43,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         case .align: return "Align"
         case .history: return "History"
         case .layers: return "Layers"
+        case .animation: return "Animation"
         }
     }
 
@@ -58,6 +60,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         case .align: return "align.horizontal.left"
         case .history: return "clock.arrow.circlepath"
         case .layers: return "square.3.stack.3d"
+        case .animation: return "sparkles"
         }
     }
 
@@ -71,7 +74,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         .fill, .stroke, .opacity, .corners, .transform, .combine,
     ]
     private static let leftColumn: [EditorPanel] = [
-        .layers, .swatches, .styles, .align, .history,
+        .layers, .swatches, .styles, .animation, .align, .history,
     ]
 
     /// Rough on-screen height (chrome + content), used to stack the default
@@ -90,6 +93,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         case .styles: return 240
         case .align: return 200
         case .history: return 200
+        case .animation: return 280
         }
     }
 
@@ -128,6 +132,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         case .combine: return CGSize(width: 400, height: 480)
         case .align: return CGSize(width: 280, height: 420)
         case .history: return CGSize(width: 400, height: 16)
+        case .animation: return CGSize(width: 280, height: 220)
         }
     }
 
@@ -532,6 +537,8 @@ struct EditorPanelsLayer: View {
     /// Plain reference (NOT observed at this level — same discipline as the
     /// editor session): only the Swatches palette content observes it.
     let workspace: WorkspaceSession
+    /// Animation preview clock (Animation palette transport + chips).
+    let preview: AnimationPreviewController
     @ObservedObject private var panels = EditorPanelsState.shared
 
     /// Measured on-screen palette sizes (chrome included) — the stack layout
@@ -610,6 +617,12 @@ struct EditorPanelsLayer: View {
                 if panels.isExpanded(.layers) {
                     resizablePalette(.layers, in: dock) {
                         LayersPanelContent(session: session)
+                    }
+                }
+                if panels.isExpanded(.animation) {
+                    palette(.animation, in: dock) {
+                        AnimationPanelContent(
+                            session: session, workspace: workspace, preview: preview)
                     }
                 }
             }

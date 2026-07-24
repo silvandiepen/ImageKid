@@ -786,6 +786,86 @@ final class EditorSession: ObservableObject {
         dirty = true
     }
 
+    // MARK: - Animations
+
+    /// The icon's animation scene: its ordered bindings, straight from the
+    /// document's metadata block (undo-covered — every scene edit rides
+    /// `mutate{}`).
+    var animationBindings: [AnimationBinding] {
+        FileMeta.read(from: document)?.animationBindings ?? []
+    }
+
+    var resolvedAnimationSettings: AnimationSettings {
+        AnimationSettings.resolved(
+            workspace: workfileProvider?()?.settings?.animations,
+            icon: FileMeta.read(from: document)?.animationSettings)
+    }
+
+    /// Defs offerable in Animate menus: the workspace library first, then
+    /// built-in presets not shadowed by a workspace def of the same name.
+    var availableAnimationDefs: [AnimationDef] {
+        let workspace = workfileProvider?()?.animations ?? []
+        let names = Set(workspace.map(\.name))
+        return workspace + AnimationPresets.all.filter { !names.contains($0.name) }
+    }
+
+    /// The def a binding plays (file copy first, then the offerable list).
+    func animationDef(named name: String) -> AnimationDef? {
+        FileMeta.read(from: document)?.animations?.first { $0.name == name }
+            ?? availableAnimationDefs.first { $0.name == name }
+    }
+
+    /// Bind an animation to the selection — or the WHOLE ICON when nothing
+    /// is selected. One undo step.
+    func applyAnimation(_ def: AnimationDef, trigger: String? = nil) {
+        let ids = selection.sorted()
+        let settings = resolvedAnimationSettings
+        beginGesture(label: "Animate")
+        mutate { doc in
+            doc = AnimationEngine.bind(
+                def, trigger: trigger, toNodes: ids, in: doc, settings: settings)
+        }
+        status =
+            ids.isEmpty
+            ? "Animating the whole icon with “\(def.name)”."
+            : "Applied “\(def.name)” to \(ids.count) element(s)."
+    }
+
+    /// Remove a binding (record, marker classes, def copy, pathLength).
+    func removeAnimation(target: String) {
+        beginGesture(label: "Remove animation")
+        mutate { doc in
+            doc = AnimationEngine.unbind(target: target, in: doc)
+        }
+        status = "Removed animation."
+    }
+
+    /// Edit one binding's parameters (trigger, timing overrides) in place.
+    /// A `coalesceKey` collapses a typing/drag burst into one undo step
+    /// (the `styleEditKey` discipline).
+    func updateAnimationBinding(
+        target: String, label: String = "Animation settings", coalesceKey: String? = nil,
+        _ edit: (inout AnimationBinding) -> Void
+    ) {
+        if let coalesceKey {
+            if styleEditKey != coalesceKey {
+                beginGesture(label: label)
+                styleEditKey = coalesceKey
+            }
+        } else {
+            beginGesture(label: label)
+        }
+        mutate { doc in
+            var meta = FileMeta.read(from: doc) ?? FileMeta.Meta()
+            guard var bindings = meta.animationBindings,
+                let i = bindings.firstIndex(where: { $0.target == target })
+            else { return }
+            edit(&bindings[i])
+            meta.animationBindings = bindings
+            doc = FileMeta.writing(meta, to: doc)
+        }
+    }
+
     // MARK: - Shape tools
 
     /// Insert a freshly drawn primitive with the current drawing style,

@@ -1819,6 +1819,20 @@ struct EditorCanvasView: View {
         if !session.selection.isEmpty {
             items.append(("Delete \(session.selection.count) Node(s)", { session.deleteSelection() }))
         }
+        // Animate ▸ — bind a workspace/preset animation to the clicked
+        // element (empty space animates the whole icon) and open the
+        // Animation palette so the new binding is visible.
+        let animateTarget = hitNode(at: point, in: size)
+        for def in session.availableAnimationDefs {
+            items.append((
+                "Animate|\(def.name)",
+                {
+                    if let animateTarget { session.selection = [animateTarget] }
+                    session.applyAnimation(def)
+                    EditorPanelsState.shared.restore(.animation)
+                }
+            ))
+        }
         return items
     }
 }

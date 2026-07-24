@@ -1508,7 +1508,7 @@ struct EditorWorkspaceView: View {
             // environment so panel internals (swatch popovers) can read the
             // shared swatches without threading it through every initializer.
             .overlay(
-                EditorPanelsLayer(session: session, workspace: workspace)
+                EditorPanelsLayer(session: session, workspace: workspace, preview: preview)
                     .environmentObject(workspace))
             Divider()
             HStack {
