@@ -58,22 +58,33 @@ struct FillPaintTypeRow: View {
     }
 
     var body: some View {
-        Picker(
-            "",
-            selection: Binding<String>(
-                get: { currentKind?.rawValue ?? "" },
-                set: { apply($0) })
-        ) {
-            if currentKind == nil {
-                Text("Mixed").tag("")
-            }
+        // Icon chips instead of a text segmented control: each paint kind
+        // drawn as a little swatch (mixed selections highlight nothing).
+        HStack(spacing: 6) {
             ForEach(FillPaintKind.allCases, id: \.rawValue) { kind in
-                Text(kind.title).tag(kind.rawValue)
+                kindButton(kind)
             }
         }
-        .labelsHidden()
-        .pickerStyle(.segmented)
-        .controlSize(.small)
+    }
+
+    private func kindButton(_ kind: FillPaintKind) -> some View {
+        let selected = currentKind == kind
+        return Button {
+            apply(kind.rawValue)
+        } label: {
+            FillKindGlyph(kind: kind)
+                .frame(width: 20, height: 15)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 5)
+                .background(
+                    .white.opacity(selected ? 0.28 : 0.08),
+                    in: RoundedRectangle(cornerRadius: 7))
+                .contentShape(RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .help(kind.title)
+        .accessibilityLabel(kind.title)
+        .accessibilityIdentifier("fill.kind.\(kind.rawValue)")
     }
 
     private func apply(_ raw: String) {
@@ -91,6 +102,43 @@ struct FillPaintTypeRow: View {
             }
             session.endStyleEdit()
         }
+    }
+}
+
+/// The paint-kind chip faces, drawn (no SF Symbol says "radial gradient"
+/// well): solid = filled swatch, linear = a left→right ramp, radial = a
+/// centre glow, none = the classic white-with-red-slash.
+private struct FillKindGlyph: View {
+    let kind: FillPaintKind
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 4)
+        ZStack {
+            switch kind {
+            case .solid:
+                shape.fill(.white)
+            case .linear:
+                shape.fill(
+                    LinearGradient(
+                        colors: [.white, .white.opacity(0.12)],
+                        startPoint: .leading, endPoint: .trailing))
+            case .radial:
+                shape.fill(
+                    RadialGradient(
+                        colors: [.white, .white.opacity(0.10)],
+                        center: .center, startRadius: 1, endRadius: 12))
+            case FillPaintKind.none:
+                shape.fill(.white)
+                GeometryReader { geo in
+                    Path { p in
+                        p.move(to: CGPoint(x: 2, y: geo.size.height - 2))
+                        p.addLine(to: CGPoint(x: geo.size.width - 2, y: 2))
+                    }
+                    .stroke(Color.red.opacity(0.85), lineWidth: 1.5)
+                }
+            }
+        }
+        .overlay(shape.strokeBorder(.white.opacity(0.3), lineWidth: 1))
     }
 }
 

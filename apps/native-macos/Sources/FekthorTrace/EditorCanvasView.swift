@@ -18,9 +18,14 @@ struct EditorGridConfig: Equatable {
     var subdivisions: Int
     var visible: Bool
     var snap: Bool
-    /// Workspace "Grid strength" multiplier on the line opacities
+    /// Workspace grid-opacity multiplier on the line opacities
     /// (1 = standard; the draw clamps so heavy values never overwhelm).
     var opacity: Double = 1
+    /// Grid line colour as "#rrggbb"; nil = the standard slate blue-grey.
+    var colorHex: String? = nil
+    /// Subdivision lines' own opacity/colour; nil = follow opacity/colorHex.
+    var subOpacity: Double? = nil
+    var subColorHex: String? = nil
 }
 
 /// The workspace guide icon drawn dimmed between the artboard fill and the
@@ -34,6 +39,7 @@ struct EditorGuideConfig: Equatable {
 
 struct EditorCanvasView: View {
     @ObservedObject var session: EditorSession
+    @ObservedObject private var canvasAppearance = CanvasAppearance.shared
     @Binding var zoom: CGFloat
     @Binding var offset: CGSize
     var grid: EditorGridConfig? = nil
@@ -45,8 +51,31 @@ struct EditorCanvasView: View {
     /// corners/centres. Point snap WINS over grid snap; ⌃ disables both.
     var snapToPoints: Bool = false
 
-    @State private var activeAnchor: (path: Int, index: Int)? = nil
+    /// The selected points (Direct Select) — session-side (AnchorRef set)
+    /// so palettes can target them too; the canvas owns the interactions.
+    private var selectedAnchors: Set<AnchorRef> {
+        get { session.selectedAnchors }
+        nonmutating set { session.selectedAnchors = newValue }
+    }
+    /// The single selected point, when exactly one — for handle editing.
+    private var activeAnchor: (path: Int, index: Int)? {
+        selectedAnchors.count == 1
+            ? selectedAnchors.first.map { (path: $0.path, index: $0.index) } : nil
+    }
+    /// Hold-Z scrubby zoom: Z arms it (`zoomScrub`); a drag then zooms by its
+    /// horizontal delta from the grab point (`zoomDragStart`).
+    @State private var zoomScrub = false
+    @State private var zoomDragStart: (location: CGPoint, zoom: CGFloat)? = nil
     @State private var draggingAnchor: (path: Int, index: Int)? = nil
+    /// Every selected anchor's doc position at grab time, so a drag moves the
+    /// whole group by the delta — and a click (no movement) never snaps.
+    @State private var anchorDragStarts: [AnchorRef: Pt] = [:]
+    /// A no-shift click that landed on an already-multi-selected point: keep
+    /// the group for a drag, but collapse to just this point on mouse-up.
+    @State private var pendingAnchorCollapse: AnchorRef? = nil
+    /// The anchor drag hasn't taken its undo snapshot yet — deferred until the
+    /// first real move, so selecting a point doesn't create an empty undo step.
+    @State private var pendingAnchorGesture = false
     @State private var draggingHandle: (segment: Int, kind: Editing.HandleKind)? = nil
     @State private var draggingBody = false
     /// Body-drag bookkeeping: the doc point the drag started at, and the
@@ -113,10 +142,18 @@ struct EditorCanvasView: View {
         session.selection.count == 1 ? session.selection.first : nil
     }
 
+    /// Both selection tools (v = Select whole shapes + transform frame,
+    /// a = Direct Select points) share the non-drawing interaction paths.
+    private var isSelectTool: Bool {
+        session.tool == .select || session.tool == .directSelect
+    }
+
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                Rectangle().fill(Color(nsColor: .textBackgroundColor))
+                // Translucent surround (Settings ⌘, sets colour/opacity):
+                // the window's glass reads through like the header/footer.
+                Rectangle().fill(canvasAppearance.effectiveBackground)
                 canvas(in: geo.size)
                     .overlay(
                         RightClickCatcher { point, size in
@@ -125,34 +162,141 @@ struct EditorCanvasView: View {
                     )
             }
             .clipped()
-            // Arrow keys nudge the selected point. Focus follows a click on
-            // the canvas, so selecting a point makes the keys live.
-            .focusable()
-            .onKeyPress(.upArrow) { nudgeActiveAnchor(dx: 0, dy: -1) ? .handled : .ignored }
-            .onKeyPress(.downArrow) { nudgeActiveAnchor(dx: 0, dy: 1) ? .handled : .ignored }
-            .onKeyPress(.leftArrow) { nudgeActiveAnchor(dx: -1, dy: 0) ? .handled : .ignored }
-            .onKeyPress(.rightArrow) { nudgeActiveAnchor(dx: 1, dy: 0) ? .handled : .ignored }
+            // Arrow keys nudge the selected point; hold Z and drag to zoom.
+            // Driven by a window keyDown/keyUp monitor (SwiftUI focus is
+            // unreliable on the gesture-driven canvas — the tool shortcuts use
+            // the same mechanism).
+            .background(
+                CanvasKeyMonitor(onKeyDown: handleCanvasKeyDown, onKeyUp: handleCanvasKeyUp)
+            )
+            .onChange(of: session.tool) {
+                // Leaving Direct Select drops the point highlight so Select
+                // shows the transform frame instead of anchor dots.
+                if session.tool != .directSelect { selectedAnchors = [] }
+            }
         }
         .frame(minWidth: 300, minHeight: 340)
     }
 
-    /// Move the selected point by one step in the given direction. With grid
-    /// snapping on the step is one grid unit (and the point lands on the grid);
-    /// off, it's a fine 1pt nudge — ⇧ makes either a 10× coarse nudge.
-    @discardableResult
-    private func nudgeActiveAnchor(dx: Double, dy: Double) -> Bool {
-        guard session.tool == .select, let sel = single, let active = activeAnchor,
-            let shape = session.document.firstShape(id: sel),
-            let anchor = Editing2.anchors(of: shape).first(where: {
-                $0.path == active.path && $0.index == active.index
-            })
+    /// Window keyDown while the canvas is on screen. Returns true to consume.
+    /// ⌘Z undoes; arrow keys nudge the selected point (⇧ = 10×); Z arms
+    /// scrubby zoom. Text-field keystrokes are already excluded by the monitor.
+    private func handleCanvasKeyDown(_ e: NSEvent) -> Bool {
+        // ⌘Z → undo. Fekthor's undo is its own stack, so the standard Edit-menu
+        // Undo is inert and just swallows the shortcut; intercept it here.
+        if e.modifierFlags.intersection([.command, .option, .control, .shift]) == .command,
+            e.keyCode == 6 {  // ⌘Z
+            guard session.canUndo else { return false }
+            session.undo()
+            return true
+        }
+        // Arrow keys: move the selected point, or the whole selection; ⌥ makes
+        // a placed duplicate (Illustrator-style). ⌘/⌃ arrows pass through.
+        let arrow: (dx: Double, dy: Double)?
+        switch e.keyCode {
+        case 126: arrow = (0, -1)  // up
+        case 125: arrow = (0, 1)  // down
+        case 123: arrow = (-1, 0)  // left
+        case 124: arrow = (1, 0)  // right
+        default: arrow = nil
+        }
+        if let arrow {
+            let mods = e.modifierFlags.intersection([.command, .option, .control])
+            if mods.isEmpty { return moveByArrow(dx: arrow.dx, dy: arrow.dy, duplicate: false) }
+            if mods == .option { return moveByArrow(dx: arrow.dx, dy: arrow.dy, duplicate: true) }
+            return false
+        }
+        // Unmodified single keys.
+        guard e.modifierFlags.intersection([.command, .option, .control]).isEmpty
         else { return false }
+        if e.keyCode == 6 {  // Z arms scrubby zoom
+            zoomScrub = true
+            return true
+        }
+        return false
+    }
+
+    private func handleCanvasKeyUp(_ e: NSEvent) {
+        if e.keyCode == 6 { zoomScrub = false }  // Z released
+    }
+
+    /// Keyboard move by one step in a direction. A selected POINT moves alone;
+    /// otherwise the whole selection moves. `duplicate` (⌥) places a copy of
+    /// the selection instead. Step = one grid unit when snapping, else 1pt;
+    /// ⇧ makes it a 10× coarse step.
+    @discardableResult
+    private func moveByArrow(dx: Double, dy: Double, duplicate: Bool) -> Bool {
+        guard isSelectTool else { return false }
         let base = snapStep ?? 1
         let step = NSEvent.modifierFlags.contains(.shift) ? base * 10 : base
-        let target = Pt(anchor.position.x + dx * step, anchor.position.y + dy * step)
-        session.beginGesture(label: "Nudge point")
-        session.moveAnchor(node: sel, path: active.path, anchor: active.index, to: snapped(target))
+        if duplicate {
+            guard !session.selection.isEmpty else { return false }
+            session.duplicateSelection(dx: dx * step, dy: dy * step)
+            selectedAnchors = []
+            return true
+        }
+        // Move the selected point(s) in Direct Select.
+        if session.tool == .directSelect, !selectedAnchors.isEmpty, let sel = single,
+            let shape = session.document.firstShape(id: sel) {
+            var moves: [(path: Int, anchor: Int, to: Pt)] = []
+            for a in Editing2.anchors(of: shape)
+            where selectedAnchors.contains(AnchorRef(path: a.path, index: a.index)) {
+                let raw = Pt(a.position.x + dx * step, a.position.y + dy * step)
+                // One point snaps to the grid; a group moves rigidly by the step.
+                moves.append((a.path, a.index, selectedAnchors.count == 1 ? snapped(raw) : raw))
+            }
+            if !moves.isEmpty {
+                session.beginGesture(label: moves.count > 1 ? "Move points" : "Nudge point")
+                session.moveAnchors(node: sel, moves: moves)
+                return true
+            }
+        }
+        // Otherwise move the whole selection.
+        guard !session.selection.isEmpty else { return false }
+        session.beginGesture(label: "Move")
+        session.translateSelection(dx: dx * step, dy: dy * step)
         return true
+    }
+
+    /// Select and grab a point to drag. ⇧ toggles it in the multi-set; a plain
+    /// click selects just it — or keeps an existing multi-set for a group drag,
+    /// collapsing to this point on mouse-up if it doesn't move. Captures every
+    /// selected point's start position for the drag.
+    private func grabAnchor(path: Int, index: Int, shape: ShapeNode) {
+        let ref = AnchorRef(path: path, index: index)
+        pendingAnchorCollapse = nil
+        if NSEvent.modifierFlags.contains(.shift) {
+            if selectedAnchors.contains(ref) {
+                selectedAnchors.remove(ref)  // ⇧-click a selected point deselects it
+                draggingAnchor = nil
+                anchorDragStarts = [:]
+                return
+            }
+            selectedAnchors.insert(ref)
+        } else if selectedAnchors.contains(ref), selectedAnchors.count > 1 {
+            pendingAnchorCollapse = ref
+        } else {
+            selectedAnchors = [ref]
+        }
+        draggingAnchor = (path, index)
+        pendingAnchorGesture = true
+        snapMagnets = collectMagnets(excluding: session.selection)
+        anchorDragStarts = [:]
+        for a in Editing2.anchors(of: shape)
+        where selectedAnchors.contains(AnchorRef(path: a.path, index: a.index)) {
+            anchorDragStarts[AnchorRef(path: a.path, index: a.index)] = a.position
+        }
+    }
+
+    /// Which corners a radius edit applies to: every selected point when the
+    /// dragged corner is part of a multi-selection, otherwise just that corner.
+    private func cornerScope(path: Int, index: Int) -> [Int: Set<Int>] {
+        if selectedAnchors.contains(AnchorRef(path: path, index: index)), selectedAnchors.count > 1 {
+            var grouped: [Int: Set<Int>] = [:]
+            for a in selectedAnchors { grouped[a.path, default: []].insert(a.index) }
+            return grouped
+        }
+        return [path: [index]]
     }
 
     private func canvas(in size: CGSize) -> some View {
@@ -173,7 +317,7 @@ struct EditorCanvasView: View {
                 drawGuide(guide.document, in: &ctx, doc: doc, t: t)
             }
             if let g = grid, g.visible, g.spacing > 0 {
-                drawGrid(g, in: &ctx, doc: doc, t: t)
+                drawGrid(g, in: &ctx, doc: doc, t: t, over: canvasSize)
             }
             ctx.stroke(Path(board), with: .color(.gray.opacity(0.4)), lineWidth: 1)
 
@@ -266,63 +410,70 @@ struct EditorCanvasView: View {
     /// multiplies both line opacities, clamped so cranked-up grids never
     /// overwhelm the artwork.
     private func drawGrid(
-        _ g: EditorGridConfig, in ctx: inout GraphicsContext, doc: GraphicDocument, t: T
+        _ g: EditorGridConfig, in ctx: inout GraphicsContext, doc: GraphicDocument, t: T,
+        over size: CGSize
     ) {
         let majorPx = g.spacing * Double(t.s)
         guard majorPx >= 4 else { return }
         let fade = min(1.0, (majorPx - 4) / 8)
-        let line = Color(red: 0.42, green: 0.47, blue: 0.58)
-        let strength = max(0, g.opacity)
-        let subAlpha = min(0.45, 0.12 * strength) * fade
-        let majorAlpha = min(0.45, 0.22 * strength) * fade
+        let line = GridLook.lineColor(hex: g.colorHex)
+        let majorAlpha = GridLook.alphas(opacity: g.opacity).major * fade
+        // Subdivisions follow the grid lines unless split (their own
+        // opacity/colour set through the Grid palette).
+        let subLine = GridLook.lineColor(hex: g.subColorHex ?? g.colorHex)
+        let subAlpha = GridLook.alphas(opacity: g.subOpacity ?? g.opacity).sub * fade
         let subs = max(0, g.subdivisions)
         if subs > 0 {
             let subStep = g.spacing / Double(subs + 1)
             if subStep * Double(t.s) >= 4 {
                 var p = Path()
-                addGridLines(&p, doc: doc, step: subStep, t: t, skipEvery: subs + 1)
-                ctx.stroke(p, with: .color(line.opacity(subAlpha)), lineWidth: 0.5)
+                addGridLines(&p, doc: doc, step: subStep, t: t, skipEvery: subs + 1, over: size)
+                ctx.stroke(p, with: .color(subLine.opacity(subAlpha)), lineWidth: 0.5)
             }
         }
         var p = Path()
-        addGridLines(&p, doc: doc, step: g.spacing, t: t, skipEvery: 0)
+        addGridLines(&p, doc: doc, step: g.spacing, t: t, skipEvery: 0, over: size)
         ctx.stroke(p, with: .color(line.opacity(majorAlpha)), lineWidth: 0.5)
     }
 
-    /// Vertical + horizontal lines every `step` across the viewBox. With
-    /// `skipEvery` > 0, every Nth line is left out (subdivision passes skip
-    /// the positions the major pass draws).
+    /// Vertical + horizontal lines every `step` across the WHOLE visible
+    /// canvas — the grid runs over the translucent surround, not just the
+    /// artboard — anchored to the artboard's origin so the lines keep
+    /// matching it. With `skipEvery` > 0, every Nth line is left out
+    /// (subdivision passes skip the positions the major pass draws).
     private func addGridLines(
-        _ p: inout Path, doc: GraphicDocument, step: Double, t: T, skipEvery: Int
+        _ p: inout Path, doc: GraphicDocument, step: Double, t: T, skipEvery: Int,
+        over size: CGSize
     ) {
         let vb = doc.viewBox
-        let x0 = vb.minX
-        let y0 = vb.minY
-        let x1 = vb.minX + vb.width
-        let y1 = vb.minY + vb.height
-        let top = CGFloat(y0) * t.s + t.ty
-        let bottom = CGFloat(y1) * t.s + t.ty
-        let leading = CGFloat(x0) * t.s + t.tx
-        let trailing = CGFloat(x1) * t.s + t.tx
-        var i = 0
-        while true {
-            let x = x0 + Double(i) * step
-            if x > x1 + 1e-9 { break }
-            if skipEvery == 0 || i % skipEvery != 0 {
-                let vx = CGFloat(x) * t.s + t.tx
-                p.move(to: CGPoint(x: vx, y: top))
-                p.addLine(to: CGPoint(x: vx, y: bottom))
+        let s = Double(t.s)
+        // The doc-space window the canvas shows.
+        let docX0 = (0 - Double(t.tx)) / s
+        let docX1 = (Double(size.width) - Double(t.tx)) / s
+        let docY0 = (0 - Double(t.ty)) / s
+        let docY1 = (Double(size.height) - Double(t.ty)) / s
+        // Line indices count from the artboard origin; negatives run left/up
+        // of it, so the skip test needs a positive modulus.
+        func skipped(_ i: Int) -> Bool {
+            skipEvery > 0 && ((i % skipEvery) + skipEvery) % skipEvery == 0
+        }
+        var i = Int(floor((docX0 - vb.minX) / step))
+        let lastX = Int(ceil((docX1 - vb.minX) / step))
+        while i <= lastX {
+            if !skipped(i) {
+                let vx = CGFloat(vb.minX + Double(i) * step) * t.s + t.tx
+                p.move(to: CGPoint(x: vx, y: 0))
+                p.addLine(to: CGPoint(x: vx, y: size.height))
             }
             i += 1
         }
-        i = 0
-        while true {
-            let y = y0 + Double(i) * step
-            if y > y1 + 1e-9 { break }
-            if skipEvery == 0 || i % skipEvery != 0 {
-                let vy = CGFloat(y) * t.s + t.ty
-                p.move(to: CGPoint(x: leading, y: vy))
-                p.addLine(to: CGPoint(x: trailing, y: vy))
+        i = Int(floor((docY0 - vb.minY) / step))
+        let lastY = Int(ceil((docY1 - vb.minY) / step))
+        while i <= lastY {
+            if !skipped(i) {
+                let vy = CGFloat(vb.minY + Double(i) * step) * t.s + t.ty
+                p.move(to: CGPoint(x: 0, y: vy))
+                p.addLine(to: CGPoint(x: size.width, y: vy))
             }
             i += 1
         }
@@ -548,7 +699,9 @@ struct EditorCanvasView: View {
     private func drawAnchorsAndHandles(
         _ ctx: inout GraphicsContext, doc: GraphicDocument, t: T
     ) {
-        guard let sel = single, let shape = doc.firstShape(id: sel) else { return }
+        guard session.tool == .directSelect, let sel = single,
+            let shape = doc.firstShape(id: sel)
+        else { return }
         if let active = activeAnchor {
             for h in Editing2.handles(of: shape, path: active.path, anchor: active.index) {
                 let hv = CGPoint(x: h.position.x * t.s + t.tx, y: h.position.y * t.s + t.ty)
@@ -570,8 +723,7 @@ struct EditorCanvasView: View {
         }
         for a in Editing2.anchors(of: shape) {
             let v = CGPoint(x: a.position.x * t.s + t.tx, y: a.position.y * t.s + t.ty)
-            let isActive =
-                activeAnchor.map { $0.path == a.path && $0.index == a.index } ?? false
+            let isActive = selectedAnchors.contains(AnchorRef(path: a.path, index: a.index))
             let r: CGFloat = isActive ? 4.5 : 3.5
             let rect = CGRect(x: v.x - r, y: v.y - r, width: 2 * r, height: 2 * r)
             ctx.fill(Path(ellipseIn: rect), with: .color(isActive ? .blue : .white))
@@ -604,7 +756,7 @@ struct EditorCanvasView: View {
 
     /// Visually distinct from anchors: smaller, accent-filled circles.
     private func drawCornerDots(_ ctx: inout GraphicsContext, doc: GraphicDocument, t: T) {
-        guard session.tool == .select, session.distort == nil,
+        guard session.tool == .directSelect, session.distort == nil,
             let sel = single, let shape = doc.firstShape(id: sel)
         else { return }
         for (_, _, dot) in cornerDots(of: shape, t: t) {
@@ -974,6 +1126,11 @@ struct EditorCanvasView: View {
     /// gradient annotator → Bézier handle → anchor → transform handle →
     /// selected body → marquee (Select tool), or a shape-drawing start.
     private func beginDrag(_ v: DragGesture.Value, in size: CGSize) {
+        // Hold-Z scrubby zoom takes over the whole drag.
+        if zoomScrub {
+            zoomDragStart = (v.startLocation, zoom)
+            return
+        }
         // Free Distort owns the canvas: corner drags only, everything else
         // is inert until Return commits or Esc cancels.
         if let d = session.distort {
@@ -998,7 +1155,7 @@ struct EditorCanvasView: View {
             beginPen(v, in: size)
             return
         }
-        if session.tool != .select {
+        if !isSelectTool {
             snapMagnets = collectMagnets(excluding: [])
             drawStart = pointOrGridSnapped(docPoint(from: v.startLocation, in: size), in: size)
             return
@@ -1030,9 +1187,10 @@ struct EditorCanvasView: View {
                 return
             }
         }
-        // Corner dots (single selection): smaller hit radius than anchors —
-        // the dot sits 11pt off the anchor, so the two never fight.
-        if let sel = single, let shape = doc.firstShape(id: sel), session.distort == nil {
+        // Corner dots (Direct Select, single selection): smaller hit radius
+        // than anchors — the dot sits 11pt off the anchor, so they never fight.
+        if session.tool == .directSelect, let sel = single,
+            let shape = doc.firstShape(id: sel), session.distort == nil {
             var best: (path: Int, info: LiveCorners.CornerInfo, d: CGFloat)? = nil
             for (pi, info, dot) in cornerDots(of: shape, t: t) {
                 let d = hypot(dot.x - v.startLocation.x, dot.y - v.startLocation.y)
@@ -1042,17 +1200,18 @@ struct EditorCanvasView: View {
             }
             if let hit = best {
                 session.beginGesture(label: "Corner radius")
-                // Selection rule: a selected POINT scopes the edit to the
-                // dragged corner; a plain shape selection rounds them all.
+                // Dragging a corner's dot rounds THAT corner — or every selected
+                // point's corner when the dragged one is part of a multi-select.
+                // Whole-shape rounding is the Corners panel. (Live: points kept.)
                 cornerDrag = CornerDrag(
                     originals: selectedOriginals(),
                     path: hit.path, index: hit.info.index,
                     anchor: hit.info.position, bisector: hit.info.bisector,
-                    only: activeAnchor != nil ? [hit.path: [hit.info.index]] : nil)
+                    only: cornerScope(path: hit.path, index: hit.info.index))
                 return
             }
         }
-        if let sel = single, let shape = doc.firstShape(id: sel) {
+        if session.tool == .directSelect, let sel = single, let shape = doc.firstShape(id: sel) {
             if let active = activeAnchor {
                 for h in Editing2.handles(of: shape, path: active.path, anchor: active.index) {
                     let hv = CGPoint(
@@ -1074,15 +1233,31 @@ struct EditorCanvasView: View {
                 }
             }
             if let hit = best {
-                session.beginGesture(label: "Move anchor")
-                snapMagnets = collectMagnets(excluding: session.selection)
-                draggingAnchor = (hit.0.path, hit.0.index)
-                activeAnchor = (hit.0.path, hit.0.index)
+                grabAnchor(path: hit.0.path, index: hit.0.index, shape: shape)
                 return
             }
         }
-        // Transform handles on the selection frame (any selection size).
-        if !session.selection.isEmpty, let box = selectionDocBounds() {
+        // Direct point selection: clicking near a point of the shape under the
+        // cursor selects that shape AND the point in one click (Illustrator
+        // direct-select), so arrow keys can nudge it right away.
+        if session.tool == .directSelect, session.distort == nil, session.selection.count != 1,
+            let under = hitNode(at: v.startLocation, in: size),
+            let shape = doc.firstShape(id: under) {
+            var best: (Editing2.Anchor, CGFloat)? = nil
+            for a in Editing2.anchors(of: shape) {
+                let av = CGPoint(x: a.position.x * t.s + t.tx, y: a.position.y * t.s + t.ty)
+                let d = hypot(av.x - v.startLocation.x, av.y - v.startLocation.y)
+                if d <= hitRadius, best == nil || d < best!.1 { best = (a, d) }
+            }
+            if let hit = best {
+                session.selection = [under]
+                selectedAnchors = []
+                grabAnchor(path: hit.0.path, index: hit.0.index, shape: shape)
+                return
+            }
+        }
+        // Transform handles on the selection frame (Select tool only).
+        if session.tool == .select, !session.selection.isEmpty, let box = selectionDocBounds() {
             let view = paddedViewRect(box, t: t)
             let knob = rotateKnobPoint(for: view)
             if hypot(knob.x - v.startLocation.x, knob.y - v.startLocation.y) <= hitRadius - 1 {
@@ -1122,6 +1297,13 @@ struct EditorCanvasView: View {
     }
 
     private func continueDrag(_ v: DragGesture.Value, in size: CGSize) {
+        if let zd = zoomDragStart {
+            // Rightward drag zooms in, leftward out (Photoshop-style scrubby
+            // zoom); exponential so it feels even at any zoom level.
+            let dx = Double(v.location.x - zd.location.x)
+            zoom = min(64, max(0.05, zd.zoom * CGFloat(exp(dx * 0.006))))
+            return
+        }
         if session.distort != nil {
             if let corner = distortCorner {
                 session.distortDrag(
@@ -1134,7 +1316,7 @@ struct EditorCanvasView: View {
             continuePen(v, in: size)
             return
         }
-        if session.tool != .select {
+        if !isSelectTool {
             updateDraft(v, in: size)
             return
         }
@@ -1163,10 +1345,28 @@ struct EditorCanvasView: View {
             session.moveHandle(
                 node: sel, path: active.path, segment: h.segment, kind: h.kind,
                 to: want, mirror: mirror)
-        } else if let d = draggingAnchor, let sel = single {
-            session.moveAnchor(
-                node: sel, path: d.path, anchor: d.index,
-                to: pointOrGridSnapped(target, in: size))
+        } else if let d = draggingAnchor, let sel = single,
+            let grabbedStart = anchorDragStarts[AnchorRef(path: d.path, index: d.index)] {
+            // A click (no real movement) only selects — never move/snap. Once
+            // dragging, snap the GRABBED point to grid and shift every selected
+            // point by the same delta (so a group keeps its shape).
+            if hypot(v.translation.width, v.translation.height) > 2 {
+                if pendingAnchorGesture {
+                    session.beginGesture(label: anchorDragStarts.count > 1 ? "Move points" : "Move anchor")
+                    pendingAnchorGesture = false
+                    pendingAnchorCollapse = nil  // a real drag keeps the whole group
+                }
+                let s = docPoint(from: v.startLocation, in: size)
+                let cur = docPoint(from: v.location, in: size)
+                let grabbedTarget = pointOrGridSnapped(
+                    Pt(grabbedStart.x + (cur.x - s.x), grabbedStart.y + (cur.y - s.y)), in: size)
+                let ddx = grabbedTarget.x - grabbedStart.x
+                let ddy = grabbedTarget.y - grabbedStart.y
+                let moves = anchorDragStarts.map {
+                    (path: $0.key.path, anchor: $0.key.index, to: Pt($0.value.x + ddx, $0.value.y + ddy))
+                }
+                session.moveAnchors(node: sel, moves: moves)
+            }
         } else if draggingBody, let origin = moveOrigin {
             // Point snap sticks the GRAB POINT to the magnet (the shape
             // keeps its offset to the cursor); grid snap keeps quantising
@@ -1200,6 +1400,18 @@ struct EditorCanvasView: View {
             gestureBegan = false
             snapMagnets = []
             activeMagnet = nil
+            anchorDragStarts = [:]
+            pendingAnchorGesture = false
+            pendingAnchorCollapse = nil
+        }
+        // A no-shift click on an already-selected point (no drag) collapses the
+        // multi-selection down to just that point.
+        if let collapse = pendingAnchorCollapse, pendingAnchorGesture {
+            selectedAnchors = [collapse]
+        }
+        if zoomDragStart != nil {
+            zoomDragStart = nil
+            return
         }
         if session.distort != nil {
             distortCorner = nil
@@ -1209,7 +1421,7 @@ struct EditorCanvasView: View {
             endPen(v, in: size)
             return
         }
-        if session.tool != .select {
+        if !isSelectTool {
             finishDraft(v, in: size)
             return
         }
@@ -1245,7 +1457,7 @@ struct EditorCanvasView: View {
             session.insertAnchor(
                 node: ins.node, path: ins.path, segment: ins.segment, t: ins.t)
             session.selection = [ins.node]
-            activeAnchor = (ins.path, ins.anchorIndex)
+            selectedAnchors = [AnchorRef(path: ins.path, index: ins.anchorIndex)]
             return
         }
         if let hit = hitNode(at: v.location, in: size) {
@@ -1255,14 +1467,14 @@ struct EditorCanvasView: View {
                 } else {
                     session.selection.insert(hit)
                 }
-                activeAnchor = nil
+                selectedAnchors = []
             } else {
                 session.selection = [hit]
-                activeAnchor = nil
+                selectedAnchors = []
             }
         } else if !shift && !cmd {
             session.selection = []
-            activeAnchor = nil
+            selectedAnchors = []
         }
         session.generation += 1
     }
@@ -1357,7 +1569,7 @@ struct EditorCanvasView: View {
         if band.width < 4, band.height < 4 {
             if !NSEvent.modifierFlags.contains(.shift) {
                 session.selection = []
-                activeAnchor = nil
+                selectedAnchors = []
             }
             return
         }
@@ -1365,6 +1577,48 @@ struct EditorCanvasView: View {
         let docRect = CGRect(
             x: (band.minX - t.tx) / t.s, y: (band.minY - t.ty) / t.s,
             width: band.width / t.s, height: band.height / t.s)
+
+        // Direct Select: the band grabs the POINTS inside it. Anchor editing is
+        // single-shape, so keep the shape with the most points in the box.
+        if session.tool == .directSelect {
+            var best: (id: Int, refs: Set<AnchorRef>)? = nil
+            func walkPoints(_ nodes: [GraphicNode]) {
+                for node in nodes {
+                    switch node {
+                    case .raw: continue
+                    case .group(let g):
+                        guard !g.renderStyle.isDisplayNone, !session.lockedNodes.contains(g.id)
+                        else { continue }
+                        walkPoints(g.children)
+                    case .shape(let s):
+                        guard !s.renderStyle.isDisplayNone, !session.lockedNodes.contains(s.id)
+                        else { continue }
+                        var refs: Set<AnchorRef> = []
+                        for a in Editing2.anchors(of: s)
+                        where docRect.contains(CGPoint(x: a.position.x, y: a.position.y)) {
+                            refs.insert(AnchorRef(path: a.path, index: a.index))
+                        }
+                        if !refs.isEmpty, best == nil || refs.count > best!.refs.count {
+                            best = (s.id, refs)
+                        }
+                    }
+                }
+            }
+            walkPoints(session.document.nodes)
+            let shift = NSEvent.modifierFlags.contains(.shift)
+            if let best {
+                if shift, session.selection == [best.id] {
+                    selectedAnchors.formUnion(best.refs)
+                } else {
+                    session.selection = [best.id]
+                    selectedAnchors = best.refs
+                }
+            } else if !shift {
+                selectedAnchors = []
+            }
+            return
+        }
+
         var picked = marqueeBase
         func walk(_ nodes: [GraphicNode]) {
             for node in nodes {
@@ -1388,7 +1642,7 @@ struct EditorCanvasView: View {
         }
         walk(session.document.nodes)
         session.selection = picked
-        activeAnchor = nil
+        selectedAnchors = []
     }
 
     // MARK: - Shape drawing
@@ -1422,7 +1676,7 @@ struct EditorCanvasView: View {
     private func draftKind(from s: Pt, to p: Pt, shift: Bool, option: Bool) -> ShapeKind? {
         var d = Pt(p.x - s.x, p.y - s.y)
         switch session.tool {
-        case .select, .pen:
+        case .select, .directSelect, .pen:
             return nil  // pen paths are built anchor by anchor, not dragged out
         case .line:
             if shift {
@@ -1709,7 +1963,7 @@ struct EditorCanvasView: View {
     private enum ToolCursors {
         static func cursor(for tool: EditorSession.Tool) -> NSCursor {
             switch tool {
-            case .select: return .arrow
+            case .select, .directSelect: return .arrow
             case .rect, .ellipse, .line: return .crosshair
             case .pen: return pen
             }
@@ -1775,7 +2029,7 @@ struct EditorCanvasView: View {
                     "Remove Point",
                     {
                         session.removeAnchor(node: sel, path: anchor.path, anchor: anchor.index)
-                        activeAnchor = nil
+                        selectedAnchors = []
                     }
                 ))
             }
@@ -1788,7 +2042,7 @@ struct EditorCanvasView: View {
                 "Add Crossing Points",
                 {
                     session.selection = [hit]
-                    activeAnchor = nil
+                    selectedAnchors = []
                     session.addCrossingPoints(node: hit)
                 }
             ))
@@ -1797,5 +2051,64 @@ struct EditorCanvasView: View {
             items.append(("Delete \(session.selection.count) Node(s)", { session.deleteSelection() }))
         }
         return items
+    }
+}
+
+/// Window-level key monitor for the editor canvas. SwiftUI `.onKeyPress`
+/// needs the view to hold keyboard focus, which the gesture-driven canvas
+/// does not reliably keep, so — like `ToolShortcutMonitor` — this installs a
+/// local keyDown/keyUp monitor while on screen. `onKeyDown` returns true to
+/// consume the event (arrow-key nudges, arming Z-zoom); typing in a text
+/// field and menu-equivalent chords are always passed through untouched.
+private struct CanvasKeyMonitor: NSViewRepresentable {
+    var onKeyDown: (NSEvent) -> Bool
+    var onKeyUp: (NSEvent) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = MonitorView()
+        view.onKeyDown = onKeyDown
+        view.onKeyUp = onKeyUp
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let view = nsView as? MonitorView else { return }
+        view.onKeyDown = onKeyDown
+        view.onKeyUp = onKeyUp
+    }
+
+    final class MonitorView: NSView {
+        var onKeyDown: ((NSEvent) -> Bool)?
+        var onKeyUp: ((NSEvent) -> Void)?
+        private var downMonitor: Any?
+        private var upMonitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            teardown()
+            guard window != nil else { return }
+            downMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, event.window === self.window else { return event }
+                // Never steal keystrokes from a field editor (panel text fields).
+                if let responder = self.window?.firstResponder, responder is NSText {
+                    return event
+                }
+                return (self.onKeyDown?(event) ?? false) ? nil : event
+            }
+            upMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { [weak self] event in
+                guard let self, event.window === self.window else { return event }
+                self.onKeyUp?(event)
+                return event
+            }
+        }
+
+        private func teardown() {
+            if let downMonitor { NSEvent.removeMonitor(downMonitor) }
+            if let upMonitor { NSEvent.removeMonitor(upMonitor) }
+            downMonitor = nil
+            upMonitor = nil
+        }
+
+        deinit { teardown() }
     }
 }

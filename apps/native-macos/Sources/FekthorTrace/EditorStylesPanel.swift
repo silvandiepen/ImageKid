@@ -161,6 +161,10 @@ struct StylesPanelContent: View {
                 Text("This file")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                PanelInfoButton(
+                    text:
+                        "Styles saved inside this SVG — no workspace needed. + captures the selected shape's paints; click a style to apply it."
+                )
                 Spacer()
                 Button {
                     newFileStyleName = ""
@@ -177,14 +181,8 @@ struct StylesPanelContent: View {
                 .opacity(singleShapeSelected ? 1 : 0.4)
                 .help("New file-local style from the selected shape (saved inside the SVG)")
             }
-            if fileStyles.isEmpty {
-                Text("No file styles yet — they save inside this SVG and need no workspace.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(fileStyles, id: \.name) { style in
-                    fileStyleRow(style)
-                }
+            ForEach(fileStyles, id: \.name) { style in
+                fileStyleRow(style)
             }
         }
     }
@@ -315,26 +313,19 @@ struct StylesPanelContent: View {
                 Text("Workspace styles")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                PanelInfoButton(
+                    text:
+                        "Named styles shared through the workspace's workfile. Select a shape and press + to capture its paints; click a style to apply it to the selection. Right-click for rename, update-from-selection and delete."
+                )
                 Spacer()
                 if workspace.workspace != nil {
                     newStyleButton
                 }
             }
-            if workspace.workspace == nil {
-                Text("Open a workspace — named styles are shared through its workfile.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else if styles.isEmpty {
-                Text("No styles yet — select a shape and press + to capture its paints as a style.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else {
+            if workspace.workspace != nil {
                 ForEach(styles, id: \.name) { style in
                     styleRow(style)
                 }
-                Text("Click a style to apply it to the selection")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
             }
             if propagation.busy {
                 ProgressView(
@@ -620,13 +611,18 @@ struct StylesPanelContent: View {
 
     private var classesSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Classes")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            if session.selection.isEmpty {
-                Text("Select nodes to see and edit their classes.")
-                    .font(.caption2)
+            HStack {
+                Text("Classes")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
+                PanelInfoButton(
+                    text:
+                        "The selection's class tokens. Style-binding classes are marked; user classes can be removed, and the field below adds new ones."
+                )
+                Spacer()
+            }
+            if session.selection.isEmpty {
+                EmptyView()
             } else {
                 let common = commonClasses
                 if common.isEmpty {

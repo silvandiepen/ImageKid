@@ -24,14 +24,30 @@ public struct RefinedPath: Sendable, Equatable {
     public var start: Pt
     public var segments: [RefinedSegment]
     public var closed: Bool
-    public init(start: Pt, segments: [RefinedSegment], closed: Bool) {
+    /// Live corner radii, keyed by anchor index (0 = start, i+1 = end of
+    /// segment i — the `Editing.pathAnchors` convention). The sharp anchors
+    /// are the source of truth; the radius is applied only when the path is
+    /// flattened for display/hit-test/export, so a rounded corner stays a
+    /// single editable point. Empty = every corner sharp.
+    public var cornerRadii: [Int: Double]
+    public init(
+        start: Pt, segments: [RefinedSegment], closed: Bool,
+        cornerRadii: [Int: Double] = [:]
+    ) {
         self.start = start
         self.segments = segments
         self.closed = closed
+        self.cornerRadii = cornerRadii
     }
 
     /// Node count for simplicity scoring: anchor points (start + one per segment).
     public var nodeCount: Int { segments.count + 1 }
+
+    /// This path with live corners resolved into real geometry — the form to
+    /// render, hit-test and export. No stored radii ⇒ returns self unchanged.
+    public var flattenedCorners: RefinedPath {
+        cornerRadii.isEmpty ? self : LiveCorners.rounded(path: self, radii: cornerRadii)
+    }
 }
 
 public struct RefineOptions: Sendable {
