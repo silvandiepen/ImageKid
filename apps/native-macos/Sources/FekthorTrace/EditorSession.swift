@@ -13,6 +13,12 @@ struct AnchorRef: Hashable {
     let index: Int
 }
 
+/// Which paint well is active — the target swatch clicks feed.
+enum PaintTarget {
+    case fill
+    case stroke
+}
+
 @MainActor
 final class EditorSession: ObservableObject {
     enum FileKind {
@@ -51,6 +57,10 @@ final class EditorSession: ObservableObject {
     /// target them too (Corners applies only to selected points). The
     /// canvas owns the interactions; move and corner-radius act on all.
     @Published var selectedAnchors: Set<AnchorRef> = []
+    /// The active paint well (the fill/stroke pair on the panel rail):
+    /// the target swatch clicks feed. Session-side so the rail wells and
+    /// the Swatches palette share it.
+    @Published var paintTarget: PaintTarget = .fill
     /// App-side node locks (Layers palette): locked nodes are skipped by
     /// canvas hit-testing, marquee and selection. Session-only — the SVG on
     /// disk never carries lock state.

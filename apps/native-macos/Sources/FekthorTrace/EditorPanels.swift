@@ -2,6 +2,7 @@ import AppKit
 import FekthorKit
 import ImageKidKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The editor's floating palettes — Fill, Stroke, Opacity and Combine — using
 /// the same ImageKid panel mechanic (`FloatingToolPanel` from ImageKidKit):
@@ -211,6 +212,15 @@ final class EditorPanelsState: ObservableObject {
     /// persisted.
     @Published var needsPlacement: Set<EditorPanel> = []
 
+    /// The rail buttons' order — drag a rail button onto another to
+    /// rearrange; persisted. Unknown panels (new in later builds) append in
+    /// their canonical order.
+    @Published var railOrder: [EditorPanel] {
+        didSet {
+            AppDefaults.store.set(railOrder.map(\.rawValue), forKey: Self.railOrderKey)
+        }
+    }
+
     // v3 keys: v1 shipped every palette open in an overlapping pile, v2
     // scattered them over fixed offsets; v3 re-defaults everyone once into
     // the edge-docked layout without touching other preferences. Positions
@@ -228,6 +238,7 @@ final class EditorPanelsState: ObservableObject {
     private static func sizeKey(_ panel: EditorPanel) -> String {
         "fekthor.panel.\(panel.rawValue).size.v3"
     }
+    private static let railOrderKey = "fekthor.panels.railOrder.v1"
 
     /// First-run set: the daily-driver palettes. Everything else is one
     /// click away in the Panels menu — ten open palettes bury the canvas.
@@ -286,6 +297,14 @@ final class EditorPanelsState: ObservableObject {
         anchors = loadedAnchors
         legacyPositions = loadedLegacy
         sizes = loadedSizes
+        // Rail order: stored order first (unknown names dropped), then any
+        // panel the stored list doesn't know yet, in canonical order.
+        var loadedOrder: [EditorPanel] = []
+        if let raw = AppDefaults.store.array(forKey: Self.railOrderKey) as? [String] {
+            loadedOrder = raw.compactMap(EditorPanel.init(rawValue:))
+        }
+        loadedOrder += EditorPanel.allCases.filter { !loadedOrder.contains($0) }
+        railOrder = loadedOrder
     }
 
     /// The palette's chrome width — fixed for everything but the resizable
@@ -561,13 +580,18 @@ struct EditorPanelsLayer: View {
     /// Fallback before the first size measurement lands.
     private static let fallbackPanelSize = CGSize(width: EditorPanel.panelWidth, height: 200)
 
+    /// The rail button being dragged to a new rail position.
+    @State private var draggingRailPanel: EditorPanel? = nil
+
     var body: some View {
         // The rail sits left of the palette dock like ImageKid's; the
         // GeometryReader only feeds the dock size into positions — it
         // observes layout, never the session, so the no-session-rebuild
         // discipline above still holds.
         HStack(alignment: .top, spacing: 12) {
-            panelRail
+            // Above the palettes so the rail's hover tips never hide
+            // behind a left-docked palette.
+            panelRail.zIndex(1)
             GeometryReader { geo in
                 let dock = geo.size
                 palettes(in: dock)
@@ -637,23 +661,44 @@ struct EditorPanelsLayer: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    /// ImageKid's `PanelDockRail` look for Fekthor: one small always-visible
-    /// button per palette down the top-left, highlighted while its palette
-    /// is open. A hidden palette opens into the next free dock slot, a
-    /// minimized one (its button stays lit) restores where it was, an open
-    /// one hides.
+    /// ImageKid's `PanelDockRail` look for Fekthor: the fill/stroke paint
+    /// wells on top, then one small always-visible button per palette,
+    /// highlighted while its palette is open. A hidden palette opens into
+    /// the next free dock slot, a minimized one (its button stays lit)
+    /// restores where it was, an open one hides. Buttons drag onto each
+    /// other to rearrange; the order persists.
     private var panelRail: some View {
         VStack(spacing: 8) {
-            ForEach(EditorPanel.allCases) { panel in
-                let isActive = panels.visible.contains(panel)
+            RailPaintWells(session: session, workspace: workspace)
+            ForEach(panels.railOrder) { panel in
+                // Lit = actually on the canvas; a minimized/closed palette
+                // dims its button (clicking a dim button brings it back).
+                let isActive = panels.isExpanded(panel)
                 MinimizedPanelChip(systemImage: panel.systemImage, isActive: isActive) {
                     panels.railToggle(panel)
                 }
-                .help((isActive ? "Hide " : "Show ") + panel.title)
+                .modifier(
+                    RailHoverTip(
+                        text: (isActive ? "Hide " : "Show ") + panel.title))
                 .accessibilityLabel(panel.title)
                 .accessibilityIdentifier("rail.\(panel.rawValue)")
+                .onDrag {
+                    draggingRailPanel = panel
+                    return NSItemProvider(object: panel.rawValue as NSString)
+                }
+                .onDrop(
+                    of: [.text],
+                    delegate: RailReorderDelegate(
+                        target: panel, panels: panels, dragging: $draggingRailPanel))
             }
         }
+        // A whisper of chrome so the rail reads as one strip over the
+        // canvas, matching the palettes' dark glass.
+        .padding(6)
+        .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(.white.opacity(0.10), lineWidth: 1))
     }
 
     private func palette(
@@ -859,6 +904,64 @@ struct EditorPanelsLayer: View {
     }
 }
 
+/// The rail's own tooltip: instant, readable, right of the icon — the
+/// system .help() bubble is too slow to serve as the rail's labelling.
+private struct RailHoverTip: ViewModifier {
+    let text: String
+    @State private var hovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { hovering = $0 }
+            .overlay(alignment: .leading) {
+                if hovering {
+                    Text(text)
+                        .font(.caption)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            .black.opacity(0.85), in: RoundedRectangle(cornerRadius: 6))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(.white.opacity(0.15), lineWidth: 1))
+                        .fixedSize()
+                        .offset(x: 44)
+                        .allowsHitTesting(false)
+                }
+            }
+    }
+}
+
+/// Rail rearranging: dragging a rail button over another slides it into
+/// that spot live (reorder on hover, like list reordering); the release
+/// just clears the drag. The order persists through EditorPanelsState.
+private struct RailReorderDelegate: DropDelegate {
+    let target: EditorPanel
+    let panels: EditorPanelsState
+    @Binding var dragging: EditorPanel?
+
+    func dropEntered(info: DropInfo) {
+        guard let dragging, dragging != target,
+            let from = panels.railOrder.firstIndex(of: dragging),
+            let to = panels.railOrder.firstIndex(of: target)
+        else { return }
+        withAnimation(.easeInOut(duration: 0.15)) {
+            panels.railOrder.move(
+                fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        dragging = nil
+        return true
+    }
+}
+
 /// Live stack-drag channel: which stack head is being dragged and its raw
 /// translation this frame. The layer holds it as plain @State (a stable,
 /// UNOBSERVED reference) and writes it from the head's drag callbacks; only
@@ -954,10 +1057,11 @@ struct SwatchesPanelContent: View {
     @ObservedObject var session: EditorSession
     @ObservedObject var workspace: WorkspaceSession
 
-    /// The well swatch clicks feed (fill by default; ⌥ hits the other).
-    @State private var target: PaintTarget = .fill
-
     private var workspaceSwatches: [String] { workspace.settings.swatches ?? [] }
+
+    /// The well swatch clicks feed — the session's, shared with the
+    /// fill/stroke pair on the panel rail.
+    private var target: PaintTarget { session.paintTarget }
 
     /// Unique plain colours used by the document's shapes, in document
     /// order (each shape's fill before its stroke).
@@ -999,8 +1103,9 @@ struct SwatchesPanelContent: View {
     }
 
     /// The always-there starter palette: black → white, then a basic colour
-    /// wheel — read-only, like Illustrator's default swatch library.
-    private static let standardSwatches: [String] = [
+    /// wheel — read-only, like Illustrator's default swatch library. Also
+    /// the quick strip in the rail wells' colour editor.
+    static let standardSwatches: [String] = [
         "#000000", "#404040", "#808080", "#c0c0c0", "#ffffff",
         "#e53935", "#f57c00", "#fdd835", "#43a047", "#00897b",
         "#1e88e5", "#3949ab", "#8e24aa", "#d81b60", "#6d4c41",
@@ -1008,11 +1113,16 @@ struct SwatchesPanelContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            wellsRow
-            Divider()
-            Text("Standard")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack {
+                Text("Standard")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                PanelInfoButton(
+                    text:
+                        "Click a swatch to apply it to the active well of the fill/stroke pair on the rail; ⌥-click hits the other well. Right-click swatches for more."
+                )
+                Spacer()
+            }
             swatchGrid(Self.standardSwatches, kind: .standard)
             Divider()
             HStack {
@@ -1048,53 +1158,6 @@ struct SwatchesPanelContent: View {
         }
     }
 
-    /// The ImageKid-style paint pair: which well swatch clicks feed.
-    enum PaintTarget { case fill, stroke }
-
-    /// The active fill/stroke wells (selection summary, or the drawing
-    /// style when nothing is selected), a label for the active one, the
-    /// swap button and the how-it-works info.
-    private var wellsRow: some View {
-        let selection = StyleSelection(session: session)
-        let fill = selection.summary(of: { $0.fill })
-        let stroke = selection.summary(of: { $0.stroke })
-        return HStack(spacing: 10) {
-            FillStrokeWells(fill: fill, stroke: stroke, target: $target)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(target == .fill ? "Fill" : "Stroke")
-                    .font(.caption.weight(.medium))
-                Text(StyleSelection.label(of: target == .fill ? fill : stroke))
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            swapButton
-            PanelInfoButton(
-                text:
-                    "Click a swatch to apply it to the active well; click a well to switch between fill and stroke. ⌥-click a swatch to hit the other well. ⇄ swaps fill and stroke on the selection."
-            )
-        }
-    }
-
-    private var swapButton: some View {
-        Button {
-            session.editSelectionStyle("swap-paints", label: "Swap fill & stroke") { style in
-                let fill = style.fill
-                style.fill = style.stroke
-                style.stroke = fill
-            }
-            session.endStyleEdit()
-        } label: {
-            Image(systemName: "arrow.left.arrow.right")
-                .font(.system(size: 9, weight: .semibold))
-                .frame(width: 20, height: 20)
-                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
-                .contentShape(RoundedRectangle(cornerRadius: 6))
-        }
-        .buttonStyle(.plain)
-        .help("Swap fill and stroke")
-        .accessibilityIdentifier("swatches.swap")
-    }
 
     private var addButton: some View {
         Button {
@@ -1219,11 +1282,14 @@ extension StyleSelection {
 
 /// The Illustrator-style overlapping paint pair: the fill square front-left,
 /// the stroke ring back-right; clicking a well makes it the ACTIVE target
-/// (drawn on top, accent-ringed) that swatch clicks feed.
+/// (drawn on top, accent-ringed) that swatch clicks feed, double-clicking
+/// opens its colour editor.
 private struct FillStrokeWells: View {
     let fill: StyleSelection.PaintSummary
     let stroke: StyleSelection.PaintSummary
-    @Binding var target: SwatchesPanelContent.PaintTarget
+    @Binding var target: PaintTarget
+    /// Double-click on a well: open that paint's editor.
+    var onEdit: (PaintTarget) -> Void = { _ in }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -1242,7 +1308,9 @@ private struct FillStrokeWells: View {
         well(.fill, isActive: target == .fill) {
             PaintWellGlyph(summary: fill, ring: false)
         }
-        .help("Fill" + (target == .fill ? " (active)" : " — click to make active"))
+        .help(
+            "Fill" + (target == .fill ? " (active)" : " — click to make active")
+                + " · double-click to edit")
         .accessibilityIdentifier("swatches.well.fill")
     }
 
@@ -1250,27 +1318,210 @@ private struct FillStrokeWells: View {
         well(.stroke, isActive: target == .stroke) {
             PaintWellGlyph(summary: stroke, ring: true)
         }
-        .help("Stroke" + (target == .stroke ? " (active)" : " — click to make active"))
+        .help(
+            "Stroke" + (target == .stroke ? " (active)" : " — click to make active")
+                + " · double-click to edit")
         .accessibilityIdentifier("swatches.well.stroke")
     }
 
     private func well(
-        _ which: SwatchesPanelContent.PaintTarget, isActive: Bool,
+        _ which: PaintTarget, isActive: Bool,
         @ViewBuilder glyph: () -> some View
     ) -> some View {
+        glyph()
+            .frame(width: 26, height: 26)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(
+                        isActive ? Color.accentColor : .white.opacity(0.35),
+                        lineWidth: isActive ? 1.5 : 1))
+            .contentShape(RoundedRectangle(cornerRadius: 6))
+            // Double-click registered FIRST so it wins over the select tap.
+            .onTapGesture(count: 2) {
+                target = which
+                onEdit(which)
+            }
+            .onTapGesture { target = which }
+    }
+}
+
+/// The wells block above the panel rail: the fill/stroke pair on the
+/// session's shared paint target, a swap button, and the double-click
+/// colour editor in a popover. Its own view so ONLY it observes the
+/// session — the palette layer itself must stay session-blind (the
+/// no-mid-drag-rebuild discipline).
+struct RailPaintWells: View {
+    @ObservedObject var session: EditorSession
+    /// Plain reference (unobserved): the editor popover reads the
+    /// workspace swatches once per open.
+    let workspace: WorkspaceSession
+
+    @State private var editorShown = false
+
+    var body: some View {
+        let selection = StyleSelection(session: session)
+        let fill = selection.summary(of: { $0.fill })
+        let stroke = selection.summary(of: { $0.stroke })
+        VStack(spacing: 6) {
+            FillStrokeWells(fill: fill, stroke: stroke, target: $session.paintTarget) { _ in
+                editorShown = true
+            }
+            .popover(isPresented: $editorShown, arrowEdge: .trailing) {
+                PaintWellEditor(session: session, workspace: workspace)
+            }
+            swapButton
+        }
+        .padding(.bottom, 4)
+    }
+
+    private var swapButton: some View {
         Button {
-            target = which
+            session.editSelectionStyle("swap-paints", label: "Swap fill & stroke") { style in
+                let fill = style.fill
+                style.fill = style.stroke
+                style.stroke = fill
+            }
+            session.endStyleEdit()
         } label: {
-            glyph()
-                .frame(width: 26, height: 26)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(
-                            isActive ? Color.accentColor : .white.opacity(0.35),
-                            lineWidth: isActive ? 1.5 : 1))
+            Image(systemName: "arrow.left.arrow.right")
+                .font(.system(size: 9, weight: .semibold))
+                .frame(width: 20, height: 20)
+                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
                 .contentShape(RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
+        .help("Swap fill and stroke")
+        .accessibilityIdentifier("swatches.swap")
+    }
+}
+
+/// The double-click editor for the ACTIVE well: colour picker, hex field,
+/// the standard + workspace swatches as a quick strip, and None. Edits
+/// coalesce into one undo step until the popover closes.
+private struct PaintWellEditor: View {
+    @ObservedObject var session: EditorSession
+    let workspace: WorkspaceSession
+
+    @State private var hexText = ""
+
+    private var target: PaintTarget { session.paintTarget }
+    private var label: String { target == .fill ? "Fill" : "Stroke" }
+
+    private var summary: StyleSelection.PaintSummary {
+        let selection = StyleSelection(session: session)
+        return target == .fill
+            ? selection.summary(of: { $0.fill })
+            : selection.summary(of: { $0.stroke })
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+            HStack(spacing: 8) {
+                ColorPicker("", selection: colorBinding, supportsOpacity: false)
+                    .labelsHidden()
+                    .controlSize(.small)
+                TextField("#rrggbb", text: $hexText)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption.monospaced())
+                    .frame(width: 76)
+                    .onSubmit { applyHex() }
+                Button {
+                    apply(PaintValue.none)
+                } label: {
+                    PaintWellGlyph(summary: .none, ring: false)
+                        .frame(width: 20, height: 20)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(.white.opacity(0.35), lineWidth: 1))
+                        .contentShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .help("No \(label.lowercased())")
+            }
+            quickSwatches
+        }
+        .padding(12)
+        .frame(width: 190)
+        .onAppear { syncHex() }
+        .onDisappear { session.endStyleEdit() }
+    }
+
+    /// Standard swatches first, then the workspace's — one compact strip.
+    private var quickSwatches: some View {
+        let hexes =
+            SwatchesPanelContent.standardSwatches
+            + (workspace.settings.swatches ?? []).filter {
+                !SwatchesPanelContent.standardSwatches.contains($0)
+            }
+        return LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 18, maximum: 18), spacing: 5)],
+            alignment: .leading, spacing: 5
+        ) {
+            ForEach(hexes, id: \.self) { hex in
+                Button {
+                    applyHex(hex)
+                } label: {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(color(of: hex) ?? .black)
+                        .frame(width: 18, height: 18)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .strokeBorder(.white.opacity(0.25), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .help(hex)
+            }
+        }
+    }
+
+    private var colorBinding: Binding<Color> {
+        Binding(
+            get: {
+                if case .color(let r, let g, let b) = summary {
+                    return Color(
+                        red: Double(r) / 255, green: Double(g) / 255, blue: Double(b) / 255)
+                }
+                return .black
+            },
+            set: { picked in
+                let ns = NSColor(picked).usingColorSpace(.sRGB) ?? .black
+                let r = UInt8(round(ns.redComponent * 255))
+                let g = UInt8(round(ns.greenComponent * 255))
+                let b = UInt8(round(ns.blueComponent * 255))
+                apply(.color(r: r, g: g, b: b))
+                hexText = String(format: "#%02x%02x%02x", r, g, b)
+            })
+    }
+
+    private func applyHex(_ raw: String? = nil) {
+        let text = raw ?? hexText
+        guard let c = PaintValue.parseHex(text) else { return }
+        apply(.color(r: c.r, g: c.g, b: c.b))
+        hexText = String(format: "#%02x%02x%02x", c.r, c.g, c.b)
+    }
+
+    private func apply(_ paint: PaintValue) {
+        if target == .fill {
+            session.editSelectionStyle("fill", label: "Fill colour") { $0.fill = paint }
+        } else {
+            session.editSelectionStyle("stroke", label: "Stroke colour") { $0.stroke = paint }
+        }
+    }
+
+    private func syncHex() {
+        if case .color(let r, let g, let b) = summary {
+            hexText = String(format: "#%02x%02x%02x", r, g, b)
+        } else {
+            hexText = ""
+        }
+    }
+
+    private func color(of hex: String) -> Color? {
+        guard let c = PaintValue.parseHex(hex) else { return nil }
+        return Color(
+            red: Double(c.r) / 255, green: Double(c.g) / 255, blue: Double(c.b) / 255)
     }
 }
 
