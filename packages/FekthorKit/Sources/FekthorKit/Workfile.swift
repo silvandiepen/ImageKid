@@ -26,6 +26,10 @@ public struct Workfile: Codable, Equatable, Sendable {
     public var styleTokens: [StyleToken]?
     /// Named graphic styles bound to nodes by SVG class (see `NamedStyles`).
     public var namedStyles: [NamedStyle]?
+    /// Reusable keyframe animations bound to nodes by marker class (see
+    /// `AnimationDef`/`AnimationEngine`). Master copies; bound icons carry
+    /// resolved copies in their FileMeta.
+    public var animations: [AnimationDef]?
     /// Workspace colour swatches: hex colour strings shown in the picker.
     public var swatches: [String]?
     public var containers: [ContainerSlot]?
@@ -45,6 +49,7 @@ public struct Workfile: Codable, Equatable, Sendable {
         categories: [String]? = nil, settings: WorkspaceSettings? = nil,
         exportProfiles: [ExportProfile]? = nil,
         styleTokens: [StyleToken]? = nil, namedStyles: [NamedStyle]? = nil,
+        animations: [AnimationDef]? = nil,
         swatches: [String]? = nil, containers: [ContainerSlot]? = nil,
         containerMemberships: [String: [String]]? = nil,
         entryRoles: [String: String]? = nil, partialLinks: [String: [String]]? = nil
@@ -57,6 +62,7 @@ public struct Workfile: Codable, Equatable, Sendable {
         self.exportProfiles = exportProfiles
         self.styleTokens = styleTokens
         self.namedStyles = namedStyles
+        self.animations = animations
         self.swatches = swatches
         self.containers = containers
         self.containerMemberships = containerMemberships
@@ -112,12 +118,16 @@ public struct Workfile: Codable, Equatable, Sendable {
         public var guideIcon: String?
         /// Whether the guide icon is currently shown.
         public var showGuide: Bool?
+        /// Workspace animation defaults + consumer-contract prefixes
+        /// (see `AnimationSettings`); per-icon overrides live in FileMeta.
+        public var animations: AnimationSettings?
 
         public init(
             iconWidth: Double? = nil, iconHeight: Double? = nil, gridSpacing: Double? = nil,
             gridSubdivisions: Int? = nil, snapToGrid: Bool? = nil, gridOpacity: Double? = nil,
             defaultStrokeColor: String? = nil, defaultStrokeWidth: Double? = nil,
-            defaultFill: String? = nil, guideIcon: String? = nil, showGuide: Bool? = nil
+            defaultFill: String? = nil, guideIcon: String? = nil, showGuide: Bool? = nil,
+            animations: AnimationSettings? = nil
         ) {
             self.iconWidth = iconWidth
             self.iconHeight = iconHeight
@@ -130,6 +140,7 @@ public struct Workfile: Codable, Equatable, Sendable {
             self.defaultFill = defaultFill
             self.guideIcon = guideIcon
             self.showGuide = showGuide
+            self.animations = animations
         }
 
         /// Fekthor's fallbacks, matching the open-icon conventions the
