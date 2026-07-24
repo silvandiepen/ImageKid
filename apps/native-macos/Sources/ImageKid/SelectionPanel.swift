@@ -4,6 +4,7 @@ import ImageKidKit
 /// Actions for the current region selection, shown while the Select tool has an
 /// active selection.
 struct SelectionPanel: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var library: ColorLibrary
     @ObservedObject var session: ImageSession
     @ObservedObject var appModel: AppModel
@@ -27,7 +28,7 @@ struct SelectionPanel: View {
                 action("Magic Edit…", "wand.and.stars") { appModel.requestPromptEdit() }
                 action("Export…", "square.and.arrow.up") { appModel.requestExport() }
 
-                Rectangle().fill(.white.opacity(0.09)).frame(height: 1)
+                Rectangle().fill(Color.panelFill(colorScheme, 0.09)).frame(height: 1)
 
                 Toggle("Snap to grid", isOn: $session.snapToGrid)
                     .font(.caption.weight(.medium))
@@ -62,7 +63,7 @@ struct SelectionPanel: View {
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .fill(Color(nsColor: library.foreground))
                     .frame(width: 26, height: 20)
-                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.white.opacity(0.3)))
+                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color.panelFill(colorScheme, 0.3)))
             }
             .menuStyle(.borderlessButton)
             .fixedSize()

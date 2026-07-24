@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 import ImageKidKit
 
 struct ColorPalettePanel: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var library: ColorLibrary
     @ObservedObject var session: ImageSession
     @Binding var offset: CGSize
@@ -32,7 +33,7 @@ struct ColorPalettePanel: View {
                 HStack(spacing: 8) {
                     Text("\(session.sampledColors.count)")
                         .font(.caption.monospacedDigit())
-                        .foregroundStyle(.white.opacity(0.58))
+                        .foregroundStyle(Color.panelInk(colorScheme, 0.58))
                     Spacer()
                     Menu {
                         ForEach([4, 6, 8, 12, 16], id: \.self) { count in
@@ -63,11 +64,11 @@ struct ColorPalettePanel: View {
                     VStack(spacing: 12) {
                         Image(systemName: "eyedropper")
                             .font(.system(size: 30, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.55))
+                            .foregroundStyle(Color.panelInk(colorScheme, 0.55))
                         Text("Press and drag over the image. Release to save the current colour.")
                             .font(.caption)
                             .multilineTextAlignment(.center)
-                            .foregroundStyle(.white.opacity(0.58))
+                            .foregroundStyle(Color.panelInk(colorScheme, 0.58))
                     }
                     .frame(maxWidth: .infinity, minHeight: 150)
                     .padding(.horizontal, 16)
@@ -86,7 +87,7 @@ struct ColorPalettePanel: View {
 
                 VStack(spacing: 9) {
                     Rectangle()
-                        .fill(.white.opacity(0.09))
+                        .fill(Color.panelFill(colorScheme, 0.09))
                         .frame(height: 1)
                     Menu {
                         Button("HEX list") { copySelected(format: .hex) }
@@ -151,7 +152,7 @@ struct ColorPalettePanel: View {
                 .fill(Color.red.opacity(0.85))
                 .overlay(alignment: .trailing) {
                     Image(systemName: "trash")
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color.panelInk(colorScheme))
                         .padding(.trailing, 20)
                 }
             colorRow(sample)
@@ -197,7 +198,7 @@ struct ColorPalettePanel: View {
                     toggleSelection(sample.id)
                 } label: {
                     Image(systemName: session.selectedColorIDs.contains(sample.id) ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(session.selectedColorIDs.contains(sample.id) ? Color.accentColor : .white.opacity(0.48))
+                        .foregroundStyle(session.selectedColorIDs.contains(sample.id) ? Color.accentColor : Color.panelInk(colorScheme, 0.48))
                 }
                 .buttonStyle(.plain)
                 .help(session.selectedColorIDs.contains(sample.id) ? "Deselect Colour" : "Select Colour")
@@ -206,14 +207,14 @@ struct ColorPalettePanel: View {
                 RoundedRectangle(cornerRadius: 11, style: .continuous)
                     .fill(Color(nsColor: sample.sRGB))
                     .frame(width: 50, height: 38)
-                    .overlay(RoundedRectangle(cornerRadius: 11).stroke(.white.opacity(0.16)))
+                    .overlay(RoundedRectangle(cornerRadius: 11).stroke(Color.panelFill(colorScheme, 0.16)))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(sample.hex)
                         .font(.system(.body, design: .monospaced, weight: .semibold))
                     Text(sample.rgb)
                         .font(.caption.monospaced())
-                        .foregroundStyle(.white.opacity(0.52))
+                        .foregroundStyle(Color.panelInk(colorScheme, 0.52))
                 }
 
                 Spacer()
@@ -223,7 +224,7 @@ struct ColorPalettePanel: View {
                 } label: {
                     Image(systemName: "info.circle")
                         .frame(width: 26, height: 26)
-                        .background(.white.opacity(0.08), in: Circle())
+                        .background(Color.panelFill(colorScheme, 0.08), in: Circle())
                 }
                 .buttonStyle(.plain)
                 .help("Colour details")
@@ -242,7 +243,7 @@ struct ColorPalettePanel: View {
             }
             .padding(10)
         }
-        .background(.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.panelFill(colorScheme, 0.075), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     @ViewBuilder

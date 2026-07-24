@@ -4,6 +4,7 @@ import SwiftUI
 import ImageKidKit
 
 struct TextInspector: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var library: ColorLibrary
     @ObservedObject var session: ImageSession
     let annotationID: UUID
@@ -26,7 +27,7 @@ struct TextInspector: View {
                     PlainTextEditor(text: textBinding)
                         .frame(height: 92)
                         .background(
-                            .white.opacity(0.08),
+                            Color.panelInk(colorScheme, 0.08),
                             in: RoundedRectangle(cornerRadius: 14, style: .continuous)
                         )
                 }
@@ -94,7 +95,7 @@ struct TextInspector: View {
                             .font(.caption.weight(.semibold))
                         Text("Text and export colour")
                             .font(.caption2)
-                            .foregroundStyle(.white.opacity(0.55))
+                            .foregroundStyle(Color.panelInk(colorScheme, 0.55))
                     }
                     Spacer()
                     ColorPicker("Text colour", selection: colorBinding, supportsOpacity: true)
@@ -104,7 +105,7 @@ struct TextInspector: View {
                 BaseSwatchStrip(colors: library.baseColors) { colorBinding.wrappedValue = Color(nsColor: $0) }
 
                 Rectangle()
-                    .fill(.white.opacity(0.09))
+                    .fill(Color.panelFill(colorScheme, 0.09))
                     .frame(height: 1)
 
                 Button(role: .destructive) {
@@ -117,7 +118,7 @@ struct TextInspector: View {
 
                 Text("Drag the text to move it. Drag a corner handle to resize it.")
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.55))
+                    .foregroundStyle(Color.panelInk(colorScheme, 0.55))
                     .fixedSize(horizontal: false, vertical: true)
             }
             .darkPanelControl()
@@ -129,7 +130,7 @@ struct TextInspector: View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.72))
+                .foregroundStyle(Color.panelInk(colorScheme, 0.72))
             content()
         }
     }

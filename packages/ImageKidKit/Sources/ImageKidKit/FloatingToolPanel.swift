@@ -27,6 +27,39 @@ public struct FloatingToolPanel<Content: View>: View {
     @GestureState private var resizeTranslation: CGSize = .zero
     @GestureState private var isDragging = false
     @State private var resizeHovering = false
+    @Environment(\.colorScheme) private var colorScheme
+
+    // MARK: - Chrome palette
+    //
+    // The panel used to be hardcoded dark: a black scrim with white content,
+    // which looked wrong floating over a light canvas in ImageKid's light
+    // mode. It now follows the colour scheme, so light mode gets a light
+    // panel with dark ink. Fekthor is unaffected — it forces
+    // .preferredColorScheme(.dark), so it keeps the dark chrome it was
+    // designed around.
+
+    /// The panel surface: near-white in light mode, near-black in dark.
+    private var chromeFill: Color {
+        colorScheme == .dark ? Color.black.opacity(0.80) : Color.white.opacity(0.94)
+    }
+
+    /// Ink and icons on the panel.
+    private var chromeInk: Color {
+        colorScheme == .dark ? .white : Color(white: 0.10)
+    }
+
+    /// A hairline that reads as an edge in both appearances.
+    private var chromeBorder: Color {
+        colorScheme == .dark ? .white.opacity(0.12) : .black.opacity(0.10)
+    }
+
+    /// Fills for separators, control backings and wells — a tint of the ink,
+    /// so one set of opacities works in both appearances.
+    private func chromeTint(_ opacity: Double) -> Color {
+        colorScheme == .dark
+            ? Color.white.opacity(opacity)
+            : Color.black.opacity(opacity * 0.75)
+    }
 
     public init(
         title: String,
@@ -129,7 +162,7 @@ public struct FloatingToolPanel<Content: View>: View {
             header
 
             Rectangle()
-                .fill(.white.opacity(0.09))
+                .fill(chromeTint(0.09))
                 .frame(height: 1)
 
             content
@@ -137,11 +170,11 @@ public struct FloatingToolPanel<Content: View>: View {
                 .frame(maxHeight: resizable ? .infinity : nil, alignment: .top)
         }
         .frame(width: resolvedWidth, height: resolvedHeight, alignment: .top)
-        .foregroundStyle(.white)
-        .background(Color.black.opacity(0.80), in: chromeShape)
+        .foregroundStyle(chromeInk)
+        .background(chromeFill, in: chromeShape)
         .overlay(
             chromeShape
-                .strokeBorder(.white.opacity(0.12))
+                .strokeBorder(chromeBorder)
         )
         .overlay(alignment: .bottomTrailing) {
             if resizable && !isStacked { resizeHandle }
@@ -151,7 +184,10 @@ public struct FloatingToolPanel<Content: View>: View {
         // Stack followers keep only a soft shadow so the seam onto the panel
         // above doesn't read as a dark band across the fused column.
         .shadow(
-            color: .black.opacity(isDragging ? 0.28 : (isStackFollower ? 0.16 : 0.36)),
+            color: .black.opacity(
+                colorScheme == .dark
+                    ? (isDragging ? 0.28 : (isStackFollower ? 0.16 : 0.36))
+                    : (isDragging ? 0.14 : (isStackFollower ? 0.08 : 0.18))),
             radius: isDragging ? 6 : (isStackFollower ? 10 : 28),
             y: isDragging ? 3 : (isStackFollower ? 4 : 12))
         .offset(
@@ -163,7 +199,7 @@ public struct FloatingToolPanel<Content: View>: View {
     private var resizeHandle: some View {
         ResizeCornerArc(cornerRadius: cornerRadius)
             .stroke(
-                Color.white.opacity(resizeHovering ? 0.65 : 0.22),
+                chromeTint(resizeHovering ? 0.65 : 0.22),
                 style: StrokeStyle(lineWidth: 2.5, lineCap: .round)
             )
             .frame(width: resizeHandleSize, height: resizeHandleSize)
@@ -194,7 +230,7 @@ public struct FloatingToolPanel<Content: View>: View {
             Image(systemName: systemImage)
                 .font(.system(size: 16, weight: .semibold))
                 .frame(width: 28, height: 28)
-                .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 9))
+                .background(chromeTint(0.10), in: RoundedRectangle(cornerRadius: 9))
 
             Text(title)
                 .font(.headline.weight(.semibold))
@@ -202,7 +238,7 @@ public struct FloatingToolPanel<Content: View>: View {
             Spacer()
 
             Capsule()
-                .fill(.white.opacity(0.24))
+                .fill(chromeTint(0.24))
                 .frame(width: 34, height: 5)
 
             if let onMinimize {
@@ -210,7 +246,7 @@ public struct FloatingToolPanel<Content: View>: View {
                     Image(systemName: "minus")
                         .font(.system(size: 12, weight: .bold))
                         .frame(width: 24, height: 24)
-                        .background(.white.opacity(0.10), in: Circle())
+                        .background(chromeTint(0.10), in: Circle())
                         .frame(width: minimizeButtonSize, height: minimizeButtonSize)
                         .contentShape(Rectangle())
                 }
@@ -222,7 +258,7 @@ public struct FloatingToolPanel<Content: View>: View {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .bold))
                         .frame(width: 28, height: 28)
-                        .background(.white.opacity(0.10), in: Circle())
+                        .background(chromeTint(0.10), in: Circle())
                         .frame(width: closeButtonSize, height: closeButtonSize)
                         .contentShape(Rectangle())
                 }
@@ -267,10 +303,45 @@ public struct FloatingToolPanel<Content: View>: View {
     }
 }
 
+/// Tints a control to the panel's ink. Named for the dark chrome it was
+/// written against; it now follows the colour scheme like the panel itself,
+/// so the 14 call sites did not have to change.
+private struct PanelControlTint: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var ink: Color { colorScheme == .dark ? .white : Color(white: 0.10) }
+
+    func body(content: Content) -> some View {
+        content
+            .tint(ink)
+            .foregroundStyle(ink)
+    }
+}
+
 public extension View {
-    func darkPanelControl() -> some View {
-        self
-            .tint(.white)
-            .foregroundStyle(.white)
+    func darkPanelControl() -> some View { modifier(PanelControlTint()) }
+}
+
+// MARK: - Panel palette for panel content
+//
+// Views hosted inside a FloatingToolPanel used to hardcode white ink and
+// white-tinted fills, which only worked because the panel was always dark.
+// These two semantics follow the colour scheme instead, so the same opacity
+// scale reads correctly in both appearances.
+
+public extension Color {
+    /// Ink for text and icons inside a panel.
+    static func panelInk(_ scheme: ColorScheme, _ opacity: Double = 1) -> Color {
+        scheme == .dark
+            ? Color.white.opacity(opacity)
+            : Color(white: 0.10).opacity(opacity)
+    }
+
+    /// Fill for wells, rows and separators inside a panel. Light mode darkens
+    /// slightly rather than lightening, so a "subtle lift" stays subtle.
+    static func panelFill(_ scheme: ColorScheme, _ opacity: Double = 1) -> Color {
+        scheme == .dark
+            ? Color.white.opacity(opacity)
+            : Color.black.opacity(opacity * 0.75)
     }
 }

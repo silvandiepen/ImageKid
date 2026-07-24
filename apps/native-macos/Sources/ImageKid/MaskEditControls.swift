@@ -4,6 +4,7 @@ import ImageKidKit
 /// Controls for editing the selected layer's mask: how it's shown, and the
 /// brush / magic-wand used to paint it.
 struct MaskEditControls: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var session: ImageSession
     @Binding var offset: CGSize
     var dockEdges: (leadingFlat: Bool, trailingFlat: Bool) = (false, false)
@@ -50,7 +51,7 @@ struct MaskEditControls: View {
                         }
                     }
                     Text("Click a region to hide it. Hold to keep clicking.")
-                        .font(.caption).foregroundStyle(.white.opacity(0.55))
+                        .font(.caption).foregroundStyle(Color.panelInk(colorScheme, 0.55))
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
                     field("Brush") {
@@ -76,7 +77,7 @@ struct MaskEditControls: View {
                     brushPreview
                 }
 
-                Rectangle().fill(.white.opacity(0.09)).frame(height: 1)
+                Rectangle().fill(Color.panelFill(colorScheme, 0.09)).frame(height: 1)
 
                 HStack {
                     if let id = session.maskEditLayerID {
@@ -100,7 +101,7 @@ struct MaskEditControls: View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.72))
+                .foregroundStyle(Color.panelInk(colorScheme, 0.72))
             content()
         }
     }
@@ -137,10 +138,10 @@ struct MaskEditControls: View {
         let hardness = 1 - Double(session.maskBrushSoftness)
         return ZStack {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.white.opacity(0.05))
+                .fill(Color.panelFill(colorScheme, 0.05))
             Ellipse()
                 .fill(RadialGradient(
-                    gradient: Gradient(colors: [Color.white, Color.white.opacity(0)]),
+                    gradient: Gradient(colors: [Color.white, Color.panelInk(colorScheme, 0)]),
                     center: .center,
                     startRadius: 26 * hardness,
                     endRadius: 28

@@ -1,6 +1,8 @@
+import ImageKidKit
 import SwiftUI
 
 struct WorkspaceSidebar: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appModel: AppModel
     @Binding var isCollapsed: Bool
 
@@ -12,11 +14,11 @@ struct WorkspaceSidebar: View {
                 expandedPanel
             }
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(Color.panelInk(colorScheme))
         .background(Color.black.opacity(0.80), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .strokeBorder(.white.opacity(0.12))
+                .strokeBorder(Color.panelFill(colorScheme, 0.12))
         }
         .shadow(color: .black.opacity(0.36), radius: 28, y: 12)
     }
@@ -37,7 +39,7 @@ struct WorkspaceSidebar: View {
                         .font(.system(size: 13, weight: .semibold))
                 }
                 .buttonStyle(.borderless)
-                .foregroundStyle(.white)
+                .foregroundStyle(Color.panelInk(colorScheme))
                 .help("Collapse sidebar")
             }
             .padding(.horizontal, 14)
@@ -66,7 +68,7 @@ struct WorkspaceSidebar: View {
                     .frame(width: 32, height: 28)
             }
             .buttonStyle(.borderless)
-            .foregroundStyle(.white)
+            .foregroundStyle(Color.panelInk(colorScheme))
             .help("Show sidebar")
 
             if let selectedItem = appModel.selectedItem {
@@ -75,15 +77,15 @@ struct WorkspaceSidebar: View {
                     .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .strokeBorder(selectedItem.isDirty ? Color.orange.opacity(0.78) : Color.white.opacity(0.16))
+                            .strokeBorder(selectedItem.isDirty ? Color.orange.opacity(0.78) : Color.panelFill(colorScheme, 0.16))
                     }
             }
 
             Text("\(appModel.items.count)")
                 .font(.caption2.weight(.bold))
-                .foregroundStyle(.white.opacity(0.72))
+                .foregroundStyle(Color.panelInk(colorScheme, 0.72))
                 .frame(width: 28, height: 20)
-                .background(.white.opacity(0.10), in: Capsule())
+                .background(Color.panelFill(colorScheme, 0.10), in: Capsule())
         }
         .padding(8)
     }
@@ -105,10 +107,10 @@ struct WorkspaceSidebar: View {
                     Text(item.title)
                         .font(.caption.weight(.semibold))
                         .lineLimit(2)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color.panelInk(colorScheme))
                     Text(item.isDirty ? "Unsaved changes" : "Saved")
                         .font(.caption2)
-                        .foregroundStyle(item.isDirty ? .orange : .white.opacity(0.58))
+                        .foregroundStyle(item.isDirty ? .orange : Color.panelInk(colorScheme, 0.58))
                 }
 
                 Spacer(minLength: 0)
@@ -119,10 +121,10 @@ struct WorkspaceSidebar: View {
                     Image(systemName: "xmark")
                         .font(.system(size: 10, weight: .bold))
                         .frame(width: 24, height: 24)
-                        .background(.white.opacity(0.08), in: Circle())
+                        .background(Color.panelFill(colorScheme, 0.08), in: Circle())
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.white.opacity(0.72))
+                .foregroundStyle(Color.panelInk(colorScheme, 0.72))
                 .help("Close without saving")
             }
             .padding(8)
@@ -156,7 +158,7 @@ struct WorkspaceSidebar: View {
         if appModel.selectedItemIDs.contains(item.id) {
             return Color.accentColor.opacity(0.16)
         }
-        return Color.white.opacity(0.07)
+        return Color.panelInk(colorScheme, 0.07)
     }
 
     private func rowBorder(for item: WorkspaceItem) -> Color {
@@ -166,7 +168,7 @@ struct WorkspaceSidebar: View {
         if appModel.selectedItemIDs.contains(item.id) {
             return Color.accentColor.opacity(0.58)
         }
-        return Color.white.opacity(0.09)
+        return Color.panelInk(colorScheme, 0.09)
     }
 
     @ViewBuilder
@@ -178,9 +180,9 @@ struct WorkspaceSidebar: View {
         } else {
             ZStack {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(Color.white.opacity(0.10))
+                    .fill(Color.panelFill(colorScheme, 0.10))
                 Image(systemName: "film")
-                    .foregroundStyle(.white.opacity(0.62))
+                    .foregroundStyle(Color.panelInk(colorScheme, 0.62))
             }
         }
     }

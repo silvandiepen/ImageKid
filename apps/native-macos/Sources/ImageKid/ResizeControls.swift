@@ -2,6 +2,7 @@ import SwiftUI
 import ImageKidKit
 
 struct ResizeControls: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var session: ImageSession
     @Binding var offset: CGSize
     var dockEdges: (leadingFlat: Bool, trailingFlat: Bool) = (false, false)
@@ -25,7 +26,7 @@ struct ResizeControls: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Resamples the whole document — canvas and every layer scale together.")
                         .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.5))
+                        .foregroundStyle(Color.panelInk(colorScheme, 0.5))
                         .fixedSize(horizontal: false, vertical: true)
 
                     field("New size") {
@@ -33,13 +34,13 @@ struct ResizeControls: View {
                             TextField("Width", value: widthBinding, format: .number)
                                 .textFieldStyle(.roundedBorder)
                             Text("×")
-                                .foregroundStyle(.white.opacity(0.55))
+                                .foregroundStyle(Color.panelInk(colorScheme, 0.55))
                             TextField("Height", value: heightBinding, format: .number)
                                 .textFieldStyle(.roundedBorder)
                         }
                         Text("Pixels")
                             .font(.caption2)
-                            .foregroundStyle(.white.opacity(0.48))
+                            .foregroundStyle(Color.panelInk(colorScheme, 0.48))
                     }
 
                     Toggle("Preserve aspect ratio", isOn: $session.resizePreservesAspect)
@@ -59,7 +60,7 @@ struct ResizeControls: View {
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 70)
                             Text("%")
-                                .foregroundStyle(.white.opacity(0.55))
+                                .foregroundStyle(Color.panelInk(colorScheme, 0.55))
                         }
                     }
 
@@ -76,7 +77,7 @@ struct ResizeControls: View {
                         .frame(maxWidth: .infinity)
                         .disabled(isApplying)
 
-                    Divider().overlay(.white.opacity(0.12))
+                    Divider().overlay(Color.panelFill(colorScheme, 0.12))
 
                     field("Smart Upscale") {
                         HStack(spacing: 7) {
@@ -89,7 +90,7 @@ struct ResizeControls: View {
 
                         Text("Enlarge with more detail on-device.")
                             .font(.caption2)
-                            .foregroundStyle(.white.opacity(0.5))
+                            .foregroundStyle(Color.panelInk(colorScheme, 0.5))
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -114,7 +115,7 @@ struct ResizeControls: View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.72))
+                .foregroundStyle(Color.panelInk(colorScheme, 0.72))
             content()
         }
     }

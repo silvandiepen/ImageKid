@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 /// Colour swatch library: sets of reusable colours. The base set also drives the
 /// default colours offered to shapes, lines, and text.
 struct SwatchesPanel: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var library: ColorLibrary
     @Binding var offset: CGSize
     @Binding var size: CGSize
@@ -57,7 +58,7 @@ struct SwatchesPanel: View {
                 .frame(maxHeight: .infinity)
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Rectangle().fill(.white.opacity(0.09)).frame(height: 1)
+                    Rectangle().fill(Color.panelFill(colorScheme, 0.09)).frame(height: 1)
 
                     HStack(spacing: 8) {
                         ColorPicker("New swatch", selection: $newColor, supportsOpacity: true)
@@ -102,7 +103,7 @@ struct SwatchesPanel: View {
                 } else {
                     Text(set.name.uppercased())
                         .font(.caption2.weight(.bold))
-                        .foregroundStyle(.white.opacity(0.6))
+                        .foregroundStyle(Color.panelInk(colorScheme, 0.6))
                         .onTapGesture(count: 2) { editingName = set.name; editingSetID = set.id }
                 }
                 if set.isBase {
@@ -116,7 +117,7 @@ struct SwatchesPanel: View {
                     .frame(width: 6, height: 6)
                 Button { targetSetID = set.id } label: { Image(systemName: "target").font(.system(size: 10)) }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(Color.panelInk(colorScheme, 0.5))
                     .help("Add new swatches to this set")
             }
 
@@ -141,7 +142,7 @@ struct SwatchesPanel: View {
         RoundedRectangle(cornerRadius: 7, style: .continuous)
             .fill(swatch.color)
             .frame(height: 28)
-            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(.white.opacity(0.18)))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.panelFill(colorScheme, 0.18)))
             .contentShape(RoundedRectangle(cornerRadius: 7))
             .onTapGesture(count: 2) { openDetail(swatch, in: set) }
             .onTapGesture { onPick(swatch.nsColor) }
@@ -184,7 +185,7 @@ struct SwatchesPanel: View {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(swatch.color)
                         .frame(width: 46, height: 46)
-                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.22)))
+                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.panelFill(colorScheme, 0.22)))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(set.name.uppercased())
                             .font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)

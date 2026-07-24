@@ -4,6 +4,7 @@ import SwiftUI
 import ImageKidKit
 
 struct DrawingInspector: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var library: ColorLibrary
     @ObservedObject var session: ImageSession
     @Binding var offset: CGSize
@@ -62,7 +63,7 @@ struct DrawingInspector: View {
                 HStack(spacing: 10) {
                     Image(systemName: "scribble")
                         .font(.system(size: 12))
-                        .foregroundStyle(.white.opacity(0.55))
+                        .foregroundStyle(Color.panelInk(colorScheme, 0.55))
                     MinimalSlider(value: $session.drawingSmoothing, in: 0...1, step: 0.05)
                     Text("\(Int(session.drawingSmoothing * 100))%")
                         .font(.caption.monospacedDigit())
@@ -80,7 +81,7 @@ struct DrawingInspector: View {
                 Spacer()
                 Text("\(Int(lineWidthBinding.wrappedValue)) px")
                     .font(.caption.monospacedDigit())
-                    .foregroundStyle(.white.opacity(0.58))
+                    .foregroundStyle(Color.panelInk(colorScheme, 0.58))
             }
             MinimalSlider(value: lineWidthBinding, in: 1...32, step: 1)
             BaseSwatchStrip(colors: library.baseColors) { strokeColorBinding.wrappedValue = Color(nsColor: $0) }
@@ -119,7 +120,7 @@ struct DrawingInspector: View {
              ? "Press and drag to draw a freehand stroke."
              : "Press and drag on the image to create the selected shape.")
             .font(.caption)
-            .foregroundStyle(.white.opacity(0.55))
+            .foregroundStyle(Color.panelInk(colorScheme, 0.55))
             .fixedSize(horizontal: false, vertical: true)
     }
 
@@ -147,7 +148,7 @@ struct DrawingInspector: View {
         Toggle("Snap to grid", isOn: $session.snapToGrid)
             .font(.caption.weight(.medium))
 
-        Rectangle().fill(.white.opacity(0.09)).frame(height: 1)
+        Rectangle().fill(Color.panelFill(colorScheme, 0.09)).frame(height: 1)
 
         Button(role: .destructive) {
             session.removeAnnotation(id: selected.id)
@@ -180,7 +181,7 @@ struct DrawingInspector: View {
                 Text(fillEnabledBinding.wrappedValue ? fillColorBinding.wrappedValue.hexLabel : "Transparent")
                     .font(.caption.weight(.medium))
                 Spacer()
-                Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.white.opacity(0.4))
+                Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(Color.panelInk(colorScheme, 0.4))
             }
             .contentShape(Rectangle())
         }
@@ -193,7 +194,7 @@ struct DrawingInspector: View {
     private var fillPopover: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Fill").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
+                Text("Fill").font(.caption.weight(.semibold)).foregroundStyle(Color.panelFill(colorScheme, 0.7))
                 Spacer()
                 ColorPicker("Fill colour", selection: fillColorBinding, supportsOpacity: true)
                     .labelsHidden()
@@ -214,7 +215,7 @@ struct DrawingInspector: View {
                                 RoundedRectangle(cornerRadius: 5, style: .continuous)
                                     .fill(swatch.color)
                                     .frame(height: 24)
-                                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.white.opacity(0.2)))
+                                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color.panelFill(colorScheme, 0.2)))
                             }
                             .buttonStyle(.plain)
                             .help(swatch.hex)
@@ -236,14 +237,14 @@ struct DrawingInspector: View {
 
     private func transparentSwatch(selected: Bool) -> some View {
         RoundedRectangle(cornerRadius: 5, style: .continuous)
-            .fill(Color.white.opacity(0.06))
+            .fill(Color.panelFill(colorScheme, 0.06))
             .frame(height: 24)
             .overlay(
                 Image(systemName: "circle.slash")
                     .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(0.55))
+                    .foregroundStyle(Color.panelInk(colorScheme, 0.55))
             )
-            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(selected ? Color.accentColor : .white.opacity(0.25), lineWidth: selected ? 2 : 1))
+            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(selected ? Color.accentColor : Color.panelFill(colorScheme, 0.25), lineWidth: selected ? 2 : 1))
     }
 
     /// Swatches from every set in the library (base first), for quick picking.
@@ -256,7 +257,7 @@ struct DrawingInspector: View {
                             RoundedRectangle(cornerRadius: 5, style: .continuous)
                                 .fill(swatch.color)
                                 .frame(height: 24)
-                                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.white.opacity(0.2)))
+                                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color.panelFill(colorScheme, 0.2)))
                         }
                         .buttonStyle(.plain)
                         .help(swatch.hex)
@@ -278,7 +279,7 @@ struct DrawingInspector: View {
                 Text("\(Int(lineWidthBinding.wrappedValue)) px · \(strokeStyleBinding.wrappedValue.label)")
                     .font(.caption.weight(.medium))
                 Spacer()
-                Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.white.opacity(0.4))
+                Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(Color.panelInk(colorScheme, 0.4))
             }
             .contentShape(Rectangle())
         }
@@ -312,7 +313,7 @@ struct DrawingInspector: View {
                     labeledSlider(value: dashGapBinding, range: 0...80, step: 1, suffix: "gap")
                     labeledSlider(value: dashOffsetBinding, range: 0...80, step: 1, suffix: "offset")
                     Text("Dash size 0 uses the style preset above.")
-                        .font(.system(size: 10)).foregroundStyle(.white.opacity(0.45))
+                        .font(.system(size: 10)).foregroundStyle(Color.panelInk(colorScheme, 0.45))
                 }
                 if selected.isRectangle {
                     field("Rounded corners") {
@@ -341,12 +342,12 @@ struct DrawingInspector: View {
 
     /// Thin divider that visually separates the Draw / Brush / Stroke groups.
     private var sectionDivider: some View {
-        Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
+        Rectangle().fill(Color.panelFill(colorScheme, 0.08)).frame(height: 1)
     }
 
     private func cornerField(_ label: String, _ value: Binding<Double>) -> some View {
         HStack(spacing: 5) {
-            Text(label).font(.system(.caption2, design: .monospaced)).foregroundStyle(.white.opacity(0.55)).frame(width: 20, alignment: .leading)
+            Text(label).font(.system(.caption2, design: .monospaced)).foregroundStyle(Color.panelInk(colorScheme, 0.55)).frame(width: 20, alignment: .leading)
             TextField(label, value: value, format: .number)
                 .textFieldStyle(.roundedBorder)
         }
@@ -390,7 +391,7 @@ struct DrawingInspector: View {
             MinimalSlider(value: value, in: range, step: step)
             Text(percent ? "\(Int(value.wrappedValue * 100))\(suffix)" : "\(Int(value.wrappedValue)) \(suffix)")
                 .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.6))
+                .foregroundStyle(Color.panelInk(colorScheme, 0.6))
                 .frame(width: 62, alignment: .trailing)
         }
     }
@@ -404,10 +405,10 @@ struct DrawingInspector: View {
                     // Transparent: checker + slash.
                     Image(systemName: "circle.slash")
                         .font(.system(size: 13))
-                        .foregroundStyle(.white.opacity(0.5))
+                        .foregroundStyle(Color.panelInk(colorScheme, 0.5))
                 }
             }
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.white.opacity(0.25)))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.panelFill(colorScheme, 0.25)))
     }
 
     /// A freehand brush preset: a named bundle of width/opacity/style/smoothing.
@@ -449,7 +450,7 @@ struct DrawingInspector: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 9)
             .background(
-                isActive ? Color.accentColor : .white.opacity(0.075),
+                isActive ? Color.accentColor : Color.panelInk(colorScheme, 0.075),
                 in: RoundedRectangle(cornerRadius: 11, style: .continuous)
             )
         }
@@ -475,7 +476,7 @@ struct DrawingInspector: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
             .background(
-                modeBinding.wrappedValue == mode ? Color.accentColor : .white.opacity(0.075),
+                modeBinding.wrappedValue == mode ? Color.accentColor : Color.panelInk(colorScheme, 0.075),
                 in: RoundedRectangle(cornerRadius: 14, style: .continuous)
             )
         }
@@ -487,7 +488,7 @@ struct DrawingInspector: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.72))
+                .foregroundStyle(Color.panelInk(colorScheme, 0.72))
             content()
         }
     }

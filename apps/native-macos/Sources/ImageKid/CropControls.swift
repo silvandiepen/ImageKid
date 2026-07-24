@@ -3,6 +3,7 @@ import ImageKidCore
 import ImageKidKit
 
 struct CropControls: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var session: ImageSession
     @Binding var offset: CGSize
     var dockEdges: (leadingFlat: Bool, trailingFlat: Bool) = (false, false)
@@ -38,13 +39,13 @@ struct CropControls: View {
                         TextField("Width", value: widthBinding, format: .number)
                             .textFieldStyle(.roundedBorder)
                         Text("×")
-                            .foregroundStyle(.white.opacity(0.55))
+                            .foregroundStyle(Color.panelInk(colorScheme, 0.55))
                         TextField("Height", value: heightBinding, format: .number)
                             .textFieldStyle(.roundedBorder)
                     }
                     Text("Pixels")
                         .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.48))
+                        .foregroundStyle(Color.panelInk(colorScheme, 0.48))
                 }
 
                 Toggle("Snap to grid", isOn: $session.snapToGrid)
@@ -55,11 +56,11 @@ struct CropControls: View {
 
                 Text("Drag corners or edges to resize. Drag inside the crop to move it.")
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.55))
+                    .foregroundStyle(Color.panelInk(colorScheme, 0.55))
                     .fixedSize(horizontal: false, vertical: true)
 
                 Rectangle()
-                    .fill(.white.opacity(0.09))
+                    .fill(Color.panelFill(colorScheme, 0.09))
                     .frame(height: 1)
 
                 Button {
@@ -88,7 +89,7 @@ struct CropControls: View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.72))
+                .foregroundStyle(Color.panelInk(colorScheme, 0.72))
             content()
         }
     }

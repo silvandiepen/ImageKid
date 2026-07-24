@@ -1,8 +1,11 @@
+import ImageKidKit
 import SwiftUI
 
 /// A thin, tick-free slider that matches the app's dark floating panels — a
 /// slim track with a small round knob, replacing the heavier system `Slider`.
 struct MinimalSlider<V: BinaryFloatingPoint>: View where V.Stride: BinaryFloatingPoint {
+    @Environment(\.colorScheme) private var colorScheme
+
     @Binding var value: V
     let range: ClosedRange<V>
     var step: V.Stride?
@@ -25,7 +28,7 @@ struct MinimalSlider<V: BinaryFloatingPoint>: View where V.Stride: BinaryFloatin
 
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(Color.white.opacity(0.16))
+                    .fill(Color.panelFill(colorScheme, 0.16))
                     .frame(height: trackHeight)
 
                 Capsule()

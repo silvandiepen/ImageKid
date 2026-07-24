@@ -2,6 +2,7 @@ import SwiftUI
 import ImageKidKit
 
 struct RotateControls: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var session: ImageSession
     @Binding var offset: CGSize
     var dockEdges: (leadingFlat: Bool, trailingFlat: Bool) = (false, false)
@@ -41,7 +42,7 @@ struct RotateControls: View {
                         TextField("Angle", value: $session.rotationDraft, format: .number)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 58)
-                        Text("°").foregroundStyle(.white.opacity(0.55))
+                        Text("°").foregroundStyle(Color.panelInk(colorScheme, 0.55))
                     }
 
                     Button {
@@ -61,14 +62,14 @@ struct RotateControls: View {
                     HStack {
                         Text("Fill colour")
                             .font(.caption)
-                            .foregroundStyle(.white.opacity(0.72))
+                            .foregroundStyle(Color.panelInk(colorScheme, 0.72))
                         Spacer()
                         ColorPicker("", selection: fillColorBinding, supportsOpacity: false)
                             .labelsHidden()
                     }
                     Text("AI “magic” fill is coming next — solid colour for now.")
                         .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.45))
+                        .foregroundStyle(Color.panelInk(colorScheme, 0.45))
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
@@ -99,7 +100,7 @@ struct RotateControls: View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.72))
+                .foregroundStyle(Color.panelInk(colorScheme, 0.72))
             content()
         }
     }
