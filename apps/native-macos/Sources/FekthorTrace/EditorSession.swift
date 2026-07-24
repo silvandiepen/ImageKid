@@ -119,6 +119,9 @@ final class EditorSession: ObservableObject {
 
     private(set) var fileURL: URL?
     private(set) var fileKind: FileKind
+    /// Supplies the open workspace's workfile (animation defs + defaults)
+    /// at save time; nil for detached files.
+    var workfileProvider: (() -> Workfile?)? = nil
     /// The undo stack, with a short op label per snapshot (History palette).
     /// Not @Published — every append rides a `canUndo`/`generation` publish.
     private(set) var history: [HistoryEntry] = []
@@ -164,6 +167,12 @@ final class EditorSession: ObservableObject {
 
     static func blank(size: Double = 72) -> EditorSession {
         EditorSession(document: .blank(width: size, height: size))
+    }
+
+    /// The keyframes-namespacing slug for file-LOCAL animation defs, from
+    /// the file base name ("Spinner Check.svg" → "spinner-check").
+    static func iconSlug(for url: URL) -> String {
+        AnimationEngine.iconSlug(from: url.deletingPathExtension().lastPathComponent)
     }
 
     /// Open a .svg or .fekthor file.
@@ -614,6 +623,9 @@ final class EditorSession: ObservableObject {
         apply(&next)
         drawingStyle = next
         guard !selection.isEmpty else { return }
+        // Timeline record mode: bound elements capture the edit as a
+        // keyframe at the playhead; the base artwork stays untouched.
+        if animationRecordArmed, recordStyleEdit(apply) { return }
         let fullKey = key + "|" + selection.sorted().map(String.init).joined(separator: ",")
         if styleEditKey != fullKey {
             beginGesture(label: label ?? Self.styleEditLabel(key))
@@ -838,11 +850,16 @@ final class EditorSession: ObservableObject {
 
     // MARK: - File-local swatches & styles (FileMeta)
 
-    /// The metadata block the next save writes (empty = none).
+    /// The metadata block the next save writes (empty = none). Swatches and
+    /// styles are session-authoritative (the @Published mirrors); the
+    /// ANIMATION fields live in the document's own block — they are edited
+    /// through `mutate{}` so undo covers them — and must be carried through,
+    /// not clobbered.
     private var fileMeta: FileMeta.Meta {
-        FileMeta.Meta(
-            swatches: fileSwatches.isEmpty ? nil : fileSwatches,
-            styles: fileStyles.isEmpty ? nil : fileStyles)
+        var meta = FileMeta.read(from: document) ?? FileMeta.Meta()
+        meta.swatches = fileSwatches.isEmpty ? nil : fileSwatches
+        meta.styles = fileStyles.isEmpty ? nil : fileStyles
+        return meta
     }
 
     func addFileSwatch(_ hex: String) {
@@ -863,6 +880,207 @@ final class EditorSession: ObservableObject {
         guard styles != fileStyles else { return }
         fileStyles = styles
         dirty = true
+    }
+
+    // MARK: - Animations
+
+    /// The icon's animation scene: its ordered bindings, straight from the
+    /// document's metadata block (undo-covered — every scene edit rides
+    /// `mutate{}`).
+    var animationBindings: [AnimationBinding] {
+        FileMeta.read(from: document)?.animationBindings ?? []
+    }
+
+    var resolvedAnimationSettings: AnimationSettings {
+        AnimationSettings.resolved(
+            workspace: workfileProvider?()?.settings?.animations,
+            icon: FileMeta.read(from: document)?.animationSettings)
+    }
+
+    /// Defs offerable in Animate menus: the workspace library first, then
+    /// built-in presets not shadowed by a workspace def of the same name.
+    var availableAnimationDefs: [AnimationDef] {
+        let workspace = workfileProvider?()?.animations ?? []
+        let names = Set(workspace.map(\.name))
+        return workspace + AnimationPresets.all.filter { !names.contains($0.name) }
+    }
+
+    /// The def a binding plays (file copy first, then the offerable list).
+    func animationDef(named name: String) -> AnimationDef? {
+        FileMeta.read(from: document)?.animations?.first { $0.name == name }
+            ?? availableAnimationDefs.first { $0.name == name }
+    }
+
+    /// Record mode (timeline): while armed, style-panel edits on bound
+    /// elements become KEYFRAMES at the playhead instead of base edits.
+    @Published var animationRecordArmed = false
+    /// The timeline's paused playhead, injected by the editor view (the
+    /// session must not know the preview controller).
+    var animationPlayheadTime: () -> Double = { 0 }
+
+    /// Names owned by the workspace library — keyframe edits on these fork
+    /// to a file-local copy so sibling icons keep the shared asset.
+    var workspaceAnimationDefNames: Set<String> {
+        Set((workfileProvider?()?.animations ?? []).map(\.name))
+    }
+
+    /// Edit the keyframes (or timing defaults) of the def a binding plays,
+    /// from the icon's timeline. File-local defs edit in place; workspace
+    /// defs FORK to a file-local copy first (unique "-custom" name, the
+    /// binding follows) — cross-icon keyframes stay collision-free because
+    /// file-local names compile icon-scoped. One undo step per
+    /// `coalesceKey` burst.
+    func editAnimationDef(
+        bindingTarget: String, label: String, coalesceKey: String? = nil,
+        _ edit: (inout AnimationDef) -> Void
+    ) {
+        let workspaceNames = workspaceAnimationDefNames
+        if let coalesceKey {
+            if styleEditKey != coalesceKey {
+                beginGesture(label: label)
+                styleEditKey = coalesceKey
+            }
+        } else {
+            beginGesture(label: label)
+        }
+        mutate { doc in
+            var meta = FileMeta.read(from: doc) ?? FileMeta.Meta()
+            guard var bindings = meta.animationBindings,
+                let bindingIndex = bindings.firstIndex(where: { $0.target == bindingTarget })
+            else { return }
+            var defs = meta.animations ?? []
+            let defName = bindings[bindingIndex].animation
+            var defIndex = defs.firstIndex { $0.name == defName }
+            if defIndex == nil, let source = self.animationDef(named: defName) {
+                defs.append(source)
+                defIndex = defs.count - 1
+            }
+            guard var def = defIndex.map({ defs[$0] }) else { return }
+
+            if workspaceNames.contains(def.name) {
+                // Fork: unique file-local name, binding follows. The marker
+                // class (target) is just a token and stays put.
+                var candidate = "\(def.name)-custom"
+                var n = 2
+                let taken = workspaceNames.union(defs.map(\.name))
+                while taken.contains(candidate) {
+                    candidate = "\(def.name)-custom-\(n)"
+                    n += 1
+                }
+                def.name = candidate
+                bindings[bindingIndex].animation = candidate
+            }
+            edit(&def)
+            def = def.normalized()
+            defs[defIndex!] = def
+            meta.animations = defs
+            meta.animationBindings = bindings
+            doc = FileMeta.writing(meta, to: doc)
+        }
+    }
+
+    /// Record a style edit as keyframes on every binding covering the
+    /// selection. Returns false when nothing is bound (caller edits base).
+    private func recordStyleEdit(_ apply: (inout Style) -> Void) -> Bool {
+        let settings = resolvedAnimationSettings
+        var recorded = false
+        for binding in animationBindings {
+            let bound = Set(AnimationEngine.boundNodeIDs(in: document, target: binding.target))
+            let wholeIcon = AnimationEngine.isWholeIcon(binding.target, in: document)
+            let covered = wholeIcon ? selection : selection.intersection(bound)
+            guard let sampleID = covered.sorted().first,
+                let shape = document.firstShape(id: sampleID),
+                let def = animationDef(named: binding.animation)
+            else { continue }
+
+            // Diff the edit against the node's current effective style,
+            // keeping only animatable properties.
+            let before = shape.effectiveStyle
+            var after = before
+            apply(&after)
+            var changed: [String: String] = [:]
+            for declaration in after.declarations {
+                let old = before.value(of: declaration.name)
+                if old == nil || old != declaration.value,
+                    AnimationLint.animatableProperties.contains(declaration.name)
+                {
+                    changed[declaration.name] = SVGStyle.valueText(declaration.value)
+                }
+            }
+            guard !changed.isEmpty else { continue }
+
+            let timing = AnimationInterpolator.timing(of: binding, def: def, settings: settings)
+            let raw = (animationPlayheadTime() - timing.delay)
+                / max(timing.duration, 1e-9) * 100
+            let offset = (min(100, max(0, raw))).rounded()
+            editAnimationDef(
+                bindingTarget: binding.target, label: "Record keyframe",
+                coalesceKey: "record|\(binding.target)|\(offset)"
+            ) { def in
+                if let i = def.keyframes.firstIndex(where: { $0.offset == offset }) {
+                    def.keyframes[i].declarations.merge(changed) { _, new in new }
+                } else {
+                    def.keyframes.append(
+                        AnimationKeyframe(offset: offset, declarations: changed))
+                }
+            }
+            recorded = true
+        }
+        if recorded {
+            status = "Recorded keyframe at the playhead."
+        }
+        return recorded
+    }
+
+    /// Bind an animation to the selection — or the WHOLE ICON when nothing
+    /// is selected. One undo step.
+    func applyAnimation(_ def: AnimationDef, trigger: String? = nil) {
+        let ids = selection.sorted()
+        let settings = resolvedAnimationSettings
+        beginGesture(label: "Animate")
+        mutate { doc in
+            doc = AnimationEngine.bind(
+                def, trigger: trigger, toNodes: ids, in: doc, settings: settings)
+        }
+        status =
+            ids.isEmpty
+            ? "Animating the whole icon with “\(def.name)”."
+            : "Applied “\(def.name)” to \(ids.count) element(s)."
+    }
+
+    /// Remove a binding (record, marker classes, def copy, pathLength).
+    func removeAnimation(target: String) {
+        beginGesture(label: "Remove animation")
+        mutate { doc in
+            doc = AnimationEngine.unbind(target: target, in: doc)
+        }
+        status = "Removed animation."
+    }
+
+    /// Edit one binding's parameters (trigger, timing overrides) in place.
+    /// A `coalesceKey` collapses a typing/drag burst into one undo step
+    /// (the `styleEditKey` discipline).
+    func updateAnimationBinding(
+        target: String, label: String = "Animation settings", coalesceKey: String? = nil,
+        _ edit: (inout AnimationBinding) -> Void
+    ) {
+        if let coalesceKey {
+            if styleEditKey != coalesceKey {
+                beginGesture(label: label)
+                styleEditKey = coalesceKey
+            }
+        } else {
+            beginGesture(label: label)
+        }
+        mutate { doc in
+            var meta = FileMeta.read(from: doc) ?? FileMeta.Meta()
+            guard var bindings = meta.animationBindings,
+                let i = bindings.firstIndex(where: { $0.target == target })
+            else { return }
+            edit(&bindings[i])
+            meta.animationBindings = bindings
+            doc = FileMeta.writing(meta, to: doc)
+        }
     }
 
     // MARK: - Shape tools
@@ -1386,7 +1604,13 @@ final class EditorSession: ObservableObject {
         do {
             // File-local swatches/styles land in (or leave) the metadata
             // block at save time; the in-memory document stays untouched.
-            let svg = SVGWriter.write(FileMeta.writing(fileMeta, to: document))
+            // The generated animation <style> block recompiles from that
+            // meta + the workspace's defs/defaults on every save.
+            let composed = FileMeta.writing(fileMeta, to: document)
+            let baked = AnimationEngine.applyingStyleBlock(
+                to: composed, workspace: workfileProvider?(),
+                iconSlug: Self.iconSlug(for: url))
+            let svg = SVGWriter.write(baked)
             switch fileKind {
             case .svg:
                 try svg.write(to: url, atomically: true, encoding: .utf8)

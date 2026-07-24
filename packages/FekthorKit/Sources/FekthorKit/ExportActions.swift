@@ -100,6 +100,14 @@ public enum ExportAction: Equatable, Sendable {
     case recolor(scope: PaintScope, from: String, to: PaintTarget)
     case strokeWidth(StrokeWidthOp)
     case restyle(property: String, match: String?, value: String?)
+    /// Remove the generated animation `<style>` block and every binding's
+    /// marker class — the output byte-equals a never-animated export.
+    /// The runner hoists it to run FIRST. Alias: `static`.
+    case stripAnimations
+    /// Recompile the animation block from the document's FileMeta (+ the
+    /// workspace context the runner provides). The runner defers it to run
+    /// LAST, over post-action reality. Alias: `animated`.
+    case bakeAnimations
 
     // MARK: Parsing
 
@@ -143,6 +151,12 @@ public enum ExportAction: Equatable, Sendable {
         case "strip-ids", "strip":
             try noPayload()
             return .stripIDs
+        case "strip-animations", "static":
+            try noPayload()
+            return .stripAnimations
+        case "bake-animations", "animated":
+            try noPayload()
+            return .bakeAnimations
         case "resize", "fit":
             let p = try requirePayload().trimmingCharacters(in: .whitespaces).lowercased()
             let parts = p.split(separator: "x", maxSplits: 1)
@@ -249,13 +263,30 @@ public enum ExportAction: Equatable, Sendable {
 
     // MARK: Application
 
+    /// Ambient context an action may need beyond the document itself —
+    /// today only `bake-animations` (workspace defs/defaults + the
+    /// icon-slug namespacing). Everything else ignores it.
+    public struct Context: Sendable {
+        public var workspace: Workfile?
+        public var iconSlug: String?
+        public init(workspace: Workfile? = nil, iconSlug: String? = nil) {
+            self.workspace = workspace
+            self.iconSlug = iconSlug
+        }
+    }
+
     /// Apply this action. Non-destructive: returns a new document.
-    public func applied(to doc: GraphicDocument) -> GraphicDocument {
+    public func applied(to doc: GraphicDocument, context: Context = Context())
+        -> GraphicDocument
+    {
         switch self {
         case .outlineStrokes:
             return ExportApply.outlineStrokes(doc)
         case .flatten:
-            return ExportApply.flatten(doc)
+            // Animation-bound groups survive as <g> so their marker class
+            // keeps animating the (flattened) children.
+            return ExportApply.flatten(
+                doc, preservingGroupClasses: ExportApply.animationTargets(doc))
         case .stripIDs:
             return ExportApply.stripIDs(doc)
         case .resize(let w, let h):
@@ -266,6 +297,11 @@ public enum ExportAction: Equatable, Sendable {
             return ExportApply.strokeWidth(doc, op: op)
         case .restyle(let property, let match, let value):
             return ExportApply.restyle(doc, property: property, match: match, value: value)
+        case .stripAnimations:
+            return ExportApply.stripAnimations(doc)
+        case .bakeAnimations:
+            return AnimationEngine.applyingStyleBlock(
+                to: doc, workspace: context.workspace, iconSlug: context.iconSlug)
         }
     }
 }
@@ -488,7 +524,16 @@ enum ExportApply {
     /// children (child declarations win); raw nodes pass through unchanged.
     /// Note: group `opacity` merges by override, not multiplication — the icon
     /// corpus never nests opacities.
-    static func flatten(_ doc: GraphicDocument) -> GraphicDocument {
+    /// The marker classes of the document's animation bindings (from its
+    /// still-present FileMeta) — the classes exports must not destroy while
+    /// animations are kept.
+    static func animationTargets(_ doc: GraphicDocument) -> Set<String> {
+        Set(FileMeta.read(from: doc)?.animationBindings?.map(\.target) ?? [])
+    }
+
+    static func flatten(
+        _ doc: GraphicDocument, preservingGroupClasses preserved: Set<String> = []
+    ) -> GraphicDocument {
         var out = doc
         func dissolve(
             _ nodes: [GraphicNode], style parentStyle: Style,
@@ -504,6 +549,19 @@ enum ExportApply {
                     s.transform = nil
                     result.append(.shape(s))
                 case .group(let g):
+                    // An animation-bound group survives as a <g> (its marker
+                    // class is the CSS hook); ancestor style/transform fold
+                    // into the kept group, its children flatten inside it.
+                    if !preserved.isEmpty,
+                        !preserved.isDisjoint(with: NamedStyles.classList(of: g.attributes))
+                    {
+                        var kept = g
+                        kept.style = mergedStyle(parentStyle, g.style)
+                        kept.transform = composed(parentTransform, g.transform)
+                        kept.children = dissolve(g.children, style: Style(), transform: nil)
+                        result.append(.group(kept))
+                        continue
+                    }
                     result.append(
                         contentsOf: dissolve(
                             g.children,
@@ -517,6 +575,19 @@ enum ExportApply {
         }
         out.nodes = dissolve(doc.nodes, style: Style(), transform: nil)
         return out
+    }
+
+    // MARK: strip-animations
+
+    /// Unbind every animation (marker classes, def copies, engine-written
+    /// `pathLength` markers) and drop the generated `<style>` block — the
+    /// output byte-equals a never-animated export.
+    static func stripAnimations(_ doc: GraphicDocument) -> GraphicDocument {
+        var out = doc
+        for binding in FileMeta.read(from: doc)?.animationBindings ?? [] {
+            out = AnimationEngine.unbind(target: binding.target, in: out)
+        }
+        return AnimationCSS.removing(from: out)
     }
 
     // MARK: resize

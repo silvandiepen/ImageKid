@@ -328,6 +328,22 @@ struct ContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: .fekthorExportPDF)) { _ in
                 editorSession?.exportPDF()
             }
+            .onReceive(
+                NotificationCenter.default.publisher(for: .fekthorAnimateApply)
+            ) { note in
+                guard let session = editorSession,
+                    let name = note.userInfo?["animation"] as? String,
+                    let def = session.animationDef(named: name)
+                else { return }
+                session.applyAnimation(def)
+                EditorPanelsState.shared.restore(.animation)
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(for: .fekthorToggleTimeline)
+            ) { _ in
+                guard editorSession != nil else { return }
+                EditorPanelsState.shared.timelineShown.toggle()
+            }
     }
 
     /// Runs `action` right away when no unsaved editor work is at stake;
@@ -1474,6 +1490,9 @@ struct EditorWorkspaceView: View {
 
     @ObservedObject private var panels = EditorPanelsState.shared
     @State private var confirmClose = false
+    /// Animation preview clock + overrides, shared by the canvas, the
+    /// Animation palette, and the timeline drawer.
+    @StateObject private var preview = AnimationPreviewController()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1482,7 +1501,7 @@ struct EditorWorkspaceView: View {
             ZStack(alignment: .bottom) {
                 EditorCanvasView(
                     session: session, zoom: $zoom, offset: $offset, grid: grid,
-                    guide: guide, snapToPoints: snapToPoints)
+                    guide: guide, snapToPoints: snapToPoints, preview: preview)
                     .overlay(
                         TrackpadCatcher(
                             onPan: { dx, dy in
@@ -1523,8 +1542,13 @@ struct EditorWorkspaceView: View {
             // environment so panel internals (swatch popovers) can read the
             // shared swatches without threading it through every initializer.
             .overlay(
-                EditorPanelsLayer(session: session, workspace: workspace)
+                EditorPanelsLayer(session: session, workspace: workspace, preview: preview)
                     .environmentObject(workspace))
+            if panels.timelineShown {
+                Divider()
+                EditorTimelineDrawer(session: session, preview: preview)
+                    .frame(height: panels.timelineHeight)
+            }
             Divider()
             HStack {
                 Text(session.status).foregroundStyle(.secondary).lineLimit(1)
@@ -1544,6 +1568,12 @@ struct EditorWorkspaceView: View {
             MenuState.shared.canCombine = session.selection.count >= 2
             MenuState.shared.canAlign = !session.selection.isEmpty
             MenuState.shared.editorOpen = true
+            // Animations: baked style blocks and previews need the
+            // workspace's defs/defaults at save/render time.
+            preview.workspaceSettings = workspace.settings.settings?.animations
+            session.workfileProvider = { [weak workspace] in workspace?.settings }
+            session.animationPlayheadTime = { [weak preview] in preview?.pausedTime ?? 0 }
+            MenuState.shared.animationNames = session.availableAnimationDefs.map(\.name)
         }
         .onDisappear {
             MenuState.shared.canCombine = false

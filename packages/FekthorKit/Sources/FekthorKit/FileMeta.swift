@@ -17,13 +17,34 @@ public enum FileMeta {
     public struct Meta: Codable, Equatable, Sendable {
         public var swatches: [String]?
         public var styles: [NamedStyle]?
-        public init(swatches: [String]? = nil, styles: [NamedStyle]? = nil) {
+        /// Resolved copies of the animation defs this icon uses (master
+        /// lives in the workfile) — the SVG stays self-contained.
+        public var animations: [AnimationDef]?
+        /// The icon's animation scene: its ordered bindings.
+        public var animationBindings: [AnimationBinding]?
+        /// Per-icon toggle; nil falls through to the workspace setting.
+        public var animationsEnabled: Bool?
+        /// Per-icon overrides of the workspace animation defaults.
+        public var animationSettings: AnimationSettings?
+        public init(
+            swatches: [String]? = nil, styles: [NamedStyle]? = nil,
+            animations: [AnimationDef]? = nil,
+            animationBindings: [AnimationBinding]? = nil,
+            animationsEnabled: Bool? = nil,
+            animationSettings: AnimationSettings? = nil
+        ) {
             self.swatches = swatches
             self.styles = styles
+            self.animations = animations
+            self.animationBindings = animationBindings
+            self.animationsEnabled = animationsEnabled
+            self.animationSettings = animationSettings
         }
 
         public var isEmpty: Bool {
             (swatches?.isEmpty ?? true) && (styles?.isEmpty ?? true)
+                && (animations?.isEmpty ?? true) && (animationBindings?.isEmpty ?? true)
+                && animationsEnabled == nil && animationSettings == nil
         }
     }
 
@@ -51,6 +72,8 @@ public enum FileMeta {
         var normalized = meta
         if normalized.swatches?.isEmpty == true { normalized.swatches = nil }
         if normalized.styles?.isEmpty == true { normalized.styles = nil }
+        if normalized.animations?.isEmpty == true { normalized.animations = nil }
+        if normalized.animationBindings?.isEmpty == true { normalized.animationBindings = nil }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(normalized) else { return doc }

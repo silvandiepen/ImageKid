@@ -505,6 +505,7 @@ struct WorkspaceExportView: View {
             partialLinks: composeContainers ? session.partialLinks : [:],
             compose: composeContainers,
             namedStyles: session.settings.namedStyles ?? [],
+            workfile: session.settings,
             destination: destination,
             replaceExisting: replaceExisting
         ) { finished in
@@ -533,6 +534,7 @@ final class ExportRunController: ObservableObject {
         slots: [Workfile.ContainerSlot], memberships: [String: [String]],
         partialLinks: [String: [String]], compose: Bool,
         namedStyles: [NamedStyle] = [],
+        workfile: Workfile? = nil,
         destination: URL, replaceExisting: Bool, onFinished: @escaping (String) -> Void
     ) {
         guard !running else { return }
@@ -662,7 +664,8 @@ final class ExportRunController: ObservableObject {
             for (name, doc) in docs {
                 do {
                     let result = try ExportRunner.apply(
-                        profile: profile, to: doc, name: name, namedStyles: namedStyles)
+                        profile: profile, to: doc, name: name, namedStyles: namedStyles,
+                        workspace: workfile)
                     writeOut(result.fileName, result.document)
                 } catch {
                     problems.append("\(name): \(error)")
@@ -673,7 +676,8 @@ final class ExportRunController: ObservableObject {
                 let stem = fileName.hasSuffix(".svg") ? String(fileName.dropLast(4)) : fileName
                 do {
                     let result = try ExportRunner.apply(
-                        profile: profile, to: doc, name: stem, namedStyles: namedStyles)
+                        profile: profile, to: doc, name: stem, namedStyles: namedStyles,
+                        workspace: workfile)
                     writeOut(result.fileName, result.document)
                 } catch {
                     problems.append("\(stem): \(error)")

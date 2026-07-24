@@ -68,8 +68,10 @@ class FekthorUITestCase: XCTestCase {
             file: file, line: line)
     }
 
-    /// Waits until the element's label matches exactly (e.g. the node-count
-    /// text flipping from "0 nodes" to "1 nodes").
+    /// Waits until the element's text matches exactly (e.g. the node-count
+    /// text flipping from "0 nodes" to "1 nodes"). SwiftUI StaticTexts
+    /// expose their string as label OR value depending on macOS/SwiftUI
+    /// version — accept either.
     func waitForLabel(
         _ element: XCUIElement, _ label: String, timeout: TimeInterval = 5,
         file: StaticString = #filePath, line: UInt = #line
@@ -77,13 +79,15 @@ class FekthorUITestCase: XCTestCase {
         let done = XCTWaiter().wait(
             for: [
                 XCTNSPredicateExpectation(
-                    predicate: NSPredicate(format: "label == %@", label), object: element)
+                    predicate: NSPredicate(
+                        format: "label == %@ OR value == %@", label, label),
+                    object: element)
             ],
             timeout: timeout)
+        let got = element.exists
+            ? "label \"\(element.label)\" / value \"\(element.value ?? "")\"" : "<gone>"
         XCTAssertEqual(
-            done, .completed,
-            "expected label \"\(label)\", got \"\(element.exists ? element.label : "<gone>")\"",
-            file: file, line: line)
+            done, .completed, "expected \"\(label)\", got \(got)", file: file, line: line)
     }
 
     /// Waits until the element no longer exists.
@@ -104,7 +108,10 @@ class FekthorUITestCase: XCTestCase {
 
     /// Home → ⌘N → the editor with its tool shelf on screen.
     func openBlankEditor(_ app: XCUIApplication) {
-        assertAppears(app.staticTexts["New File"], timeout: 10, "home should show the New File card")
+        // Match the card by identifier, not its text: SwiftUI sometimes
+        // exposes the label combined into the button (no child StaticText).
+        assertAppears(
+            element(app, "home.newFile"), timeout: 10, "home should show the New File card")
         app.typeKey("n", modifierFlags: .command)
         assertAppears(element(app, "tool.select"), "the editor tool shelf should appear after ⌘N")
     }

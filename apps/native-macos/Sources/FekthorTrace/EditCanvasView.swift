@@ -568,12 +568,33 @@ struct RightClickCatcher: NSViewRepresentable {
                 guard !entries.isEmpty else { return e }
                 let menu = NSMenu()
                 self.actions = entries.map { $0.1 }
+                // "Submenu|Item" titles group into a submenu (in first-seen
+                // order); plain titles stay top-level.
+                var submenus: [String: NSMenu] = [:]
                 for (i, entry) in entries.enumerated() {
+                    let parts = entry.0.split(
+                        separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
                     let item = NSMenuItem(
-                        title: entry.0, action: #selector(self.fire(_:)), keyEquivalent: "")
+                        title: String(parts.last ?? ""), action: #selector(self.fire(_:)),
+                        keyEquivalent: "")
                     item.target = self
                     item.tag = i
-                    menu.addItem(item)
+                    if parts.count == 2 {
+                        let name = String(parts[0])
+                        let submenu: NSMenu
+                        if let existing = submenus[name] {
+                            submenu = existing
+                        } else {
+                            submenu = NSMenu(title: name)
+                            let holder = NSMenuItem(title: name, action: nil, keyEquivalent: "")
+                            holder.submenu = submenu
+                            menu.addItem(holder)
+                            submenus[name] = submenu
+                        }
+                        submenu.addItem(item)
+                    } else {
+                        menu.addItem(item)
+                    }
                 }
                 NSMenu.popUpContextMenu(menu, with: e, for: self)
                 return nil  // consumed

@@ -31,6 +31,10 @@ extension Notification.Name {
     static let fekthorDistribute = Notification.Name("fekthor.distribute")
     static let fekthorExportPNG = Notification.Name("fekthor.exportPNG")
     static let fekthorExportPDF = Notification.Name("fekthor.exportPDF")
+    static let fekthorWorkspaceAnimations = Notification.Name("fekthor.workspaceAnimations")
+    static let fekthorToggleTimeline = Notification.Name("fekthor.toggleTimeline")
+    /// userInfo["animation"]: the def name to apply to the selection.
+    static let fekthorAnimateApply = Notification.Name("fekthor.animateApply")
 }
 
 /// State the menu bar needs to reflect app context: whether a workspace is
@@ -74,6 +78,9 @@ final class MenuState: ObservableObject {
     /// icon-in-container cells. Session-level — composed previews are never
     /// written to disk, so the toggle need not persist either.
     @Published var previewComposed = false
+    /// The animation defs the Object ▸ Animate submenu offers (workspace
+    /// library + unshadowed presets), refreshed by the editor view.
+    @Published var animationNames: [String] = []
 
     private static let showGridKey = "fekthor.showGrid"
     private static let snapToPointsKey = "fekthor.snapToPoints"
@@ -236,6 +243,11 @@ struct FekthorApp: App {
                     NotificationCenter.default.post(name: .fekthorWorkspaceTokens, object: nil)
                 }
                 .keyboardShortcut("k", modifiers: [.command, .shift])
+                Button("Animations…") {
+                    NotificationCenter.default.post(
+                        name: .fekthorWorkspaceAnimations, object: nil)
+                }
+                .keyboardShortcut("k", modifiers: [.command, .option])
             }
             CommandMenu("Object") {
                 Button("Group") {
@@ -275,6 +287,22 @@ struct FekthorApp: App {
                     Button("Distribute Vertically") { postDistribute(.vertical) }
                 }
                 .disabled(!menuState.canAlign)
+                Menu("Animate") {
+                    ForEach(menuState.animationNames, id: \.self) { name in
+                        Button(name) {
+                            NotificationCenter.default.post(
+                                name: .fekthorAnimateApply, object: nil,
+                                userInfo: ["animation": name])
+                        }
+                    }
+                    Divider()
+                    Button("Show Timeline") {
+                        NotificationCenter.default.post(
+                            name: .fekthorToggleTimeline, object: nil)
+                    }
+                    .keyboardShortcut("t", modifiers: [.command, .option])
+                }
+                .disabled(!menuState.editorOpen)
                 Divider()
                 Button("Bring to Front") {
                     NotificationCenter.default.post(name: .fekthorBringToFront, object: nil)

@@ -29,6 +29,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
     case gridPresets
     case history
     case layers
+    case animation
 
     var id: String { rawValue }
 
@@ -47,6 +48,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         case .gridPresets: return "Grid Presets"
         case .history: return "History"
         case .layers: return "Layers"
+        case .animation: return "Animation"
         }
     }
 
@@ -65,6 +67,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         case .gridPresets: return "square.grid.3x3"
         case .history: return "clock.arrow.circlepath"
         case .layers: return "square.3.stack.3d"
+        case .animation: return "sparkles"
         }
     }
 
@@ -78,7 +81,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         .fill, .stroke, .opacity, .corners, .transform, .combine,
     ]
     private static let leftColumn: [EditorPanel] = [
-        .layers, .swatches, .styles, .align, .grid, .gridPresets, .history,
+        .layers, .swatches, .styles, .animation, .align, .grid, .gridPresets, .history,
     ]
 
     /// Rough on-screen height (chrome + content), used to stack the default
@@ -99,6 +102,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         case .grid: return 420
         case .gridPresets: return 260
         case .history: return 200
+        case .animation: return 280
         }
     }
 
@@ -139,6 +143,7 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         case .grid: return CGSize(width: 280, height: 220)
         case .gridPresets: return CGSize(width: 320, height: 260)
         case .history: return CGSize(width: 400, height: 16)
+        case .animation: return CGSize(width: 280, height: 220)
         }
     }
 
@@ -212,6 +217,15 @@ final class EditorPanelsState: ObservableObject {
     /// persisted.
     @Published var needsPlacement: Set<EditorPanel> = []
 
+    /// The bottom animation timeline drawer: shown + height, persisted like
+    /// the palettes (it is workspace chrome, not document state).
+    @Published var timelineShown: Bool {
+        didSet { AppDefaults.store.set(timelineShown, forKey: Self.timelineShownKey) }
+    }
+    @Published var timelineHeight: Double {
+        didSet { AppDefaults.store.set(timelineHeight, forKey: Self.timelineHeightKey) }
+    }
+
     /// The rail buttons' order — drag a rail button onto another to
     /// rearrange; persisted. Unknown panels (new in later builds) append in
     /// their canonical order.
@@ -238,6 +252,8 @@ final class EditorPanelsState: ObservableObject {
     private static func sizeKey(_ panel: EditorPanel) -> String {
         "fekthor.panel.\(panel.rawValue).size.v3"
     }
+    private static let timelineShownKey = "fekthor.timeline.shown"
+    private static let timelineHeightKey = "fekthor.timeline.height"
     private static let railOrderKey = "fekthor.panels.railOrder.v1"
 
     /// First-run set: the daily-driver palettes. Everything else is one
@@ -245,6 +261,9 @@ final class EditorPanelsState: ObservableObject {
     private static let defaultVisible: Set<EditorPanel> = [.fill, .stroke, .layers]
 
     private init() {
+        timelineShown = AppDefaults.store.bool(forKey: Self.timelineShownKey)
+        let storedHeight = AppDefaults.store.double(forKey: Self.timelineHeightKey)
+        timelineHeight = storedHeight > 0 ? storedHeight : 220
         let loadedVisible: Set<EditorPanel>
         if let raw = AppDefaults.store.array(forKey: Self.visibleKey) as? [String] {
             loadedVisible = Set(raw.compactMap(EditorPanel.init(rawValue:)))
@@ -561,6 +580,8 @@ struct EditorPanelsLayer: View {
     /// Plain reference (NOT observed at this level — same discipline as the
     /// editor session): only the Swatches palette content observes it.
     let workspace: WorkspaceSession
+    /// Animation preview clock (Animation palette transport + chips).
+    let preview: AnimationPreviewController
     @ObservedObject private var panels = EditorPanelsState.shared
 
     /// Measured on-screen palette sizes (chrome included) — the stack layout
@@ -652,6 +673,12 @@ struct EditorPanelsLayer: View {
                 if panels.isExpanded(.layers) {
                     resizablePalette(.layers, in: dock) {
                         LayersPanelContent(session: session)
+                    }
+                }
+                if panels.isExpanded(.animation) {
+                    palette(.animation, in: dock) {
+                        AnimationPanelContent(
+                            session: session, workspace: workspace, preview: preview)
                     }
                 }
             }

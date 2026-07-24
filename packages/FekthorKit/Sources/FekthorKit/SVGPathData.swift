@@ -531,7 +531,7 @@ public enum SVGStyle {
         style.declarations.map { "\($0.name): \(valueText($0.value));" }.joined(separator: " ")
     }
 
-    static func valueText(_ value: StyleValue) -> String {
+    public static func valueText(_ value: StyleValue) -> String {
         switch value {
         case .paint(let p): return paintText(p)
         case .number(let n, let unit): return SVGNum.text(n) + (unit ?? "")
