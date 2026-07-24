@@ -47,11 +47,12 @@ struct EditorCanvasView: View {
     /// corners/centres. Point snap WINS over grid snap; ⌃ disables both.
     var snapToPoints: Bool = false
 
-    /// A path anchor, hashable for multi-point selection.
-    struct AnchorRef: Hashable { let path: Int; let index: Int }
-    /// The selected points (Direct Select). Move and corner-radius act on all
-    /// of them; a single selection also exposes its Bézier handles.
-    @State private var selectedAnchors: Set<AnchorRef> = []
+    /// The selected points (Direct Select) — session-side (AnchorRef set)
+    /// so palettes can target them too; the canvas owns the interactions.
+    private var selectedAnchors: Set<AnchorRef> {
+        get { session.selectedAnchors }
+        nonmutating set { session.selectedAnchors = newValue }
+    }
     /// The single selected point, when exactly one — for handle editing.
     private var activeAnchor: (path: Int, index: Int)? {
         selectedAnchors.count == 1

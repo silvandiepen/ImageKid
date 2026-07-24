@@ -954,6 +954,9 @@ struct SwatchesPanelContent: View {
     @ObservedObject var session: EditorSession
     @ObservedObject var workspace: WorkspaceSession
 
+    /// The well swatch clicks feed (fill by default; ⌥ hits the other).
+    @State private var target: PaintTarget = .fill
+
     private var workspaceSwatches: [String] { workspace.settings.swatches ?? [] }
 
     /// Unique plain colours used by the document's shapes, in document
@@ -982,14 +985,14 @@ struct SwatchesPanelContent: View {
         return out
     }
 
-    /// The colour "+" adds: the current fill when it is a plain colour,
-    /// else the current stroke. nil (no plain colour anywhere) disables +.
+    /// The colour "+" adds: the ACTIVE well's, when it is a plain colour.
     private var addableHex: String? {
         let selection = StyleSelection(session: session)
-        if case .color(let r, let g, let b) = selection.summary(of: { $0.fill }) {
-            return String(format: "#%02x%02x%02x", r, g, b)
-        }
-        if case .color(let r, let g, let b) = selection.summary(of: { $0.stroke }) {
+        let summary =
+            target == .fill
+            ? selection.summary(of: { $0.fill })
+            : selection.summary(of: { $0.stroke })
+        if case .color(let r, let g, let b) = summary {
             return String(format: "#%02x%02x%02x", r, g, b)
         }
         return nil
@@ -1005,46 +1008,92 @@ struct SwatchesPanelContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            wellsRow
+            Divider()
             Text("Standard")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            swatchGrid(Self.standardSwatches, editable: false)
+            swatchGrid(Self.standardSwatches, kind: .standard)
             Divider()
             HStack {
                 Text("Workspace")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                PanelInfoButton(
+                    text:
+                        "Swatches shared through the workspace's workfile. + adds the active well's colour; right-click a swatch to delete it."
+                )
                 Spacer()
                 if workspace.workspace != nil {
                     addButton
                 }
             }
-            if workspace.workspace == nil {
-                Text("Open a workspace to keep shared swatches.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else if workspaceSwatches.isEmpty {
-                Text("No swatches yet — + adds the current colour.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else {
-                swatchGrid(workspaceSwatches, editable: true)
+            if workspace.workspace != nil, !workspaceSwatches.isEmpty {
+                swatchGrid(workspaceSwatches, kind: .workspaceSwatch)
             }
             Divider()
-            Text("In this document")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            if documentColors.isEmpty {
-                Text("No plain colours in use.")
-                    .font(.caption2)
+            HStack {
+                Text("In this document")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
-            } else {
-                swatchGrid(documentColors, editable: false)
+                PanelInfoButton(
+                    text:
+                        "Every plain colour the document's shapes use. Right-click one to add it to the workspace or file swatches."
+                )
+                Spacer()
             }
-            Text("Click: fill · ⌥-click: stroke")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+            if !documentColors.isEmpty {
+                swatchGrid(documentColors, kind: .document)
+            }
         }
+    }
+
+    /// The ImageKid-style paint pair: which well swatch clicks feed.
+    enum PaintTarget { case fill, stroke }
+
+    /// The active fill/stroke wells (selection summary, or the drawing
+    /// style when nothing is selected), a label for the active one, the
+    /// swap button and the how-it-works info.
+    private var wellsRow: some View {
+        let selection = StyleSelection(session: session)
+        let fill = selection.summary(of: { $0.fill })
+        let stroke = selection.summary(of: { $0.stroke })
+        return HStack(spacing: 10) {
+            FillStrokeWells(fill: fill, stroke: stroke, target: $target)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(target == .fill ? "Fill" : "Stroke")
+                    .font(.caption.weight(.medium))
+                Text(StyleSelection.label(of: target == .fill ? fill : stroke))
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            swapButton
+            PanelInfoButton(
+                text:
+                    "Click a swatch to apply it to the active well; click a well to switch between fill and stroke. ⌥-click a swatch to hit the other well. ⇄ swaps fill and stroke on the selection."
+            )
+        }
+    }
+
+    private var swapButton: some View {
+        Button {
+            session.editSelectionStyle("swap-paints", label: "Swap fill & stroke") { style in
+                let fill = style.fill
+                style.fill = style.stroke
+                style.stroke = fill
+            }
+            session.endStyleEdit()
+        } label: {
+            Image(systemName: "arrow.left.arrow.right")
+                .font(.system(size: 9, weight: .semibold))
+                .frame(width: 20, height: 20)
+                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                .contentShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .help("Swap fill and stroke")
+        .accessibilityIdentifier("swatches.swap")
     }
 
     private var addButton: some View {
@@ -1060,23 +1109,32 @@ struct SwatchesPanelContent: View {
         .buttonStyle(.plain)
         .disabled(addableHex == nil)
         .opacity(addableHex == nil ? 0.4 : 1)
-        .help("Add the current fill colour (or stroke, when the fill is not a plain colour)")
+        .help("Add the active well's colour to the workspace swatches")
     }
 
-    private func swatchGrid(_ hexes: [String], editable: Bool) -> some View {
+    /// Where a swatch lives — decides its context-menu extras.
+    private enum SwatchKind {
+        case standard
+        case workspaceSwatch
+        case document
+    }
+
+    private func swatchGrid(_ hexes: [String], kind: SwatchKind) -> some View {
         LazyVGrid(
             columns: [GridItem(.adaptive(minimum: 22, maximum: 22), spacing: 6)],
             alignment: .leading, spacing: 6
         ) {
             ForEach(hexes, id: \.self) { hex in
-                swatch(hex, editable: editable)
+                swatch(hex, kind: kind)
             }
         }
     }
 
-    private func swatch(_ hex: String, editable: Bool) -> some View {
+    private func swatch(_ hex: String, kind: SwatchKind) -> some View {
         Button {
-            apply(hex, asStroke: NSEvent.modifierFlags.contains(.option))
+            // Click feeds the active well; ⌥ hits the other one.
+            let alt = NSEvent.modifierFlags.contains(.option)
+            apply(hex, asStroke: (target == .stroke) != alt)
         } label: {
             RoundedRectangle(cornerRadius: 5)
                 .fill(swatchColor(hex))
@@ -1086,13 +1144,22 @@ struct SwatchesPanelContent: View {
                         .strokeBorder(.white.opacity(0.25), lineWidth: 1))
         }
         .buttonStyle(.plain)
-        .help("\(hex) — click: fill · ⌥-click: stroke")
+        .help("\(hex) — click: active well · ⌥-click: the other")
         .contextMenu {
             Button("Set as Fill") { apply(hex, asStroke: false) }
             Button("Set as Stroke") { apply(hex, asStroke: true) }
-            if editable {
+            if kind == .workspaceSwatch {
                 Divider()
                 Button("Delete", role: .destructive) { removeSwatch(hex) }
+            }
+            if kind == .document {
+                Divider()
+                if workspace.workspace != nil {
+                    Button("Add to Workspace Swatches") { addToWorkspace(hex) }
+                        .disabled(workspaceSwatches.contains(hex))
+                }
+                Button("Add to File Swatches") { session.addFileSwatch(hex) }
+                    .disabled(session.fileSwatches.contains(hex))
             }
         }
     }
@@ -1118,6 +1185,10 @@ struct SwatchesPanelContent: View {
 
     private func addSwatch() {
         guard let hex = addableHex else { return }
+        addToWorkspace(hex)
+    }
+
+    private func addToWorkspace(_ hex: String) {
         workspace.updateSettings { workfile in
             var list = workfile.swatches ?? []
             guard !list.contains(hex) else { return }
@@ -1129,6 +1200,131 @@ struct SwatchesPanelContent: View {
     private func removeSwatch(_ hex: String) {
         workspace.updateSettings { workfile in
             workfile.swatches?.removeAll { $0 == hex }
+        }
+    }
+}
+
+extension StyleSelection {
+    /// Short readable label for a paint summary ("#ff8800", "none", …).
+    static func label(of summary: PaintSummary) -> String {
+        switch summary {
+        case .unset: return "unset"
+        case .none: return "none"
+        case .color(let r, let g, let b): return String(format: "#%02x%02x%02x", r, g, b)
+        case .custom(let text): return text
+        case .mixed: return "mixed"
+        }
+    }
+}
+
+/// The Illustrator-style overlapping paint pair: the fill square front-left,
+/// the stroke ring back-right; clicking a well makes it the ACTIVE target
+/// (drawn on top, accent-ringed) that swatch clicks feed.
+private struct FillStrokeWells: View {
+    let fill: StyleSelection.PaintSummary
+    let stroke: StyleSelection.PaintSummary
+    @Binding var target: SwatchesPanelContent.PaintTarget
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if target == .fill {
+                strokeWell.offset(x: 13, y: 13)
+                fillWell
+            } else {
+                fillWell
+                strokeWell.offset(x: 13, y: 13)
+            }
+        }
+        .frame(width: 39, height: 39, alignment: .topLeading)
+    }
+
+    private var fillWell: some View {
+        well(.fill, isActive: target == .fill) {
+            PaintWellGlyph(summary: fill, ring: false)
+        }
+        .help("Fill" + (target == .fill ? " (active)" : " — click to make active"))
+        .accessibilityIdentifier("swatches.well.fill")
+    }
+
+    private var strokeWell: some View {
+        well(.stroke, isActive: target == .stroke) {
+            PaintWellGlyph(summary: stroke, ring: true)
+        }
+        .help("Stroke" + (target == .stroke ? " (active)" : " — click to make active"))
+        .accessibilityIdentifier("swatches.well.stroke")
+    }
+
+    private func well(
+        _ which: SwatchesPanelContent.PaintTarget, isActive: Bool,
+        @ViewBuilder glyph: () -> some View
+    ) -> some View {
+        Button {
+            target = which
+        } label: {
+            glyph()
+                .frame(width: 26, height: 26)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(
+                            isActive ? Color.accentColor : .white.opacity(0.35),
+                            lineWidth: isActive ? 1.5 : 1))
+                .contentShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// One well's face for a paint summary: plain colours fill it, "none"/unset
+/// show the classic white-with-red-slash, gradients/mixed a grey ramp. The
+/// stroke well draws as a ring (the paint on a thick border) so fill and
+/// stroke read apart at a glance.
+private struct PaintWellGlyph: View {
+    let summary: StyleSelection.PaintSummary
+    let ring: Bool
+
+    var body: some View {
+        ZStack {
+            if ring {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(paintStyle, lineWidth: 7)
+            } else {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(paintStyle)
+            }
+            if isSlashed {
+                slash
+            }
+        }
+    }
+
+    private var isSlashed: Bool {
+        if case .none = summary { return true }
+        if case .unset = summary { return true }
+        return false
+    }
+
+    private var paintStyle: AnyShapeStyle {
+        switch summary {
+        case .color(let r, let g, let b):
+            return AnyShapeStyle(
+                Color(red: Double(r) / 255, green: Double(g) / 255, blue: Double(b) / 255))
+        case .none, .unset:
+            return AnyShapeStyle(.white)
+        case .custom, .mixed:
+            return AnyShapeStyle(
+                LinearGradient(
+                    colors: [.white, .gray], startPoint: .topLeading,
+                    endPoint: .bottomTrailing))
+        }
+    }
+
+    private var slash: some View {
+        GeometryReader { geo in
+            Path { p in
+                p.move(to: CGPoint(x: 2, y: geo.size.height - 2))
+                p.addLine(to: CGPoint(x: geo.size.width - 2, y: 2))
+            }
+            .stroke(Color.red.opacity(0.85), lineWidth: 1.5)
         }
     }
 }
@@ -1355,6 +1551,26 @@ struct CornersPanelContent: View {
         return max(1, min(b.maxX - b.minX, b.maxY - b.minY) / 2)
     }
 
+    /// The point-selection scope for the any-shape radius: the Direct
+    /// Select points grouped per subpath, or nil (= every corner) when no
+    /// points are selected.
+    private var onlySelectedCorners: [Int: Set<Int>]? {
+        guard !session.selectedAnchors.isEmpty else { return nil }
+        var grouped: [Int: Set<Int>] = [:]
+        for a in session.selectedAnchors { grouped[a.path, default: []].insert(a.index) }
+        return grouped
+    }
+
+    /// "Shape corners" / "3 points" / "2 shapes" — says what the radius
+    /// will actually hit.
+    private var anyShapeHeader: String {
+        let points = session.selectedAnchors.count
+        if points == 1 { return "1 point" }
+        if points > 1 { return "\(points) points" }
+        return session.selection.count == 1
+            ? "Shape corners" : "\(session.selection.count) shapes"
+    }
+
     /// The live radius already stored on the selection (largest corner wins),
     /// so the field opens on the shape's real value instead of 0.
     private var storedShapeRadius: Double {
@@ -1390,20 +1606,27 @@ struct CornersPanelContent: View {
                         .foregroundStyle(.secondary)
                 }
             } else if !session.selection.isEmpty {
-                // Any other shape: one radius fillets every corner (or just
-                // the selected points) through the live-corners engine.
-                Text(
-                    session.selection.count == 1
-                        ? "Shape corners" : "\(session.selection.count) shapes")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                // Any other shape: one radius fillets the SELECTED points
+                // when there are any (Direct Select), every corner
+                // otherwise, through the live-corners engine.
+                HStack {
+                    Text(anyShapeHeader)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    PanelInfoButton(
+                        text:
+                            "Rounds the selected points when some are selected (Direct Select), all corners otherwise. The corner dots on the canvas drag the same radius."
+                    )
+                }
                 HStack(spacing: 8) {
                     Slider(
                         value: Binding(
                             get: { anyShapeRadius },
                             set: { v in
                                 anyShapeRadius = v
-                                session.setCornerRadius(radius: v)
+                                session.setCornerRadius(
+                                    radius: v, onlySelectedAnchors: onlySelectedCorners)
                             }),
                         in: 0...maxShapeRadius,
                         onEditingChanged: { editing in
@@ -1411,14 +1634,12 @@ struct CornersPanelContent: View {
                         }
                     )
                     NumericValueField(value: $anyShapeRadius, range: 0...maxShapeRadius) { v in
-                        session.setCornerRadius(radius: v)
+                        session.setCornerRadius(
+                            radius: v, onlySelectedAnchors: onlySelectedCorners)
                         session.endStyleEdit()
                     }
                     .frame(width: 52)
                 }
-                Text("Applies to all corners — select points to round only those, or drag the corner dots on the canvas.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
             } else {
                 Text("Select a shape")
                     .font(.caption)
@@ -1431,6 +1652,11 @@ struct CornersPanelContent: View {
             linked = true
             decoupled = []
             syncUniform()
+        }
+        // A new point selection targets different corners — close the
+        // coalesced undo step so the next edit starts its own.
+        .onChange(of: session.selectedAnchors) { _, _ in
+            session.endStyleEdit()
         }
         .onChange(of: session.generation) { _, _ in
             if linked { syncUniform() }

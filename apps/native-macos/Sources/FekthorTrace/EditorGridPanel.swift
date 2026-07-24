@@ -278,13 +278,6 @@ struct GridPanelContent: View {
             colorRow
             Divider()
             presetsButton
-            Text(
-                workspace.workspace != nil
-                    ? "Grid changes save into the workspace."
-                    : "No workspace open — the grid is kept app-wide."
-            )
-            .font(.caption2)
-            .foregroundStyle(.tertiary)
         }
         .onAppear { sync() }
         .onChange(of: syncKey) { sync() }
@@ -308,6 +301,11 @@ struct GridPanelContent: View {
                 Text("Preview")
                     .font(.caption)
                 Spacer()
+                PanelInfoButton(
+                    text: workspace.workspace != nil
+                        ? "Grid changes save into the workspace's workfile, shared like swatches. The preview is scaled to the workspace artboard."
+                        : "No workspace open — grid changes are kept app-wide."
+                )
             }
             .foregroundStyle(.secondary)
             .contentShape(Rectangle())
@@ -520,6 +518,10 @@ struct GridPresetsPanelContent: View {
                 Text("Presets")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                PanelInfoButton(
+                    text:
+                        "A preset stores spacing, subdivide, opacity and colour — app-wide, so it works in every workspace. + saves the current grid; right-click a saved preset to overwrite or delete it."
+                )
                 Spacer()
                 addButton
             }
@@ -531,9 +533,6 @@ struct GridPresetsPanelContent: View {
                     presetRow(preset, editable: true)
                 }
             }
-            Text("A preset stores spacing, subdivide, opacity and colour.")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
         }
     }
 

@@ -7,6 +7,12 @@ import UniformTypeIdentifiers
 /// a plain .svg or a .fekthor workfile. Cleanly separate from the trace-only
 /// `ConversionModel`. Snapshot undo, node-id selection, dirty tracking, and
 /// sandbox-scoped save-in-place.
+/// A path anchor, hashable for multi-point selection (Direct Select).
+struct AnchorRef: Hashable {
+    let path: Int
+    let index: Int
+}
+
 @MainActor
 final class EditorSession: ObservableObject {
     enum FileKind {
@@ -36,7 +42,15 @@ final class EditorSession: ObservableObject {
     }
 
     @Published var document: GraphicDocument
-    @Published var selection: Set<Int> = []
+    @Published var selection: Set<Int> = [] {
+        // A point selection belongs to the node(s) it was made on — any
+        // node-selection change invalidates it (canvas or Layers alike).
+        didSet { if selection != oldValue { selectedAnchors = [] } }
+    }
+    /// The selected points (Direct Select), session-side so palettes can
+    /// target them too (Corners applies only to selected points). The
+    /// canvas owns the interactions; move and corner-radius act on all.
+    @Published var selectedAnchors: Set<AnchorRef> = []
     /// App-side node locks (Layers palette): locked nodes are skipped by
     /// canvas hit-testing, marquee and selection. Session-only — the SVG on
     /// disk never carries lock state.
