@@ -121,6 +121,12 @@ private struct LayerRowView: View {
             disclosure
             NodeGlyph(node: row.node)
             nameView
+            if isAnimated {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 8))
+                    .foregroundStyle(Color.fekthorAccent)
+                    .help("This element is animated — open the timeline to edit")
+            }
             Spacer(minLength: 4)
             eyeButton
             lockButton
@@ -149,6 +155,14 @@ private struct LayerRowView: View {
             delegate: LayerDropDelegate(
                 targetID: row.id, session: session,
                 draggedID: $draggedID, dropTargetID: $dropTargetID))
+    }
+
+    /// The node carries an animation marker class (`fk-anim-*` binding).
+    private var isAnimated: Bool {
+        let targets = session.animationBindings.map(\.target)
+        guard !targets.isEmpty else { return false }
+        let classes = ClassTokens.list(row.node.nodeAttributes)
+        return targets.contains { classes.contains($0) }
     }
 
     @ViewBuilder

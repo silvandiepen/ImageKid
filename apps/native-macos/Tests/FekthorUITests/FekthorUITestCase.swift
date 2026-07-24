@@ -104,7 +104,10 @@ class FekthorUITestCase: XCTestCase {
 
     /// Home → ⌘N → the editor with its tool shelf on screen.
     func openBlankEditor(_ app: XCUIApplication) {
-        assertAppears(app.staticTexts["New File"], timeout: 10, "home should show the New File card")
+        // Match the card by identifier, not its text: SwiftUI sometimes
+        // exposes the label combined into the button (no child StaticText).
+        assertAppears(
+            element(app, "home.newFile"), timeout: 10, "home should show the New File card")
         app.typeKey("n", modifierFlags: .command)
         assertAppears(element(app, "tool.select"), "the editor tool shelf should appear after ⌘N")
     }

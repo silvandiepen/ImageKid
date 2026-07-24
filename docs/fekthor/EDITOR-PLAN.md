@@ -169,6 +169,25 @@ modelled gradient defs (app-side normalizer in EditorGradients.swift
 retires then); ThumbnailRenderer still flattens gradients to the first
 stop; GradientStop lacks stop-opacity.
 
+## Animations (SHIPPED 2026-07-24 — see ANIMATIONS.md)
+
+CSS animations authored in Fekthor, baked into source SVGs as a generated
+`<style id="fekthor-animations">` block (idempotent RawNode; zero writer
+changes). Defs in the workfile (`animations`), resolved copies + bindings
+(the icon's scene) in FileMeta — undo-covered for free. Marker-class
+bindings (`fk-anim-*`, root class = whole icon), per-binding triggers
+(continuous/hover/focus/active/parent-class/manual), consumer contract
+(`.animate*` utilities + `--icon-animate-*` custom properties, `:where()`
+zero-specificity, reduced-motion, static-first via animation-name gating).
+Editor: engine interpolator (UnitBezier/steps, golden-tested) drives canvas
+playback; Animation palette; bottom timeline drawer (tracks, 1%-grid
+keyframe drags, easing popover + bezier pad, delay/duration span drags,
+record mode with workspace-def forking); Workspace ▸ Animations… library
+sheet with count-confirmed propagation. Export: `strip-animations`/
+`bake-animations` actions, enabled-toggle default policy, meta stripped
+after actions, flatten preserves bound groups. Verified animating in
+Chrome (spin/hover-draw/gated).
+
 ## Open items
 
 - Undo architecture decision (snapshots vs commands) due at P3 exit.

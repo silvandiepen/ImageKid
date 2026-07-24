@@ -43,6 +43,7 @@ struct WorkspaceGalleryView: View {
     // Workspace panels (also reachable from the Workspace menu).
     @State private var exportShown = false
     @State private var tokensShown = false
+    @State private var animationsShown = false
     @State private var containerTarget: IconEntry? = nil
 
     enum SortMode: String, CaseIterable {
@@ -766,6 +767,9 @@ struct WorkspaceGalleryView: View {
             .sheet(isPresented: $tokensShown) {
                 WorkspaceTokensView(session: session)
             }
+            .sheet(isPresented: $animationsShown) {
+                WorkspaceAnimationsView(session: session)
+            }
             .sheet(item: $containerTarget) { entry in
                 ContainerSlotSheet(session: session, entry: entry)
             }
@@ -778,6 +782,11 @@ struct WorkspaceGalleryView: View {
                 NotificationCenter.default.publisher(for: .fekthorWorkspaceTokens)
             ) { _ in
                 tokensShown = true
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(for: .fekthorWorkspaceAnimations)
+            ) { _ in
+                animationsShown = true
             }
     }
 }
@@ -833,6 +842,11 @@ private struct IconCell: View {
     var onSelect: () -> Void
     var onOpen: () -> Void
 
+    /// The file carries a baked animation block (checked cheaply — the
+    /// generated <style> is always the first node, so the head of the file
+    /// is enough).
+    @State private var isAnimated = false
+
     var body: some View {
         VStack(spacing: 6) {
             ZStack {
@@ -875,6 +889,15 @@ private struct IconCell: View {
         // rescan that saw the file's size/date change).
         .task(id: thumbnails.key(for: entry)) {
             thumbnails.request(entry)
+            let url = entry.url
+            isAnimated = await Task.detached(priority: .utility) {
+                guard let handle = try? FileHandle(forReadingFrom: url),
+                    let head = try? handle.read(upToCount: 4096)
+                else { return false }
+                try? handle.close()
+                return String(decoding: head, as: UTF8.self)
+                    .contains(AnimationCSS.styleElementID)
+            }.value
         }
     }
 
@@ -897,6 +920,14 @@ private struct IconCell: View {
     @ViewBuilder
     private var badges: some View {
         HStack(spacing: 3) {
+            if isAnimated {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Color.fekthorAccent)
+                    .padding(3)
+                    .background(.regularMaterial, in: Circle())
+                    .help("Animated icon")
+            }
             if role == .partial {
                 Image(systemName: "puzzlepiece.fill")
                     .font(.system(size: 9, weight: .semibold))

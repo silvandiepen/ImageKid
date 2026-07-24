@@ -107,6 +107,83 @@ public enum AnimationEngine {
         rootClassList(doc.rootAttributes).contains(target)
     }
 
+    // MARK: - Workspace propagation
+
+    /// A workspace def was edited: refresh every bound icon's FileMeta copy
+    /// and regenerate its style block. Returns ONLY the documents that
+    /// actually changed (the save contract shared with
+    /// `NamedStyles.propagate` — callers never rewrite an unedited file).
+    public static func propagate(
+        _ def: AnimationDef, workspace: Workfile, docs: [String: GraphicDocument]
+    ) -> [String: GraphicDocument] {
+        var out: [String: GraphicDocument] = [:]
+        for (name, doc) in docs {
+            guard var meta = FileMeta.read(from: doc), var defs = meta.animations,
+                let i = defs.firstIndex(where: { $0.name == def.name }),
+                defs[i] != def
+            else { continue }
+            defs[i] = def
+            meta.animations = defs
+            var updated = FileMeta.writing(meta, to: doc)
+            updated = applyingStyleBlock(
+                to: updated, workspace: workspace, iconSlug: iconSlug(from: name))
+            out[name] = updated
+        }
+        return out
+    }
+
+    /// A workspace def was renamed: follow the name through each icon's def
+    /// copy, binding references, and default-derived marker classes
+    /// (`fk-anim-old` → `fk-anim-new`; forked/custom targets stay). Returns
+    /// only changed documents. The workfile rename itself is the caller's.
+    public static func renameDef(
+        from oldName: String, to newName: String, workspace: Workfile,
+        docs: [String: GraphicDocument]
+    ) -> [String: GraphicDocument] {
+        let settings = AnimationSettings.resolved(
+            workspace: workspace.settings?.animations, icon: nil)
+        let prefix = settings.classPrefix ?? AnimationSettings.standard.classPrefix!
+        let oldTarget = "\(prefix)anim-\(oldName)"
+        let newTarget = "\(prefix)anim-\(newName)"
+        var out: [String: GraphicDocument] = [:]
+        for (name, doc) in docs {
+            guard var meta = FileMeta.read(from: doc) else { continue }
+            var changed = false
+            if var defs = meta.animations,
+                let i = defs.firstIndex(where: { $0.name == oldName })
+            {
+                defs[i].name = newName
+                meta.animations = defs
+                changed = true
+            }
+            if var bindings = meta.animationBindings {
+                for i in bindings.indices where bindings[i].animation == oldName {
+                    bindings[i].animation = newName
+                    if bindings[i].target == oldTarget {
+                        bindings[i].target = newTarget
+                    }
+                    changed = true
+                }
+                meta.animationBindings = bindings
+            }
+            guard changed else { continue }
+            var updated = FileMeta.writing(meta, to: doc)
+            var retagged = false
+            updated.nodes = ClassStrip.rename(
+                updated.nodes, from: oldTarget, to: newTarget, changed: &retagged)
+            if rootClassList(updated.rootAttributes).contains(oldTarget) {
+                updated.rootAttributes = removingRootClass(
+                    updated.rootAttributes, token: oldTarget)
+                updated.rootAttributes = addingRootClass(
+                    updated.rootAttributes, token: newTarget)
+            }
+            updated = applyingStyleBlock(
+                to: updated, workspace: workspace, iconSlug: iconSlug(from: name))
+            out[name] = updated
+        }
+        return out
+    }
+
     // MARK: - Class plumbing
 
     static func rootClassList(_ attributes: [XMLAttr]) -> [String] {
@@ -213,8 +290,36 @@ public enum AnimationEngine {
         return out
     }
 
-    /// Class-token removal across the tree (shapes and groups).
+    /// Class-token removal/rename across the tree (shapes and groups).
     enum ClassStrip {
+        static func rename(
+            _ nodes: [GraphicNode], from old: String, to new: String, changed: inout Bool
+        ) -> [GraphicNode] {
+            nodes.map { node in
+                switch node {
+                case .raw:
+                    return node
+                case .shape(var s):
+                    let classes = NamedStyles.classList(of: s.attributes)
+                    if classes.contains(old) {
+                        s.attributes = NamedStyles.settingClassList(
+                            s.attributes, to: classes.map { $0 == old ? new : $0 })
+                        changed = true
+                    }
+                    return .shape(s)
+                case .group(var g):
+                    let classes = NamedStyles.classList(of: g.attributes)
+                    if classes.contains(old) {
+                        g.attributes = NamedStyles.settingClassList(
+                            g.attributes, to: classes.map { $0 == old ? new : $0 })
+                        changed = true
+                    }
+                    g.children = rename(g.children, from: old, to: new, changed: &changed)
+                    return .group(g)
+                }
+            }
+        }
+
         static func strip(_ nodes: [GraphicNode], token: String, changed: inout Bool)
             -> [GraphicNode]
         {

@@ -91,6 +91,47 @@ final class AnimationEngineTests: XCTestCase {
         XCTAssertEqual(FileMeta.read(from: d)?.animationBindings?.count, 1)
     }
 
+    func testPropagateRefreshesOnlyBoundChangedDocs() {
+        var workspace = Workfile()
+        workspace.animations = [AnimationPresets.spin]
+        let bound = AnimationEngine.bind(
+            AnimationPresets.spin, toNodes: [0], in: doc(), settings: AnimationSettings())
+        let unbound = doc()
+
+        var faster = AnimationPresets.spin
+        faster.timing = AnimationTiming(duration: 0.2, timingFunction: "linear")
+        workspace.animations = [faster]
+
+        let rewritten = AnimationEngine.propagate(
+            faster, workspace: workspace, docs: ["a": bound, "b": unbound])
+        XCTAssertEqual(Array(rewritten.keys), ["a"])
+        XCTAssertEqual(
+            FileMeta.read(from: rewritten["a"]!)?.animations?.first?.timing?.duration, 0.2)
+        XCTAssertTrue(SVGWriter.write(rewritten["a"]!).contains(", .2s)"))
+        // Idempotent: propagating the same def again touches nothing.
+        XCTAssertTrue(
+            AnimationEngine.propagate(
+                faster, workspace: workspace, docs: rewritten
+            ).isEmpty)
+    }
+
+    func testRenameDefFollowsBindingsAndMarkerClasses() {
+        var workspace = Workfile()
+        workspace.animations = [AnimationPresets.spin]
+        let bound = AnimationEngine.bind(
+            AnimationPresets.spin, toNodes: [0], in: doc(), settings: AnimationSettings())
+        let renamed = AnimationEngine.renameDef(
+            from: "spin", to: "twirl", workspace: workspace, docs: ["a": bound])
+        guard let out = renamed["a"] else { return XCTFail("doc should change") }
+        XCTAssertEqual(classes(out, id: 0), ["fk-anim-twirl"])
+        let meta = FileMeta.read(from: out)
+        XCTAssertEqual(meta?.animations?.first?.name, "twirl")
+        XCTAssertEqual(meta?.animationBindings?.first?.animation, "twirl")
+        XCTAssertEqual(meta?.animationBindings?.first?.target, "fk-anim-twirl")
+        let svg = SVGWriter.write(out)
+        XCTAssertFalse(svg.contains("fk-anim-spin"))
+    }
+
     func testBoundIconSavesAndPlaysEndToEnd() throws {
         // The full authoring loop: bind → save (style block bakes) →
         // reopen → binding still editable, block regenerates identically.

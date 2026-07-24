@@ -325,6 +325,22 @@ struct ContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: .fekthorExportPDF)) { _ in
                 editorSession?.exportPDF()
             }
+            .onReceive(
+                NotificationCenter.default.publisher(for: .fekthorAnimateApply)
+            ) { note in
+                guard let session = editorSession,
+                    let name = note.userInfo?["animation"] as? String,
+                    let def = session.animationDef(named: name)
+                else { return }
+                session.applyAnimation(def)
+                EditorPanelsState.shared.restore(.animation)
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(for: .fekthorToggleTimeline)
+            ) { _ in
+                guard editorSession != nil else { return }
+                EditorPanelsState.shared.timelineShown.toggle()
+            }
     }
 
     /// Runs `action` right away when no unsaved editor work is at stake;
@@ -1539,6 +1555,7 @@ struct EditorWorkspaceView: View {
             preview.workspaceSettings = workspace.settings.settings?.animations
             session.workfileProvider = { [weak workspace] in workspace?.settings }
             session.animationPlayheadTime = { [weak preview] in preview?.pausedTime ?? 0 }
+            MenuState.shared.animationNames = session.availableAnimationDefs.map(\.name)
         }
         .onDisappear {
             MenuState.shared.canCombine = false
