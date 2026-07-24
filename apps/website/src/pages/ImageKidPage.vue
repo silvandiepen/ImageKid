@@ -41,7 +41,7 @@ const data: ProductPageData = {
       copy:
         "One tap gives you an instant cut-out. If the shot is harder — flyaway hair, a busy background — grab the best-quality model, which also runs on your Mac. Then refine the mask by hand if you want the last word.",
       bullets: ["Built-in remover, no download", "Optional best-quality on-device model", "Manual refine brush"],
-      image: "/media/app/background-refine.jpg",
+      image: "/media/app/background.jpg",
       imageAlt: "Refining a background cut-out in ImageKid",
       imageSide: "right",
       tone: 1
@@ -72,7 +72,7 @@ const data: ProductPageData = {
       title: "Magic, and the honest asterisk.",
       copy:
         "Magic is deliberately separate from the local tools. Describe an edit and ImageKid sends the image and prompt to your configured AI provider using your own key. No key, no sending — everything else stays local.",
-      image: "/media/app/magic-provider-warning.jpg",
+      image: "/media/app/magic.jpg",
       imageAlt: "The Magic provider key notice in ImageKid",
       imageSide: "left",
       tone: 4
