@@ -694,7 +694,7 @@ struct EditorPanelsLayer: View {
         }
         // A whisper of chrome so the rail reads as one strip over the
         // canvas, matching the palettes' dark glass.
-        .padding(6)
+        .padding(10)
         .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 16))
         .overlay(
             RoundedRectangle(cornerRadius: 16)
