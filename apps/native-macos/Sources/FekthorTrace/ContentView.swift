@@ -1,4 +1,7 @@
+import AppKit
 import FekthorKit
+import ImageIO
+import ImageKidKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -29,9 +32,20 @@ struct ContentView: View {
     /// Save/Discard/Cancel choice; Cancel drops it entirely.
     @State private var pendingModeChange: (() -> Void)? = nil
     @State private var confirmModeChange = false
+    /// Non-nil while the vectorizer is open ON a placed image of the editor
+    /// session underneath (right-click ▸ Vectorize). Save swaps the traced
+    /// vectors in for that image and returns to the editor; Cancel just
+    /// returns. The editor session stays alive the whole time.
+    @State private var vectorizeTarget: VectorizeTarget? = nil
 
     struct WorkspaceTraceTarget {
         var category: String
+        var name: String
+    }
+
+    /// The placed image being vectorized, and what to call it in the UI.
+    struct VectorizeTarget: Equatable {
+        var nodeID: Int
         var name: String
     }
 
@@ -40,17 +54,18 @@ struct ContentView: View {
         var id: String { category }
     }
 
-    /// The trace flow is active: no editor session on top, and an image or
-    /// traced document is loaded. Only then do the vectorize controls
-    /// (inspector sidebar + trace toolbar) belong on screen.
+    /// The trace flow is active: the vectorize controls (inspector sidebar +
+    /// trace toolbar) belong on screen. That is either the standalone trace
+    /// flow, or a Vectorize opened on a placed image over an editor session.
     private var inTraceMode: Bool {
-        editorSession == nil && (model.sourceImage != nil || model.document != nil)
+        (editorSession == nil || vectorizeTarget != nil)
+            && (model.sourceImage != nil || model.document != nil)
     }
 
     var body: some View {
         NavigationStack {
             Group {
-                if let session = editorSession {
+                if let session = editorSession, vectorizeTarget == nil {
                     EditorWorkspaceView(
                         session: session, zoom: $zoom, offset: $offset,
                         backLabel: workspaceSession.workspace != nil ? "Gallery" : "Home",
@@ -58,13 +73,17 @@ struct ContentView: View {
                         guide: editorGuide,
                         snapToPoints: menuState.snapToPoints,
                         workspace: workspaceSession,
+                        onVectorize: { startVectorize($0) },
                         onClose: { editorSession = nil })
                 } else if model.sourceImage != nil || model.document != nil {
                     VStack(spacing: 0) {
                         ComparisonView(
                             model: model, mode: $compareMode, zoom: $zoom, offset: $offset)
                         Divider()
-                        if traceTarget != nil && workspaceSession.workspace != nil {
+                        if vectorizeTarget != nil {
+                            vectorizeBar
+                            Divider()
+                        } else if traceTarget != nil && workspaceSession.workspace != nil {
                             workspaceSaveBar
                             Divider()
                         }
@@ -107,8 +126,8 @@ struct ContentView: View {
                 InspectorView(model: model)
                     .inspectorColumnWidth(min: 250, ideal: 290, max: 380)
             }
-            .onDrop(of: [.fileURL], isTargeted: nil) { model.handleDrop($0) }
-            .onPasteCommand(of: [.image, .fileURL]) { _ in model.paste() }
+            .onDrop(of: [.fileURL], isTargeted: nil) { handleDrop($0) }
+            .onPasteCommand(of: [.image, .fileURL]) { _ in pasteHere() }
             .alert("Discard your edits?", isPresented: $model.confirmReconvert) {
                 Button("Discard & Re-convert", role: .destructive) {
                     model.confirmPendingAction()
@@ -178,7 +197,15 @@ struct ContentView: View {
                 openWorkspace()
             }
             .onReceive(NotificationCenter.default.publisher(for: .fekthorSave)) { _ in
-                if let session = editorSession { session.save() } else { model.exportSVG() }
+                // ⌘S in the vectorizer means "put these vectors back": the
+                // same thing its Save button does.
+                if vectorizeTarget != nil {
+                    applyVectorize()
+                } else if let session = editorSession {
+                    session.save()
+                } else {
+                    model.exportSVG()
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .fekthorSaveAs)) { _ in
                 editorSession?.saveAs()
@@ -210,6 +237,12 @@ struct ContentView: View {
     /// body stays type-checkable.
     private var objectCommandListeners: some View {
         Color.clear
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorUndo)) { _ in
+                editorSession?.undo()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fekthorSelectAll)) { _ in
+                editorSession?.selectAllVisible()
+            }
             .onReceive(NotificationCenter.default.publisher(for: .fekthorGroup)) { _ in
                 editorSession?.groupSelection()
             }
@@ -351,12 +384,140 @@ struct ContentView: View {
     /// (proceeds only when the save lands), Discard, or Cancel (the mode
     /// change never happens, no panel is shown).
     private func withDirtyCheck(_ action: @escaping () -> Void) {
+        // Any mode change leaves the vectorizer first; the placed image is
+        // kept exactly as it was (only Save ever replaces it).
+        if vectorizeTarget != nil { leaveVectorize() }
         if let session = editorSession, session.dirty {
             pendingModeChange = action
             confirmModeChange = true
         } else {
             action()
         }
+    }
+
+    // MARK: - Images arriving by paste or drop
+
+    /// ⌘V. With the editor open a raster becomes a PLACED IMAGE on the
+    /// canvas — it stays an image until you vectorize it; everywhere else it
+    /// starts the trace flow as before.
+    private func pasteHere() {
+        guard vectorizeTarget == nil, let session = editorSession else {
+            model.paste()
+            return
+        }
+        let pb = NSPasteboard.general
+        if let image = NSImage(pasteboard: pb),
+            let bitmap = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        {
+            session.insertImage(bitmap, name: "Pasted image")
+            return
+        }
+        if let urls = pb.readObjects(forClasses: [NSURL.self]) as? [URL], let url = urls.first,
+            let bitmap = ContentView.bitmap(at: url)
+        {
+            session.insertImage(
+                bitmap, name: url.deletingPathExtension().lastPathComponent)
+            return
+        }
+        session.status = "The clipboard holds no image."
+    }
+
+    /// A file drop. With the editor open, rasters land on the canvas as
+    /// placed images and vector files open as documents; without it, the drop
+    /// starts the trace flow exactly as before.
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard vectorizeTarget == nil, editorSession != nil else {
+            return model.handleDrop(providers)
+        }
+        guard let provider = providers.first else { return false }
+        _ = provider.loadObject(ofClass: URL.self) { url, _ in
+            guard let url else { return }
+            Task { @MainActor in
+                let ext = url.pathExtension.lowercased()
+                if ext == "svg" || ext == "fekthor" {
+                    withDirtyCheck { route(url: url) }
+                    return
+                }
+                guard let session = editorSession else { return }
+                guard let bitmap = ContentView.bitmap(at: url) else {
+                    session.status = "Could not read \(url.lastPathComponent) as an image."
+                    return
+                }
+                session.insertImage(
+                    bitmap, name: url.deletingPathExtension().lastPathComponent)
+            }
+        }
+        return true
+    }
+
+    /// Decode any image file the system knows into a bitmap.
+    private static func bitmap(at url: URL) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }
+
+    // MARK: - Vectorize a placed image
+
+    /// Right-click ▸ Vectorize on the canvas: open the vectorizer on that
+    /// image's pixels while the editor session stays loaded underneath.
+    private func startVectorize(_ request: EditorSession.VectorizeRequest) {
+        guard let session = editorSession else { return }
+        session.vectorizeRequest = nil
+        guard let raster = session.imageRaster(node: request.id) else {
+            session.status = "That image's pixels could not be read."
+            return
+        }
+        vectorizeTarget = VectorizeTarget(nodeID: request.id, name: request.name)
+        zoom = 1
+        offset = .zero
+        model.load(raster: raster, name: request.name)
+    }
+
+    /// Vectorizer ▸ Save: the traced vectors replace the image, in place and
+    /// at its exact size, and the editor comes back.
+    private func applyVectorize() {
+        guard let target = vectorizeTarget, let session = editorSession,
+            let traced = model.document
+        else { return }
+        guard
+            session.replaceImageWithTrace(
+                node: target.nodeID, traced: Model2Bridge.graphicDocument(from: traced))
+        else { return }
+        leaveVectorize()
+    }
+
+    /// Vectorizer ▸ Cancel: the image is left exactly as it was.
+    private func cancelVectorize() {
+        editorSession?.status = "Vectorize cancelled — the image is unchanged."
+        leaveVectorize()
+    }
+
+    private func leaveVectorize() {
+        vectorizeTarget = nil
+        model.reset()
+        zoom = 1
+        offset = .zero
+    }
+
+    /// The bar under the vectorizer preview: name of the image being traced,
+    /// Save (replace it with these vectors) and Cancel.
+    private var vectorizeBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "wand.and.stars").foregroundStyle(Color.fekthorAccent)
+            Text("Vectorizing \(vectorizeTarget?.name ?? "image")")
+            Text("— Save puts the vectors back in place of the image.")
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button("Cancel") { cancelVectorize() }
+                .accessibilityIdentifier("vectorize.cancel")
+            Button("Save") { applyVectorize() }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!model.hasResult)
+                .accessibilityIdentifier("vectorize.save")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(Color.fekthorAccent.opacity(0.08))
     }
 
     private func newFile() {
@@ -375,6 +536,7 @@ struct ContentView: View {
     /// and the prompt only opens when that save lands; a dirty untitled
     /// session goes through the Save/Discard/Cancel dialog instead.
     private func requestNewIcon(category: String? = nil) {
+        if vectorizeTarget != nil { leaveVectorize() }
         guard workspaceSession.workspace != nil else {
             newFile()
             return
@@ -673,8 +835,12 @@ struct ContentView: View {
     private var toolbarContent: some ToolbarContent {
         if inTraceMode {
             ToolbarItemGroup(placement: .navigation) {
-                Button { model.openPanel() } label: {
-                    Label("Open", systemImage: "photo.badge.plus")
+                // Vectorizing is bound to one specific placed image —
+                // swapping the source out from under it makes no sense.
+                if vectorizeTarget == nil {
+                    Button { model.openPanel() } label: {
+                        Label("Open", systemImage: "photo.badge.plus")
+                    }
                 }
             }
             ToolbarItemGroup(placement: .primaryAction) {
@@ -697,15 +863,20 @@ struct ContentView: View {
                 }
                 .keyboardShortcut("z", modifiers: .command)
                 .disabled(!model.canUndo)
-                Button { openTraceInEditor() } label: {
-                    Label("Open in Editor", systemImage: "square.and.pencil")
+                // Vectorizing a placed image has exactly one destination —
+                // back into the document it came from (the bar below the
+                // preview owns Save/Cancel), so the detour actions are out.
+                if vectorizeTarget == nil {
+                    Button { openTraceInEditor() } label: {
+                        Label("Open in Editor", systemImage: "square.and.pencil")
+                    }
+                    .disabled(!model.hasResult)
+                    .help("Continue with this vector in the editor")
+                    Button { model.exportSVG() } label: {
+                        Label("Export SVG", systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(!model.hasResult)
                 }
-                .disabled(!model.hasResult)
-                .help("Continue with this vector in the editor")
-                Button { model.exportSVG() } label: {
-                    Label("Export SVG", systemImage: "square.and.arrow.up")
-                }
-                .disabled(!model.hasResult)
                 Button { showInspector.toggle() } label: {
                     Label("Inspector", systemImage: "sidebar.trailing")
                 }
@@ -748,133 +919,55 @@ private struct EmptyStateView: View {
     @StateObject private var recentPreviews = RecentPreviewStore()
 
     var body: some View {
-        ZStack {
-            // Transparent: the window's black-glass backdrop shows through.
-            Color.clear
-            VStack(spacing: 28) {
-                VStack(spacing: 6) {
-                    Text("Fekthor").font(.largeTitle).fontWeight(.semibold)
-                    Text("Vector editing, with tracing built in.")
-                        .foregroundStyle(.secondary)
-                }
-                HStack(spacing: 16) {
-                    homeCard(
-                        icon: "doc.badge.plus",
-                        title: "New File",
-                        subtitle: "A blank 72×72 artboard.\nSaves as plain SVG.",
-                        enabled: true
-                    ) {
-                        onNewFile()
-                    }
-                    .accessibilityIdentifier("home.newFile")
-                    homeCard(
-                        icon: "square.grid.3x3.square",
-                        title: "New Workspace",
-                        subtitle: "An icon library —\na .fekthor workfile over\na folder of SVGs.",
-                        enabled: true
-                    ) {
-                        onNewWorkspace()
-                    }
-                    .accessibilityIdentifier("home.newWorkspace")
-                    homeCard(
-                        icon: "wand.and.rays",
-                        title: "Vectorize Image",
-                        subtitle: "Trace a PNG or photo\ninto editable vectors.",
-                        enabled: true
-                    ) {
-                        model.openPanel()
-                    }
-                    .accessibilityIdentifier("home.vectorize")
-                }
-                HStack(spacing: 20) {
-                    Button("Open a file…", action: onOpen)
-                        .buttonStyle(.link)
-                    Button("Open Workspace…", action: onOpenWorkspace)
-                        .buttonStyle(.link)
-                }
-                if !recents.isEmpty {
-                    VStack(spacing: 6) {
-                        Text("Recent workspaces")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        ForEach(recents.prefix(5)) { recent in
-                            RecentWorkspaceRow(recent: recent, store: recentPreviews) {
-                                onOpenRecent(recent)
-                            }
-                        }
-                    }
-                }
-                Text("or drop an image or SVG anywhere · press ⌘V to paste")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(40)
-        }
+        HomeScreen(
+            title: "Fekthor",
+            subtitle: "Vector editing, with tracing built in.",
+            footnote: "or drop an image or SVG anywhere \u{00B7} \u{2318}V to paste",
+            character: Image("FekthorCharacter"),
+            characterAspect: 1389.0 / 2048.0,
+            accent: .accentColor,
+            actions: [
+                HomeAction(
+                    id: "home.newFile",
+                    icon: "doc.badge.plus",
+                    title: "New File",
+                    subtitle: "Blank 72\u{00D7}72 artboard",
+                    action: onNewFile
+                ),
+                HomeAction(
+                    id: "home.newWorkspace",
+                    icon: "square.grid.3x3.square",
+                    title: "New Workspace",
+                    subtitle: "A library of SVGs",
+                    action: onNewWorkspace
+                ),
+                HomeAction(
+                    id: "home.openFile",
+                    icon: "folder",
+                    title: "Open File",
+                    subtitle: "An SVG or image",
+                    action: onOpen
+                )
+            ],
+            links: [
+                HomeLink(id: "home.openWorkspace", title: "Open Workspace\u{2026}", action: onOpenWorkspace)
+            ],
+            recents: { recentWorkspaces }
+        )
         .onDrop(of: [.fileURL], isTargeted: nil) { model.handleDrop($0) }
     }
 
-    private func homeCard(
-        icon: String, title: String, subtitle: String, enabled: Bool, badge: String? = nil,
-        action: @escaping () -> Void
-    ) -> some View {
-        HomeCard(
-            icon: icon, title: title, subtitle: subtitle, enabled: enabled, badge: badge,
-            action: action)
-    }
-}
-
-/// One home-screen action card: borderless, on an adaptive fill that reads
-/// as a card in both appearances (slightly lighter than the window in light
-/// mode, slightly darker-contrasting in dark), brightening on hover.
-private struct HomeCard: View {
-    let icon: String
-    let title: String
-    let subtitle: String
-    var enabled = true
-    var badge: String? = nil
-    var action: () -> Void
-
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 10) {
-                Image(systemName: icon)
-                    .font(.system(size: 34))
-                    .foregroundStyle(enabled ? Color.accentColor : Color.secondary)
-                Text(title).font(.headline)
-                Text(subtitle)
-                    .font(.caption)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
-                if let badge {
-                    Text(badge)
-                        .font(.caption2)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .background(.quaternary, in: Capsule())
-                }
-            }
-            .frame(width: 190, height: 170)
-            .background(
-                ZStack {
-                    // Always a touch DARKER than the window background (Sil):
-                    // a black scrim reads as a sunken card in light mode and
-                    // deepens the dark background too; subtler in light.
-                    RoundedRectangle(cornerRadius: 18)
-                        .fill(Color.black.opacity(0.07))
-                    if hovering && enabled {
-                        RoundedRectangle(cornerRadius: 18)
-                            .fill(Color.black.opacity(0.06))
+    @ViewBuilder
+    private var recentWorkspaces: some View {
+        if !recents.isEmpty {
+            HomeRecentsSection {
+                ForEach(recents.prefix(3)) { recent in
+                    RecentWorkspaceRow(recent: recent, store: recentPreviews) {
+                        onOpenRecent(recent)
                     }
                 }
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 18))
+            }
         }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .disabled(!enabled)
-        .opacity(enabled ? 1 : 0.6)
     }
 }
 
@@ -1046,7 +1139,7 @@ private struct ComparisonView: View {
             .padding(8)
             GeometryReader { inner in
                 ZStack {
-                    Rectangle().fill(CanvasAppearance.shared.effectiveBackground)
+                    CanvasBackgroundView(background: CanvasAppearance.shared.background)
                     content(inner.size)
                 }
                 .clipped()
@@ -1158,7 +1251,7 @@ private struct ComparisonView: View {
             }
             .padding(8)
             ZStack {
-                Rectangle().fill(CanvasAppearance.shared.effectiveBackground)
+                CanvasBackgroundView(background: CanvasAppearance.shared.background)
                 VectorEditLayer(model: model, zoom: $zoom, offset: $offset, busy: busy)
             }
             .clipped()
@@ -1175,7 +1268,7 @@ private struct ComparisonView: View {
             .padding(8)
             GeometryReader { _ in
                 ZStack {
-                    Rectangle().fill(CanvasAppearance.shared.effectiveBackground)
+                    CanvasBackgroundView(background: CanvasAppearance.shared.background)
                     if let image {
                         Image(nsImage: image)
                             .resizable()
@@ -1486,6 +1579,9 @@ struct EditorWorkspaceView: View {
     /// shared swatches through it (works detached too: the panel shows a
     /// hint while no workspace is open).
     let workspace: WorkspaceSession
+    /// Raised when the canvas asks to vectorize a placed image (right-click
+    /// ▸ Vectorize); the app opens the vectorizer on it.
+    var onVectorize: (EditorSession.VectorizeRequest) -> Void = { _ in }
     var onClose: () -> Void
 
     @ObservedObject private var panels = EditorPanelsState.shared
@@ -1584,6 +1680,9 @@ struct EditorWorkspaceView: View {
             MenuState.shared.canCombine = selection.count >= 2
             MenuState.shared.canAlign = !selection.isEmpty
         }
+        .onChange(of: session.vectorizeRequest) { _, request in
+            if let request { onVectorize(request) }
+        }
         .confirmationDialog(
             "Save the changes to \(session.fileURL?.lastPathComponent ?? "this file")?",
             isPresented: $confirmClose
@@ -1626,41 +1725,10 @@ struct EditorWorkspaceView: View {
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
-            Button {
-                session.undo()
-            } label: {
-                Label("Undo", systemImage: "arrow.uturn.backward")
-                    .labelStyle(.iconOnly)
-            }
-            .keyboardShortcut("z", modifiers: .command)
-            .disabled(!session.canUndo)
-            .help("Undo (⌘Z)")
-            .accessibilityIdentifier("editor.undo")
-            Button {
-                session.save()
-            } label: {
-                Label("Save", systemImage: "square.and.arrow.down")
-                    .labelStyle(.iconOnly)
-            }
-            .accessibilityIdentifier("editor.save")
-            // The one prominent header action: Save keeps the accent while
-            // there is something to save; everything else stays neutral.
-            .tint(session.dirty ? Color.fekthorAccent : .primary)
-            .help("Save (⌘S)")
-            // Compact access to the floating palettes (same set as the
-            // Panels menu): checkmarked toggles for Fill / Stroke / Opacity
-            // / Combine.
-            Menu {
-                ForEach(EditorPanel.allCases) { panel in
-                    Toggle(panel.title, isOn: panels.toggleBinding(panel))
-                }
-            } label: {
-                Label("Panels", systemImage: "square.grid.2x2")
-                    .labelStyle(.iconOnly)
-            }
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("Show or hide the floating panels")
+            // Undo, Save and the Panels menu used to live here. They are all
+            // reachable from the menu bar (⌘Z, ⌘S, the Panels menu) and the
+            // rail already toggles every palette, so the header keeps only
+            // the document identity. The dirty dot still reports unsaved work.
             // Backspace: while a pen path is in progress it removes the
             // last placed anchor; otherwise it deletes the selected nodes.
             Button {
@@ -1906,5 +1974,25 @@ private struct ToolShortcutMonitor: NSViewRepresentable {
         deinit {
             if let monitor { NSEvent.removeMonitor(monitor) }
         }
+    }
+}
+
+extension AboutPanelInfo {
+    /// Fekthor's About window contents. Mirrors ImageKid's.
+    static var fekthor: AboutPanelInfo {
+        AboutPanelInfo(
+            name: "Fekthor",
+            tagline: "Vector editing, with tracing built in.\nLocal-first — nothing leaves your Mac.",
+            icon: NSImage(named: NSImage.applicationIconName).map { Image(nsImage: $0) },
+            accent: .fekthorAccent,
+            links: [
+                HomeLink(id: "about.site", title: "Website") {
+                    NSWorkspace.shared.open(URL(string: "https://imagekid.app")!)
+                },
+                HomeLink(id: "about.notices", title: "Acknowledgements") {
+                    NSWorkspace.shared.open(URL(string: "https://imagekid.app/acknowledgements")!)
+                }
+            ]
+        )
     }
 }

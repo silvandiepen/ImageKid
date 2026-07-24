@@ -201,7 +201,8 @@ public enum StyleTokens {
     static func walkStyles(_ nodes: [GraphicNode], _ visit: (Int, Style) -> Void) {
         for node in nodes {
             switch node {
-            case .raw:
+            // Placed rasters carry no paint: colour slots skip them.
+            case .raw, .image:
                 break
             case .shape(let s):
                 visit(s.id, s.style)
@@ -217,7 +218,7 @@ public enum StyleTokens {
     ) -> [GraphicNode] {
         nodes.map { node in
             switch node {
-            case .raw:
+            case .raw, .image:
                 return node
             case .shape(var s):
                 s.style = rewriteStyle(s.style, from: old, to: new, changed: &changed)

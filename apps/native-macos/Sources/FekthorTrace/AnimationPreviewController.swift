@@ -146,6 +146,11 @@ final class AnimationPreviewController: ObservableObject {
                     for token in ClassTokens.list(s.attributes) {
                         members[token, default: []].append(s.id)
                     }
+                case .image(let i):
+                    if depth == 0 { topLevel.append(i.id) }
+                    for token in ClassTokens.list(i.attributes) {
+                        members[token, default: []].append(i.id)
+                    }
                 case .group(let g):
                     if depth == 0 { topLevel.append(g.id) }
                     for token in ClassTokens.list(g.attributes) {
@@ -208,6 +213,9 @@ final class AnimationPreviewController: ObservableObject {
         case .shape(let s):
             accumulate(s)
             style = s.renderStyle
+        case .image(let i):
+            box = CGRect(x: i.x, y: i.y, width: i.width, height: i.height)
+            style = i.renderStyle
         case .group(let g):
             style = g.renderStyle
             func walk(_ nodes: [GraphicNode]) {
@@ -215,6 +223,9 @@ final class AnimationPreviewController: ObservableObject {
                     switch child {
                     case .shape(let s): accumulate(s)
                     case .group(let inner): walk(inner.children)
+                    case .image(let i):
+                        box = box.union(
+                            CGRect(x: i.x, y: i.y, width: i.width, height: i.height))
                     case .raw: break
                     }
                 }
@@ -242,6 +253,8 @@ final class AnimationPreviewController: ObservableObject {
             case .raw: continue
             case .shape(let s):
                 if s.id == id { return node }
+            case .image(let i):
+                if i.id == id { return node }
             case .group(let g):
                 if g.id == id { return node }
                 if let hit = findNode(id, in: g.children) { return hit }

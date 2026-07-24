@@ -64,6 +64,13 @@ final class AppModel: ObservableObject {
     @Published var isShowingPromptEdit = false
     @Published var isShowingEnhance = false
     @Published var isRemovingBackground = false
+    /// Non-nil while the "use the Best Quality model?" question is on screen
+    /// (see `offerBestQuality`); answering it runs the work that raised it.
+    @Published var bestQualityOffer: BestQualityFeature?
+    private var bestQualityWork: (() -> Void)?
+    /// Features already asked about this launch — accepting starts a download
+    /// that takes a while, and nobody wants the same question twice.
+    private var bestQualityAsked: Set<BestQualityFeature> = []
     @Published var isApplyingResize = false
     @Published var isApplyingEnhance = false
     @Published var isApplyingPromptEdit = false
@@ -330,13 +337,13 @@ final class AppModel: ObservableObject {
         switch ProcessInfo.processInfo.environment["IMAGEKID_SCREENSHOT_COLOR_MODE"] {
         case "light":
             settings.appearanceMode = .light
-            settings.canvasBackground = .light
+            settings.canvasBackground.style = .light
         case "dark":
             settings.appearanceMode = .dark
-            settings.canvasBackground = .dark
+            settings.canvasBackground.style = .dark
         default:
             settings.appearanceMode = .light
-            settings.canvasBackground = .checkerboard
+            settings.canvasBackground.style = .checkerboard
         }
 
         let scenario = ProcessInfo.processInfo.environment["IMAGEKID_SCREENSHOT_SCENARIO"] ?? "empty"
@@ -726,12 +733,31 @@ final class AppModel: ObservableObject {
         let isUpscaling = normalizedTargetSize.width > session.croppedPixelSize.width
             || normalizedTargetSize.height > session.croppedPixelSize.height
 
-        if upscaleEngine == .bestQuality,
-           isUpscaling,
-           effectiveContentMode != .textAndUI,
-           !ImageUpscaleService.isBestQualityRuntimeAvailable {
-            errorMessage = "Best Quality is not ready yet. Turn it on in Settings > Upscale."
-            return
+        // Enlarging without the Best Quality model: offer it once (accepting
+        // downloads it and uses it from next time; the resize still runs now
+        // on the standard engine). Text & UI art never needs the model — its
+        // path is the built-in sharp upscale.
+        if isUpscaling, effectiveContentMode != .textAndUI,
+            !ImageUpscaleService.isBestQualityRuntimeAvailable
+        {
+            if offerBestQuality(
+                .upscale,
+                then: { [weak self] in
+                    self?.applyResizeToCurrentImage(
+                        targetSize: targetSize, upscaleEngine: upscaleEngine,
+                        upscaleContentMode: upscaleContentMode)
+                })
+            {
+                return
+            }
+            if upscaleEngine == .bestQuality {
+                // Best Quality is selected but its model is not here (declined
+                // earlier, or still downloading): say so, then resize with the
+                // standard engine instead of dead-ending.
+                errorMessage =
+                    "Best Quality is not installed yet — Settings ▸ Enhance downloads it. "
+                    + "This resize used the standard engine."
+            }
         }
 
         let shouldRenderNow = upscaleEngine == .bestQuality
@@ -1284,6 +1310,52 @@ final class AppModel: ObservableObject {
         return image
     }
 
+    // MARK: - Best Quality offer
+
+    /// Ask, once, whether a feature should use its downloadable Best Quality
+    /// model — and hold the work until the question is answered.
+    ///
+    /// Returns true when the question is now on screen and the caller should
+    /// stop: `accept`/`decline` re-runs `work` afterwards, so the click the
+    /// user made still lands either way. Returns false (do the work now) when
+    /// the model is already installed, the user has declined before, or they
+    /// have been asked this launch.
+    func offerBestQuality(_ feature: BestQualityFeature, then work: @escaping () -> Void) -> Bool {
+        guard !feature.isInstalled, !feature.wasDeclined,
+            !bestQualityAsked.contains(feature), bestQualityOffer == nil
+        else { return false }
+        bestQualityAsked.insert(feature)
+        bestQualityWork = work
+        bestQualityOffer = feature
+        return true
+    }
+
+    /// Yes: switch the feature to Best Quality, start the download and show
+    /// it in Settings. The pending work still runs now, on the engine that is
+    /// actually installed.
+    func acceptBestQualityOffer() {
+        guard let feature = bestQualityOffer else { return }
+        bestQualityOffer = nil
+        feature.selectBestQualityEngine()
+        ModelDownloader.shared.download(feature.model)
+        SettingsWindow.open(feature.settingsTab)
+        runPendingBestQualityWork()
+    }
+
+    /// No: remember it and never ask again for this feature.
+    func declineBestQualityOffer() {
+        guard let feature = bestQualityOffer else { return }
+        bestQualityOffer = nil
+        feature.wasDeclined = true
+        runPendingBestQualityWork()
+    }
+
+    private func runPendingBestQualityWork() {
+        let work = bestQualityWork
+        bestQualityWork = nil
+        work?()
+    }
+
     func removeBackground() {
         guard let itemID = selectedItemID else {
             errorMessage = "Background removal is available for images only."
@@ -1308,6 +1380,12 @@ final class AppModel: ObservableObject {
             return
         }
 
+        // First cutout without the Best Quality model: offer it once. Both
+        // answers come straight back here and the cutout happens either way.
+        if offerBestQuality(.backgroundRemoval, then: { [weak self] in self?.removeBackground() }) {
+            return
+        }
+
         guard let source = session.sourceImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             errorMessage = "ImageKid could not prepare this image for background removal."
             return
@@ -1324,11 +1402,8 @@ final class AppModel: ObservableObject {
         Task {
             do {
                 let output = try await Task.detached(priority: .userInitiated) {
-                    let engine = BackgroundRemovalEngine(
-                        rawValue: UserDefaults.standard.string(forKey: "backgroundRemovalEngine")
-                            ?? BackgroundRemovalEngine.builtIn.rawValue
-                    ) ?? .builtIn
-                    return try await BackgroundRemovalService.removeBackground(from: source, engine: engine)
+                    try await BackgroundRemovalService.removeBackground(
+                        from: source, engine: BackgroundRemovalService.effectiveEngine)
                 }.value
 
                 session.backgroundRemovedImage = NSImage(
@@ -1369,10 +1444,7 @@ final class AppModel: ObservableObject {
             startedAt: Date(),
             fraction: nil
         )
-        let engine = BackgroundRemovalEngine(
-            rawValue: UserDefaults.standard.string(forKey: "backgroundRemovalEngine")
-                ?? BackgroundRemovalEngine.builtIn.rawValue
-        ) ?? .builtIn
+        let engine = BackgroundRemovalService.effectiveEngine
         Task {
             for session in sessions {
                 guard let source = session.sourceImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else { continue }
@@ -1406,6 +1478,12 @@ final class AppModel: ObservableObject {
             return
         }
 
+        if offerBestQuality(
+            .backgroundRemoval, then: { [weak self] in self?.removeBackgroundFromSelectedLayer() })
+        {
+            return
+        }
+
         isRemovingBackground = true
         operationProgress = OperationProgress(
             title: "Masking the layer",
@@ -1417,11 +1495,8 @@ final class AppModel: ObservableObject {
         Task {
             do {
                 let output = try await Task.detached(priority: .userInitiated) {
-                    let engine = BackgroundRemovalEngine(
-                        rawValue: UserDefaults.standard.string(forKey: "backgroundRemovalEngine")
-                            ?? BackgroundRemovalEngine.builtIn.rawValue
-                    ) ?? .builtIn
-                    return try await BackgroundRemovalService.removeBackground(from: source, engine: engine)
+                    try await BackgroundRemovalService.removeBackground(
+                        from: source, engine: BackgroundRemovalService.effectiveEngine)
                 }.value
 
                 if let mask = MaskCompositor.alphaMask(from: output) {
@@ -1470,6 +1545,10 @@ struct AppCommands: Commands {
     }
 
     var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About ImageKid") { AboutWindow.show(.imageKid) }
+        }
+
         CommandGroup(replacing: .newItem) {
             Button("New…") { currentAppModel?.isShowingNewFile = true }
                 .keyboardShortcut("n")
@@ -1728,10 +1807,6 @@ final class ImageKidApplicationDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
-
-        if let icon = ImageKidIconRenderer.makeNSImage() {
-            NSApplication.shared.applicationIconImage = icon
-        }
     }
 
     func application(_ sender: NSApplication, openFiles filenames: [String]) {
@@ -1768,7 +1843,9 @@ struct AppWindowRoot: View {
                 ActiveAppModel.register(appModel)
                 appModel.configureScreenshotScenarioIfNeeded(settings: settings)
             }
-            .frame(minWidth: 720, minHeight: 480)
+            // Matches Fekthor, so the shared home screen has the same floor in
+            // both apps and never has to fall back to its stacked layout.
+            .frame(minWidth: 940, minHeight: 620)
             .preferredColorScheme(settings.appearanceMode.colorScheme)
     }
 }

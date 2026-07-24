@@ -133,6 +133,8 @@ public enum GraphicRenderer {
                 if let t = g.transform { ctx.concatenate(affine(t)) }
                 drawNodes(g.children, in: ctx, opacity: opacity * (groupStyle.opacity ?? 1))
                 ctx.restoreGState()
+            case .image(let i):
+                drawImage(i, in: ctx, opacity: opacity)
             case .shape(let s):
                 let style = s.renderStyle
                 if style.isDisplayNone { continue }  // hidden layer
@@ -145,6 +147,31 @@ public enum GraphicRenderer {
                 ctx.restoreGState()
             }
         }
+    }
+
+    // MARK: Images
+
+    /// Draw a placed raster into a document-space (y-down) context. Shared by
+    /// the engine renderer and the app's thumbnail renderer so a placed image
+    /// looks the same everywhere. Hidden nodes, degenerate rects and hrefs
+    /// that carry no readable pixels (external references) draw nothing.
+    public static func drawImage(_ node: ImageNode, in ctx: CGContext, opacity: Double) {
+        let style = node.renderStyle
+        guard !style.isDisplayNone, node.width > 0, node.height > 0,
+            let bitmap = ImageEmbed.decode(node.href)
+        else { return }
+        ctx.saveGState()
+        if let t = node.transform { ctx.concatenate(affine(t)) }
+        ctx.setAlpha(CGFloat(opacity * (style.opacity ?? 1)))
+        // The context runs y-down (document space); flip inside the placement
+        // rect so the bitmap is not drawn upside down.
+        ctx.translateBy(x: CGFloat(node.x), y: CGFloat(node.y + node.height))
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.interpolationQuality = .high
+        ctx.draw(
+            bitmap,
+            in: CGRect(x: 0, y: 0, width: CGFloat(node.width), height: CGFloat(node.height)))
+        ctx.restoreGState()
     }
 
     // MARK: Fill

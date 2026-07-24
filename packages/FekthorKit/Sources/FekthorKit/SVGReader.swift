@@ -252,6 +252,8 @@ public enum SVGReader {
                 if let node = shapeNode(name, attrs) {
                     append(.shape(node))
                 }
+            case "image":
+                append(.image(imageNode(attrs)))
             default:
                 // Raw passthrough (defs, style, clipPath, title, unknown).
                 // Fekthor's own generated animation block is derived output
@@ -346,6 +348,27 @@ public enum SVGReader {
             }
             return ShapeNode(
                 id: takeID(), kind: kind,
+                style: attrs["style"].map(SVGStyle.parse) ?? Style(),
+                attributes: nodeAttributes(attrs, consumed: consumed),
+                transform: attrs["transform"].flatMap(SVGReader.parseTransform))
+        }
+
+        // MARK: images
+
+        /// `<image>`: a rect plus an href. The href is kept verbatim (data
+        /// URI, file or http alike) — `xlink:href` is read for legacy files
+        /// and normalized to `href` on write, which every renderer accepts.
+        private func imageNode(_ attrs: [String: String]) -> ImageNode {
+            func d(_ key: String) -> Double? { attrs[key].flatMap(Double.init) }
+            let consumed: Set<String> = [
+                "x", "y", "width", "height", "href", "xlink:href", "preserveAspectRatio",
+            ]
+            return ImageNode(
+                id: takeID(),
+                href: attrs["href"] ?? attrs["xlink:href"] ?? "",
+                x: d("x") ?? 0, y: d("y") ?? 0,
+                width: d("width") ?? 0, height: d("height") ?? 0,
+                preserveAspectRatio: attrs["preserveAspectRatio"],
                 style: attrs["style"].map(SVGStyle.parse) ?? Style(),
                 attributes: nodeAttributes(attrs, consumed: consumed),
                 transform: attrs["transform"].flatMap(SVGReader.parseTransform))

@@ -4,6 +4,7 @@ import ImageKidKit
 
 /// Fast transforms for the selected image layer: rotate, flip, scale, reset.
 struct TransformControls: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var session: ImageSession
     let layerID: UUID
     @Binding var offset: CGSize
@@ -30,7 +31,7 @@ struct TransformControls: View {
                         TextField("", value: rotationBinding, format: .number)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 56)
-                        Text("°").foregroundStyle(.white.opacity(0.55))
+                        Text("°").foregroundStyle(Color.panelInk(colorScheme, 0.55))
                     }
                     MinimalSlider(value: rotationBinding, in: -180...180, step: 1)
                 }
@@ -56,7 +57,7 @@ struct TransformControls: View {
                     .buttonStyle(.bordered)
                 }
 
-                Rectangle().fill(.white.opacity(0.09)).frame(height: 1)
+                Rectangle().fill(Color.panelFill(colorScheme, 0.09)).frame(height: 1)
 
                 HStack {
                     Button("Reset") { session.resetLayerTransform(id: layerID) }
@@ -82,7 +83,7 @@ struct TransformControls: View {
             Image(systemName: symbol)
                 .font(.system(size: 14, weight: .medium))
                 .frame(width: 34, height: 30)
-                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                .background(Color.panelFill(colorScheme, 0.08), in: RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
         .help(help)
@@ -93,7 +94,7 @@ struct TransformControls: View {
             Image(systemName: symbol)
                 .font(.system(size: 14, weight: .medium))
                 .frame(width: 34, height: 30)
-                .background(on ? Color.accentColor.opacity(0.5) : .white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                .background(on ? Color.accentColor.opacity(0.5) : Color.panelFill(colorScheme, 0.08), in: RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
         .help(help)
@@ -102,7 +103,7 @@ struct TransformControls: View {
     @ViewBuilder
     private func field<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.72))
+            Text(title).font(.caption.weight(.semibold)).foregroundStyle(Color.panelInk(colorScheme, 0.72))
             content()
         }
     }

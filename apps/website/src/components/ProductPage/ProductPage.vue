@@ -28,7 +28,13 @@
         <p :class="bemm('chips')"><span v-for="chip in data.chips" :key="chip">{{ chip }}</span></p>
       </div>
 
-      <figure v-if="data.heroImage" :class="bemm('hero-media')">
+      <AppHero
+        v-if="data.character"
+        :character="data.character"
+        :screenshot="data.heroImage"
+        :variant="data.id"
+      />
+      <figure v-else-if="data.heroImage" :class="bemm('hero-media')">
         <img :class="bemm('hero-image')" :src="data.heroImage" :alt="data.heroImageAlt ?? data.name" />
       </figure>
       <div v-else :class="bemm('hero-panel')" aria-hidden="true">
@@ -68,10 +74,10 @@
           </ul>
         </div>
         <figure v-if="section.image" :class="bemm('band-media')">
-          <img :class="bemm('band-image')" :src="section.image" :alt="section.imageAlt ?? section.title" />
+          <AppShot :class="bemm('band-image')" :src="section.image" :alt="section.imageAlt ?? section.title" />
         </figure>
-        <div v-else :class="bemm('band-panel')" aria-hidden="true">
-          <img :src="data.icon" :alt="''" width="96" height="96" />
+        <div v-else-if="data.character" :class="bemm('band-character')" aria-hidden="true">
+          <img :class="bemm('band-character-image')" :src="data.character" alt="" loading="lazy" />
         </div>
       </div>
     </section>
@@ -102,6 +108,8 @@
 import { computed } from "vue";
 import { Button } from "@sil/ui";
 import { useBemm } from "bemm";
+import AppHero from "../AppHero";
+import AppShot from "../AppShot";
 import { RouterLink } from "vue-router";
 import { otherApps, appById } from "../../data/apps";
 import type { ProductPageData } from "./ProductPage.model";

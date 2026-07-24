@@ -5,6 +5,7 @@ import ImageKidKit
 /// Floating panel for customising the canvas grid: visibility, snapping,
 /// spacing, subdivisions, colour and opacity.
 struct GridControls: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var session: ImageSession
     @Binding var offset: CGSize
     var dockEdges: (leadingFlat: Bool, trailingFlat: Bool) = (false, false)
@@ -25,7 +26,7 @@ struct GridControls: View {
                 Toggle("Show grid", isOn: $session.showGrid)
                 Toggle("Snap to grid", isOn: $session.snapToGrid)
 
-                Rectangle().fill(.white.opacity(0.09)).frame(height: 1)
+                Rectangle().fill(Color.panelFill(colorScheme, 0.09)).frame(height: 1)
 
                 field("Size") {
                     HStack(spacing: 10) {
@@ -86,7 +87,7 @@ struct GridControls: View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.72))
+                .foregroundStyle(Color.panelInk(colorScheme, 0.72))
             content()
         }
     }

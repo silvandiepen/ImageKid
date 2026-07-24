@@ -178,6 +178,10 @@ extension GraphicDocument {
             s.transform = TransformValue.composed(g.transform, s.transform)
             s.style = inheritedStyle(parent: g.style, child: s.style)
             return .shape(s)
+        case .image(var i):
+            i.transform = TransformValue.composed(g.transform, i.transform)
+            i.style = inheritedStyle(parent: g.style, child: i.style)
+            return .image(i)
         case .group(var child):
             child.transform = TransformValue.composed(g.transform, child.transform)
             child.style = inheritedStyle(parent: g.style, child: child.style)

@@ -12,6 +12,7 @@ The package form keeps the initial repository small, reviewable, and directly te
 - SwiftUI empty drop state with app-controlled light/dark appearance, native drop target, Open action, and asset slots for character and plant artwork.
 - macOS Settings scene with System integration preferences, Appearance, light/dark/checkerboard/custom canvas background, background-removal engine/model install state, upscale engine/runtime install state, and secure OpenAI API key storage.
 - Open panel, drag and drop, URL paste, and image paste.
+- Images opened from Finder ("Open With", double-click) or dropped on the Dock icon open in the workspace: the bundle declares `public.image` as an Editor document type at Alternate rank, so Preview stays the system default while ImageKid becomes a first-class handler.
 - Image loading with `NSImage`.
 - Video loading and playback with AVFoundation and AVKit.
 - Image fit, mouse pan, two-finger trackpad pan, pinch zoom, and view reset.
@@ -26,6 +27,7 @@ The package form keeps the initial repository small, reviewable, and directly te
 - Text annotations that remain editable, movable, resizable, deletable via Delete/Backspace, and configurable with font, weight, line height, alignment, and colour.
 - Contextual text settings for content, font family, size, weight, alignment, and colour.
 - On-device image background removal using Apple Vision foreground instance masks, with reversible restore and Keep/Remove refinement brushes.
+- A one-time Best Quality offer: the first background removal or enlargement run without the optional on-device model asks whether to use it. Accepting switches that feature's engine over, starts the download and opens Settings on its progress; declining is remembered per feature and never asked again. Either answer still performs the action immediately with the installed engine, and a selected-but-missing Best Quality model falls back to the built-in engine instead of failing.
 - Draggable vertical contextual panels with a dark translucent surface and large corner radius.
 - Image export sheet with PNG, JPEG, HEIC, TIFF, BMP, and GIF, quality, scale, upscaling engine, transparency background, and Finder reveal controls.
 - Full-resolution image export rendered from source media and edit state.
@@ -40,7 +42,7 @@ The package form keeps the initial repository small, reviewable, and directly te
 
 Fekthor is the monorepo's second flagship: a workspace-first native macOS
 vector editor (`com.hakobs.fekthor`, `apps/native-macos/Sources/FekthorTrace`)
-with its engine in `packages/FekthorKit` (SwiftPM, deterministic, 317 unit
+with its engine in `packages/FekthorKit` (SwiftPM, deterministic, 393 unit
 tests, its own `fekthor` CLI target and fixture-based eval harness). A
 folder-backed workspace presents icons in a searchable gallery; documents
 carry named styles, design tokens, and swatches, including file-local ones;
@@ -51,8 +53,13 @@ a built-in feature rather than a separate app: Auto/Shapes/Strokes/Gradient
 modes with mode-aware quality scoring, Split/Overlay/Wipe comparison,
 Auto-tune settings search, opt-in variable-width stroke envelopes, and
 optional on-device Real-ESRGAN enhancement (explicit-action model download,
-same source as the companions). The floating panel system lives in
-`packages/ImageKidKit` (41 unit tests) and is shared across the family.
+same source as the companions). Rasters pasted or dropped onto an editor
+canvas stay rasters: they become `<image>` nodes with their pixels embedded
+as base64 PNG (documents stay one self-contained SVG), select, move, scale
+and rotate like any node, and right-click ▸ Vectorize traces one in place —
+Save swaps the traced geometry in at the image's exact frame as a single
+undo step. The floating panel system lives in
+`packages/ImageKidKit` (48 unit tests) and is shared across the family.
 Fekthor depends on FekthorKit, ImageKidKit, and ImageKidInference; like all
 apps here it never imports from another app. Thor remains the app's
 mascot/branding.

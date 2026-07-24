@@ -39,6 +39,8 @@ struct LayersPanelContent: View {
                 switch node {
                 case .raw:
                     continue  // defs/style blocks are not layers
+                case .image:
+                    out.append(Row(id: node.id, depth: depth, node: node, isGroup: false))
                 case .shape:
                     out.append(Row(id: node.id, depth: depth, node: node, isGroup: false))
                 case .group(let g):
@@ -273,6 +275,7 @@ private struct LayerRowView: View {
         if let id = attrs.svgID, !id.isEmpty { return id }
         switch node {
         case .group: return "Group"
+        case .image: return "Image"
         case .raw: return "—"
         case .shape(let s):
             switch s.kind {
@@ -338,6 +341,21 @@ private struct NodeGlyph: View {
 
     var body: some View {
         Canvas { ctx, size in
+            // A placed raster shows its own pixels, aspect-fitted.
+            if case .image(let i) = node, let bitmap = ImageEmbed.decode(i.href) {
+                let pad: CGFloat = 1.5
+                let box = CGRect(origin: .zero, size: size).insetBy(dx: pad, dy: pad)
+                let s = min(
+                    box.width / CGFloat(max(bitmap.width, 1)),
+                    box.height / CGFloat(max(bitmap.height, 1)))
+                let w = CGFloat(bitmap.width) * s
+                let h = CGFloat(bitmap.height) * s
+                ctx.draw(
+                    Image(decorative: bitmap, scale: 1),
+                    in: CGRect(
+                        x: (size.width - w) / 2, y: (size.height - h) / 2, width: w, height: h))
+                return
+            }
             var items: [(path: CGPath, style: Style, lineLike: Bool)] = []
             Self.collect(node, transform: .identity, into: &items)
             var bounds = CGRect.null
@@ -385,7 +403,9 @@ private struct NodeGlyph: View {
         into items: inout [(path: CGPath, style: Style, lineLike: Bool)]
     ) {
         switch node {
-        case .raw:
+        // Raw fragments have no geometry; placed rasters are drawn straight
+        // into the cell by `body` instead of collected as paths.
+        case .raw, .image:
             break
         case .shape(let s):
             var t = transform

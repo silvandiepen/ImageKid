@@ -296,12 +296,15 @@ public struct RawNode: Equatable, Sendable {
 public indirect enum GraphicNode: Equatable, Sendable {
     case shape(ShapeNode)
     case group(GroupNode)
+    /// A placed raster (`<image>`), see `ImageNode`.
+    case image(ImageNode)
     case raw(RawNode)
 
     public var id: Int {
         switch self {
         case .shape(let s): return s.id
         case .group(let g): return g.id
+        case .image(let i): return i.id
         case .raw(let r): return r.id
         }
     }
@@ -380,6 +383,51 @@ public struct GraphicDocument: Equatable, Sendable {
                         return true
                     }
                 default: break
+                }
+            }
+            return false
+        }
+        return walk(&nodes)
+    }
+
+    /// Find a placed image by id (depth-first).
+    public func firstImage(id: Int) -> ImageNode? {
+        func walk(_ nodes: [GraphicNode]) -> ImageNode? {
+            for n in nodes {
+                switch n {
+                case .image(let i) where i.id == id: return i
+                case .group(let g):
+                    if let hit = walk(g.children) { return hit }
+                default: break
+                }
+            }
+            return nil
+        }
+        return walk(nodes)
+    }
+
+    /// Replace an image by id anywhere in the tree. Returns false if absent.
+    @discardableResult
+    public mutating func replaceImage(id: Int, with image: ImageNode) -> Bool {
+        replaceNode(id: id, with: [.image(image)])
+    }
+
+    /// Replace any node by id with zero or more nodes, in place (z-order is
+    /// preserved: the replacements sit exactly where the original was). This
+    /// is what Vectorize uses to swap an image for the traced geometry.
+    @discardableResult
+    public mutating func replaceNode(id: Int, with replacements: [GraphicNode]) -> Bool {
+        func walk(_ nodes: inout [GraphicNode]) -> Bool {
+            for i in nodes.indices {
+                if nodes[i].id == id {
+                    nodes.replaceSubrange(i...i, with: replacements)
+                    return true
+                }
+                if case .group(var g) = nodes[i] {
+                    if walk(&g.children) {
+                        nodes[i] = .group(g)
+                        return true
+                    }
                 }
             }
             return false

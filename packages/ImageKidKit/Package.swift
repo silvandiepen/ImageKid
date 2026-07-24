@@ -12,7 +12,10 @@ let package = Package(
         .library(name: "ImageKidKit", targets: ["ImageKidKit"])
     ],
     targets: [
-        .target(name: "ImageKidKit", path: "Sources/ImageKidKit"),
+        .target(
+            name: "ImageKidKit",
+            path: "Sources/ImageKidKit",
+            resources: [.process("Resources")]),
         .testTarget(
             name: "ImageKidKitTests",
             dependencies: ["ImageKidKit"],

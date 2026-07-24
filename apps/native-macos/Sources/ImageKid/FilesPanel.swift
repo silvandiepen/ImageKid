@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 /// The open-files list, shared by the dockable Files panel and any legacy
 /// sidebar presentation.
 struct FilesListContent: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var appModel: AppModel
 
     var body: some View {
@@ -37,10 +38,10 @@ struct FilesListContent: View {
                     Text(item.title)
                         .font(.caption.weight(.semibold))
                         .lineLimit(2)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color.panelInk(colorScheme))
                     Text(item.isDirty ? "Unsaved changes" : "Saved")
                         .font(.caption2)
-                        .foregroundStyle(item.isDirty ? .orange : .white.opacity(0.58))
+                        .foregroundStyle(item.isDirty ? .orange : Color.panelInk(colorScheme, 0.58))
                 }
 
                 Spacer(minLength: 0)
@@ -51,10 +52,10 @@ struct FilesListContent: View {
                     Image(systemName: "xmark")
                         .font(.system(size: 10, weight: .bold))
                         .frame(width: 24, height: 24)
-                        .background(.white.opacity(0.08), in: Circle())
+                        .background(Color.panelFill(colorScheme, 0.08), in: Circle())
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.white.opacity(0.72))
+                .foregroundStyle(Color.panelInk(colorScheme, 0.72))
                 .help("Close without saving")
             }
             .padding(8)
@@ -90,13 +91,13 @@ struct FilesListContent: View {
     private func rowBackground(for item: WorkspaceItem) -> Color {
         if appModel.selectedItemID == item.id { return Color.accentColor.opacity(0.30) }
         if appModel.selectedItemIDs.contains(item.id) { return Color.accentColor.opacity(0.16) }
-        return Color.white.opacity(0.07)
+        return Color.panelInk(colorScheme, 0.07)
     }
 
     private func rowBorder(for item: WorkspaceItem) -> Color {
         if item.isDirty { return Color.orange.opacity(0.72) }
         if appModel.selectedItemIDs.contains(item.id) { return Color.accentColor.opacity(0.58) }
-        return Color.white.opacity(0.09)
+        return Color.panelInk(colorScheme, 0.09)
     }
 
     @ViewBuilder
@@ -105,8 +106,8 @@ struct FilesListContent: View {
             Image(nsImage: image).resizable().scaledToFill()
         } else {
             ZStack {
-                RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.white.opacity(0.10))
-                Image(systemName: "film").foregroundStyle(.white.opacity(0.62))
+                RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.panelFill(colorScheme, 0.10))
+                Image(systemName: "film").foregroundStyle(Color.panelInk(colorScheme, 0.62))
             }
         }
     }
@@ -114,6 +115,8 @@ struct FilesListContent: View {
 
 /// Dockable, movable, minimizable, resizable Files panel.
 struct FilesPanel: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     @ObservedObject var appModel: AppModel
     @Binding var offset: CGSize
     @Binding var size: CGSize
@@ -143,10 +146,10 @@ struct FilesPanel: View {
                 VStack(spacing: 10) {
                     Image(systemName: "photo.on.rectangle.angled")
                         .font(.system(size: 26, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.5))
+                        .foregroundStyle(Color.panelInk(colorScheme, 0.5))
                     Text("Open images appear here.")
                         .font(.caption)
-                        .foregroundStyle(.white.opacity(0.55))
+                        .foregroundStyle(Color.panelInk(colorScheme, 0.55))
                 }
                 .frame(maxWidth: .infinity, minHeight: 120)
                 .padding(16)

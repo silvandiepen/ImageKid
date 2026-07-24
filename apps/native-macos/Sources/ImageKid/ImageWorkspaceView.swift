@@ -508,15 +508,9 @@ struct ImageWorkspaceView: View {
         }
     }
 
-    @ViewBuilder
     private var canvasBackground: some View {
-        if settings.canvasBackground == .checkerboard {
-            CheckerboardBackground(cellSize: 18)
-                .ignoresSafeArea()
-        } else {
-            settings.canvasColor
-                .ignoresSafeArea()
-        }
+        CanvasBackgroundView(background: settings.canvasBackground, checkerCell: 18)
+            .ignoresSafeArea()
     }
 
     /// Dims everything outside the canvas rect so content that spills past the
@@ -533,7 +527,9 @@ struct ImageWorkspaceView: View {
 
     private func canvasBorder(in imageRect: CGRect) -> some View {
         RoundedRectangle(cornerRadius: imageCornerRadius(for: imageRect), style: .continuous)
-            .strokeBorder(canvasBorderColor, lineWidth: settings.canvasBackground == .checkerboard ? 1.5 : 1)
+            .strokeBorder(
+                canvasBorderColor,
+                lineWidth: settings.canvasBackground.style.isCheckerboard ? 1.5 : 1)
             .frame(width: imageRect.width, height: imageRect.height)
             .position(x: imageRect.midX, y: imageRect.midY)
             .allowsHitTesting(false)
@@ -544,22 +540,9 @@ struct ImageWorkspaceView: View {
     }
 
     private var canvasBorderColor: Color {
-        switch settings.canvasBackground {
-        case .dark:
-            return .white.opacity(0.28)
-        case .checkerboard:
-            return .accentColor.opacity(0.82)
-        case .custom:
-            return isCustomCanvasColorDark ? .white.opacity(0.34) : .black.opacity(0.32)
-        case .light:
-            return .black.opacity(0.26)
-        }
-    }
-
-    private var isCustomCanvasColorDark: Bool {
-        let color = settings.customCanvasBackground.usingColorSpace(.sRGB) ?? settings.customCanvasBackground
-        let luminance = 0.2126 * color.redComponent + 0.7152 * color.greenComponent + 0.0722 * color.blueComponent
-        return luminance < 0.45
+        let background = settings.canvasBackground
+        if background.style.isCheckerboard { return .accentColor.opacity(0.82) }
+        return background.readsAsDark ? .white.opacity(0.30) : .black.opacity(0.28)
     }
 
     @ViewBuilder
@@ -2198,25 +2181,32 @@ private struct DockablePanelsLayer: View {
     @State private var stackDragTranslation: CGSize = .zero
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
+        // The rail runs down the left edge at Fekthor's metrics, so the two
+        // apps present panel toggles identically. The panels themselves are
+        // laid out to the right of it.
+        HStack(alignment: .top, spacing: 12) {
+            // Same order as Fekthor's rail: colour wells on top, then the
+            // actions, then the panel toggles.
+            VStack(alignment: .leading, spacing: PanelRailMetrics.spacing) {
+                ForegroundBackgroundChips(library: library, session: session)
+
                 Button {
                     appModel.isShowingNewFile = true
                 } label: {
                     Image(systemName: "plus")
-                        .font(.system(size: 16, weight: .bold))
-                        .frame(width: 38, height: 38)
-                        .background(Color.accentColor.opacity(0.9), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                        .font(.system(size: 14, weight: .bold))
+                        .frame(width: PanelRailMetrics.chip, height: PanelRailMetrics.chip)
+                        .background(
+                            Color.accentColor.opacity(0.9),
+                            in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                         .foregroundStyle(.white)
                 }
                 .buttonStyle(.plain)
                 .help("New File")
 
-                PanelDockRail(model: panelDock, axis: .horizontal)
-
-                ForegroundBackgroundChips(library: library, session: session)
-                    .padding(.leading, 4)
+                PanelDockRail(model: panelDock, axis: .vertical)
             }
+            .panelRailChrome()
 
             GeometryReader { geo in
                 let dock = geo.size

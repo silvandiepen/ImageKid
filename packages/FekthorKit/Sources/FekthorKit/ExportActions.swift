@@ -328,7 +328,9 @@ enum ExportApply {
                     edit(&g.style)
                     walk(&g.children)
                     nodes[i] = .group(g)
-                case .raw:
+                // Paint and stroke edits have nothing to say about a
+                // placed raster.
+                case .raw, .image:
                     break
                 }
             }
@@ -473,6 +475,10 @@ enum ExportApply {
                     g.attributes.extras.removeAll { $0.name == "data-name" }
                     walk(&g.children)
                     nodes[i] = .group(g)
+                case .image(var img):
+                    img.attributes.svgID = nil
+                    img.attributes.extras.removeAll { $0.name == "data-name" }
+                    nodes[i] = .image(img)
                 case .raw:
                     break
                 }
@@ -567,6 +573,13 @@ enum ExportApply {
                             g.children,
                             style: mergedStyle(parentStyle, g.style),
                             transform: composed(parentTransform, g.transform)))
+                case .image(var img):
+                    // A raster cannot be baked into paths: it keeps its own
+                    // rect and simply inherits the dissolved group's style
+                    // and transform.
+                    img.style = mergedStyle(parentStyle, img.style)
+                    img.transform = composed(parentTransform, img.transform)
+                    result.append(.image(img))
                 case .raw(let r):
                     result.append(.raw(r))
                 }
@@ -667,6 +680,8 @@ enum ExportApply {
                         walk(&g.children)
                     }
                     nodes[i] = .group(g)
+                case .image(let img):
+                    nodes[i] = .image(img.applying(scale))
                 case .raw:
                     break
                 }
@@ -716,7 +731,7 @@ enum ExportApply {
                 case .group(var g):
                     walk(&g.children, inherited: mergedStyle(inherited, g.style))
                     nodes[i] = .group(g)
-                case .raw:
+                case .raw, .image:
                     break
                 case .shape(let s):
                     let effective = mergedStyle(inherited, s.effectiveStyle)

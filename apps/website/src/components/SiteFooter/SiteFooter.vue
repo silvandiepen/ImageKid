@@ -31,7 +31,6 @@ const links: FooterLink[] = [
   { label: "Docs", to: "/docs" },
   { label: "Support", to: "/support" },
   { label: "Privacy", to: "/privacy" },
-  { label: "Terms", to: "/terms" },
-  { label: "GitHub", to: "https://github.com/silvandiepen/imageKid", external: true }
+  { label: "Terms", to: "/terms" }
 ];
 </script>

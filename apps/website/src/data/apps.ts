@@ -8,8 +8,12 @@ export interface AppMeta {
   tagline: string;
   /** One or two sentences for cards. */
   summary: string;
-  /** Path to the rounded-square icon in /public/media/brand. */
+  /** Path to the shipping app icon, exported from the asset catalog. */
   icon: string;
+  /** Large character render for the product-page hero. */
+  hero: string;
+  /** Project-colour name driving the page accent. */
+  accent: string;
   /** Route to the product page. */
   to: string;
   /** Availability label, e.g. "Coming to the App Store". */
@@ -24,10 +28,12 @@ export const apps: AppMeta[] = [
   {
     id: "imagekid",
     name: "ImageKid",
-    tagline: "The complete local image editor.",
+    tagline: "Image editing that gets out of the way.",
     summary:
-      "Remove backgrounds, enhance and upscale, crop, annotate, and export — all on your device, no subscription.",
-    icon: "/media/brand/imagekid.svg",
+      "Cut the background, make it bigger, crop it, mark it up. All on your Mac, no subscription.",
+    icon: "/media/brand/imagekid.png",
+    hero: "/media/hero/imagekid.jpg",
+    accent: "primary",
     to: "/imagekid",
     status: "Coming to the App Store",
     platforms: "macOS · iPad · iPhone",
@@ -36,10 +42,12 @@ export const apps: AppMeta[] = [
   {
     id: "fekthor",
     name: "Fekthor",
-    tagline: "A vector editor built for icon sets.",
+    tagline: "Vectors, without the ceremony.",
     summary:
-      "The basics of Illustrator, but better — trace, edit, and batch-export clean SVGs from a folder of icons.",
-    icon: "/media/brand/fekthor.svg",
+      "Draw and trace vectors, then keep a whole folder of icons consistent. Plain SVG out, nothing uploaded.",
+    icon: "/media/brand/fekthor.png",
+    hero: "/media/hero/fekthor.jpg",
+    accent: "fekthor",
     to: "/fekthor",
     status: "In development",
     platforms: "macOS",
@@ -48,10 +56,12 @@ export const apps: AppMeta[] = [
   {
     id: "upscale",
     name: "ImageKid Upscale",
-    tagline: "Batch upscaling, done locally.",
+    tagline: "Small pictures, made big.",
     summary:
       "Drop in a folder, pick a scale, and enlarge every image on-device. Pay once, keep using it.",
-    icon: "/media/brand/upscale.svg",
+    icon: "/media/brand/upscale.png",
+    hero: "/media/hero/upscale.jpg",
+    accent: "upscale",
     to: "/upscale",
     status: "Coming soon",
     platforms: "macOS",
@@ -60,10 +70,12 @@ export const apps: AppMeta[] = [
   {
     id: "cutout",
     name: "ImageKid Cutout",
-    tagline: "Batch background removal.",
+    tagline: "Backgrounds, gone.",
     summary:
       "Drop product shots, portraits, or generated assets and get clean transparent PNGs — no service fees.",
-    icon: "/media/brand/cutout.svg",
+    icon: "/media/brand/cutout.png",
+    hero: "/media/hero/cutout.jpg",
+    accent: "cutout",
     to: "/cutout",
     status: "Coming soon",
     platforms: "macOS",

@@ -1,4 +1,5 @@
 import AppKit
+import ImageKidKit
 import SwiftUI
 import ImageKidCore
 
@@ -151,6 +152,7 @@ final class ColorLibrary: ObservableObject {
 
 /// A compact horizontal strip of the base swatches for quick colour picking.
 struct BaseSwatchStrip: View {
+    @Environment(\.colorScheme) private var colorScheme
     let colors: [SwatchColor]
     let onPick: (NSColor) -> Void
 
@@ -163,7 +165,7 @@ struct BaseSwatchStrip: View {
                             RoundedRectangle(cornerRadius: 5, style: .continuous)
                                 .fill(swatch.color)
                                 .frame(width: 18, height: 18)
-                                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.white.opacity(0.22)))
+                                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color.panelFill(colorScheme, 0.22)))
                         }
                         .buttonStyle(.plain)
                         .help(swatch.hex)

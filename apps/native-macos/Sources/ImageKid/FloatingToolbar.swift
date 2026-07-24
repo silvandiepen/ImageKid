@@ -1,6 +1,8 @@
+import ImageKidKit
 import SwiftUI
 
 struct FloatingToolbar: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appModel: AppModel
     let canExport: Bool
 
@@ -93,7 +95,7 @@ struct FloatingToolbar: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 19, style: .continuous)
-                .strokeBorder(.white.opacity(0.14))
+                .strokeBorder(Color.panelFill(colorScheme, 0.14))
         )
         .shadow(color: .black.opacity(0.26), radius: 24, y: 10)
     }

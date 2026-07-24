@@ -2,6 +2,30 @@ import AppKit
 import FekthorKit
 import SwiftUI
 
+/// THE colour dot. One shape, one size, one border — used by the Swatches
+/// palette, the swatch picker's grids and the colour wells in the style
+/// palettes, so a colour looks the same everywhere it appears.
+struct SwatchDot: View {
+    let color: Color
+    var size: CGFloat = 22
+    /// Draws the accent ring (the picker marks the current colour).
+    var isCurrent: Bool = false
+
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 5, style: .continuous) }
+
+    var body: some View {
+        shape
+            .fill(color)
+            .frame(width: size, height: size)
+            .overlay(
+                shape.strokeBorder(
+                    isCurrent ? Color.accentColor : .white.opacity(0.25),
+                    lineWidth: isCurrent ? 2 : 1)
+            )
+            .contentShape(shape)
+    }
+}
+
 /// The editor's colour well: clicking opens a swatch-first popover — this
 /// file's swatches, the workspace's shared swatches and the colours already
 /// used in the document, as labelled grids — with "Custom…" (the system
@@ -26,13 +50,7 @@ struct SwatchColorWell: View {
         Button {
             showing = true
         } label: {
-            RoundedRectangle(cornerRadius: 4)
-                .fill(current)
-                .frame(width: 26, height: 18)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .strokeBorder(.white.opacity(0.35), lineWidth: 1))
-                .contentShape(RoundedRectangle(cornerRadius: 4))
+            SwatchDot(color: current)
         }
         .buttonStyle(.plain)
         .help("Pick a colour (swatches first)")
@@ -121,8 +139,8 @@ private struct SwatchPickerPopover: View {
                 }
             } else {
                 LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 20, maximum: 20), spacing: 5)],
-                    alignment: .leading, spacing: 5
+                    columns: [GridItem(.adaptive(minimum: 22, maximum: 22), spacing: 6)],
+                    alignment: .leading, spacing: 6
                 ) {
                     ForEach(hexes, id: \.self) { hex in
                         swatch(hex, deletable: addable)
@@ -144,12 +162,7 @@ private struct SwatchPickerPopover: View {
             session.endStyleEdit()
             dismiss()
         } label: {
-            RoundedRectangle(cornerRadius: 4)
-                .fill(color(hex))
-                .frame(width: 20, height: 20)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .strokeBorder(.quaternary, lineWidth: 1))
+            SwatchDot(color: color(hex), isCurrent: color(hex) == current)
         }
         .buttonStyle(.plain)
         .help(hex)
@@ -180,7 +193,7 @@ private struct SwatchPickerPopover: View {
         func walk(_ nodes: [GraphicNode]) {
             for node in nodes {
                 switch node {
-                case .raw: continue
+                case .raw, .image: continue  // placed rasters carry no paint
                 case .group(let g): walk(g.children)
                 case .shape(let s):
                     let style = s.effectiveStyle

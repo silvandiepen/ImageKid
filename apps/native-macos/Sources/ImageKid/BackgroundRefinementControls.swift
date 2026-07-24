@@ -2,6 +2,7 @@ import SwiftUI
 import ImageKidKit
 
 struct BackgroundRefinementControls: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var session: ImageSession
     @Binding var offset: CGSize
     var dockEdges: (leadingFlat: Bool, trailingFlat: Bool) = (false, false)
@@ -65,7 +66,7 @@ struct BackgroundRefinementControls: View {
 
                 Text("Remove paints pixels transparent. Keep restores pixels from the original image.")
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.55))
+                    .foregroundStyle(Color.panelInk(colorScheme, 0.55))
                     .fixedSize(horizontal: false, vertical: true)
             }
             .darkPanelControl()
@@ -77,7 +78,7 @@ struct BackgroundRefinementControls: View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.72))
+                .foregroundStyle(Color.panelInk(colorScheme, 0.72))
             content()
         }
     }

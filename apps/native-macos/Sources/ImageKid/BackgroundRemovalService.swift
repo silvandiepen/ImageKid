@@ -12,6 +12,18 @@ enum BackgroundRemovalService {
         CoreMLModel.birefnet.isDownloaded
     }
 
+    /// The engine to actually run: the preference, downgraded to Built-in
+    /// while the Best Quality model is not on disk (it may still be
+    /// downloading after a Best Quality offer). A cutout never dead-ends on a
+    /// missing model — it just uses the engine that is there.
+    static var effectiveEngine: BackgroundRemovalEngine {
+        let preferred = BackgroundRemovalEngine(
+            rawValue: UserDefaults.standard.string(forKey: "backgroundRemovalEngine")
+                ?? BackgroundRemovalEngine.builtIn.rawValue
+        ) ?? .builtIn
+        return preferred == .bestQuality && !isBestQualityRuntimeAvailable ? .builtIn : preferred
+    }
+
     static func removeBackground(from source: CGImage, engine: BackgroundRemovalEngine) async throws -> CGImage {
         switch engine {
         case .builtIn:

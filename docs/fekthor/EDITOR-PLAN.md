@@ -164,6 +164,27 @@ flattening (blurred-blob default / raster / radial-stack). Panel system
 gained shared magnetic stacking + minimize-to-chip (ImageKidKit, both
 apps + first iPad surface).
 
+## Placed images & in-place Vectorize (2026-07-24, Sil)
+
+Trace stopped being only an entry path: a raster dropped or pasted onto an
+editor canvas STAYS a raster. Document Model v2 gained
+`GraphicNode.image(ImageNode)` — an `<image>` rect with the pixels embedded
+as a base64 PNG data URI, so the document is still one self-contained SVG
+that round-trips through the reader/writer untouched. Placed images select,
+move, scale and rotate with everything else (translate/scale fold into the
+rect; rotation/mirroring ride a matrix, since a rect cannot express them),
+render through one shared engine path (canvas, thumbnails, PNG/PDF export),
+and cap at 2048px on the longest side.
+
+Right-click ▸ Vectorize hands that image's pixels to the trace flow while the
+editor session stays loaded underneath; Save maps the traced document into
+the image's own frame — geometry, stroke widths and gradient coordinates all
+BAKED (`TracePlacement`) — and swaps it in at the image's z-position as one
+"Vectorize" undo step. Cancel leaves the picture untouched.
+
+Open: drops land centred on the artboard rather than at the drop point;
+placed images are not yet a source for Free Distort or the boolean ops.
+
 Engine follow-ups from the gradient wave: SVGReader should retype
 modelled gradient defs (app-side normalizer in EditorGradients.swift
 retires then); ThumbnailRenderer still flattens gradients to the first
@@ -187,6 +208,26 @@ sheet with count-confirmed propagation. Export: `strip-animations`/
 `bake-animations` actions, enabled-toggle default policy, meta stripped
 after actions, flatten preserves bound groups. Verified animating in
 Chrome (spin/hover-draw/gated).
+
+## Editor polish round (2026-07-24, Sil)
+
+- **Select All (⌘A)** picks every visible object — hidden and locked layers
+  stay out, hidden groups skip their subtree, `defs`/metadata are not
+  objects. No document mutation, so no undo step.
+- **Panel rail**: smaller chips (32pt, glyph and radius scale with them —
+  `MinimizedPanelChip(size:)`), instant hover tips PLUS system tooltips, and
+  a height-driven split (`PanelRailLayout` in ImageKidKit, unit-tested):
+  what does not fit moves behind a ⋯ button that takes the last slot. Rail
+  membership is the rail ORDER — drag a button onto ⋯ to demote it, drag one
+  out of the ⋯ popover (or its "Move to Rail" menu item) to promote it —
+  and the shipped default order is ranked by everyday use, so the tail that
+  lands in the overflow is the stuff you rarely open.
+- **Colour dots** are one component (`SwatchDot`) across the Swatches
+  palette, the swatch picker and the Fill/Stroke wells. The style palettes
+  dropped their hex field: the dot is the control; typing an exact value
+  lives in the picker's Custom… and the rail wells' editor.
+- **Pen cursor** hotspot moved to the nib at the TOP of the glyph (it was
+  clicking a glyph-height below where the tip is drawn).
 
 ## Open items
 

@@ -237,6 +237,17 @@ public enum AnimationEngine {
                     if pathLength { s.attributes = settingPathLengthAttr(s.attributes, on: true) }
                 }
                 return .shape(s)
+            case .image(var img):
+                // A placed raster animates like any node (opacity, motion);
+                // pathLength is stroke-drawing only, so it never applies.
+                if ids.contains(img.id) {
+                    var classes = NamedStyles.classList(of: img.attributes)
+                    if !classes.contains(token) {
+                        classes.append(token)
+                        img.attributes = NamedStyles.settingClassList(img.attributes, to: classes)
+                    }
+                }
+                return .image(img)
             case .group(var g):
                 if ids.contains(g.id) {
                     var classes = NamedStyles.classList(of: g.attributes)
@@ -262,8 +273,8 @@ public enum AnimationEngine {
     ) -> [GraphicNode] {
         nodes.map { node in
             switch node {
-            case .raw:
-                return node
+            case .raw, .image:
+                return node  // no outline to draw on
             case .shape(var s):
                 if ids?.contains(s.id) ?? true {
                     s.attributes = settingPathLengthAttr(s.attributes, on: on)
@@ -307,6 +318,14 @@ public enum AnimationEngine {
                         changed = true
                     }
                     return .shape(s)
+                case .image(var img):
+                    let classes = NamedStyles.classList(of: img.attributes)
+                    if classes.contains(old) {
+                        img.attributes = NamedStyles.settingClassList(
+                            img.attributes, to: classes.map { $0 == old ? new : $0 })
+                        changed = true
+                    }
+                    return .image(img)
                 case .group(var g):
                     let classes = NamedStyles.classList(of: g.attributes)
                     if classes.contains(old) {
@@ -334,6 +353,13 @@ public enum AnimationEngine {
                         changed = true
                     }
                     return .shape(s)
+                case .image(var img):
+                    let kept = NamedStyles.classList(of: img.attributes).filter { $0 != token }
+                    if kept.count != NamedStyles.classList(of: img.attributes).count {
+                        img.attributes = NamedStyles.settingClassList(img.attributes, to: kept)
+                        changed = true
+                    }
+                    return .image(img)
                 case .group(var g):
                     let kept = NamedStyles.classList(of: g.attributes).filter { $0 != token }
                     if kept.count != NamedStyles.classList(of: g.attributes).count {

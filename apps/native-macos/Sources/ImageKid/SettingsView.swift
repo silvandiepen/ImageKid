@@ -1,49 +1,70 @@
+import ImageKidKit
 import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
-    @StateObject private var modelDownloader = ModelDownloader()
+    /// The app-wide downloader: a download started by a Best Quality offer
+    /// has to show its progress here.
+    @ObservedObject private var modelDownloader = ModelDownloader.shared
+    @ObservedObject private var tabRouter = SettingsTabRouter.shared
+    @State private var tab: SettingsTab = .system
     @State private var openAIKey = ""
     @State private var openAIKeyStatus: String?
     @State private var quickActions: [QuickActionDefinition] = []
 
     var body: some View {
-        TabView {
+        TabView(selection: $tab) {
             systemPane
                 .tabItem {
                     Label("System", systemImage: "macwindow")
                 }
+                .tag(SettingsTab.system)
 
             quickActionsPane
                 .tabItem {
                     Label("Actions", systemImage: "bolt.fill")
                 }
+                .tag(SettingsTab.actions)
 
             appearancePane
             .tabItem {
                 Label("Appearance", systemImage: "paintbrush")
             }
+            .tag(SettingsTab.appearance)
 
             backgroundRemovalPane
                 .tabItem {
                     Label("Background", systemImage: "eraser")
                 }
+                .tag(SettingsTab.background)
 
             enhancePane
                 .tabItem {
                     Label("Enhance", systemImage: "wand.and.stars")
                 }
+                .tag(SettingsTab.enhance)
 
             magicPane
                 .tabItem {
                     Label("Magic", systemImage: "sparkles")
                 }
+                .tag(SettingsTab.magic)
         }
         .frame(width: 540, height: 380)
         .onAppear {
             openAIKey = KeychainStore.string(for: "openai-api-key") ?? ""
             quickActions = settings.quickActions
+            showRequestedTab()
         }
+        // Opened by a Best Quality offer: land on the pane with that
+        // model's download on it (the window may already be open).
+        .onChange(of: tabRouter.requested) { showRequestedTab() }
+    }
+
+    private func showRequestedTab() {
+        guard let requested = tabRouter.requested else { return }
+        tab = requested
+        tabRouter.requested = nil
     }
 
     private var systemPane: some View {
@@ -198,14 +219,9 @@ struct SettingsView: View {
             }
             .pickerStyle(.segmented)
 
-            Picker("Canvas background", selection: canvasBinding) {
-                ForEach(CanvasBackground.allCases) { background in
-                    Text(background.label).tag(background)
-                }
-            }
-
-            if settings.canvasBackground == .custom {
-                ColorPicker("Custom color", selection: customCanvasColorBinding, supportsOpacity: false)
+            Section("Canvas background") {
+                // The shared control — identical to Fekthor's Settings.
+                CanvasBackgroundControls(background: canvasBackgroundBinding)
             }
 
             LabeledContent("Image corner radius") {
@@ -216,12 +232,6 @@ struct SettingsView: View {
                         .font(.system(.caption, design: .monospaced))
                         .frame(width: 48, alignment: .trailing)
                 }
-            }
-
-            HStack {
-                Text("Preview")
-                Spacer()
-                backgroundPreview
             }
         }
         .formStyle(.grouped)
@@ -410,17 +420,10 @@ struct SettingsView: View {
         )
     }
 
-    private var canvasBinding: Binding<CanvasBackground> {
+    private var canvasBackgroundBinding: Binding<CanvasBackground> {
         Binding(
             get: { settings.canvasBackground },
             set: { settings.canvasBackground = $0 }
-        )
-    }
-
-    private var customCanvasColorBinding: Binding<Color> {
-        Binding(
-            get: { Color(nsColor: settings.customCanvasBackground) },
-            set: { settings.customCanvasBackground = NSColor($0) }
         )
     }
 
@@ -443,21 +446,6 @@ struct SettingsView: View {
             get: { settings.showInFinderContextMenus },
             set: { settings.showInFinderContextMenus = $0 }
         )
-    }
-
-    @ViewBuilder
-    private var backgroundPreview: some View {
-        if settings.canvasBackground == .checkerboard {
-            CheckerboardBackground()
-                .frame(width: 72, height: 32)
-                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 7).stroke(.secondary.opacity(0.35)))
-        } else {
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(settings.canvasColor)
-                .frame(width: 72, height: 32)
-                .overlay(RoundedRectangle(cornerRadius: 7).stroke(.secondary.opacity(0.35)))
-        }
     }
 
     private func saveOpenAIKey() {
@@ -484,30 +472,4 @@ struct SettingsView: View {
     }
 }
 
-struct CheckerboardBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    var cellSize: CGFloat = 12
-
-    var body: some View {
-        let lightColor = colorScheme == .dark ? Color.white.opacity(0.11) : Color.white
-        let darkColor = colorScheme == .dark ? Color.white.opacity(0.055) : Color.gray.opacity(0.18)
-
-        Canvas { context, size in
-            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(lightColor))
-            for row in 0...Int(size.height / cellSize) {
-                for column in 0...Int(size.width / cellSize) where (row + column).isMultiple(of: 2) {
-                    context.fill(
-                        Path(CGRect(
-                            x: CGFloat(column) * cellSize,
-                            y: CGFloat(row) * cellSize,
-                            width: cellSize,
-                            height: cellSize
-                        )),
-                        with: .color(darkColor)
-                    )
-                }
-            }
-        }
-    }
-}
+// `CheckerboardBackground` now lives in ImageKidKit (shared with Fekthor).

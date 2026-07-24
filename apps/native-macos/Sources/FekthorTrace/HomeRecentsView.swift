@@ -1,5 +1,6 @@
 import AppKit
 import FekthorKit
+import ImageKidKit
 import SwiftUI
 
 /// Loads home-screen previews for recent workspaces: a handful of icon
@@ -81,35 +82,15 @@ struct RecentWorkspaceRow: View {
     @ObservedObject var store: RecentPreviewStore
     var action: () -> Void
 
-    @State private var hovering = false
-
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                previewGrid
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(recent.name).font(.body.weight(.medium))
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .frame(width: 320)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.primary.opacity(hovering ? 0.10 : 0.045))
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 12))
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
+        HomeRecentRow(
+            title: recent.name,
+            detail: subtitle,
+            help: recent.path,
+            action: action,
+            accessory: { previewGrid }
+        )
         .task(id: recent.path) { store.request(recent) }
-        .help(recent.path)
     }
 
     private var subtitle: String {
@@ -120,34 +101,32 @@ struct RecentWorkspaceRow: View {
         guard preview.categoryCount > 0 else { return icons }
         let cats =
             "\(preview.categoryCount) categor\(preview.categoryCount == 1 ? "y" : "ies")"
-        return "\(cats) · \(icons)"
+        return "\(cats) \u{00B7} \(icons)"
     }
 
     @ViewBuilder
     private var previewGrid: some View {
         let thumbs = store.preview(for: recent)?.thumbnails ?? []
         ZStack {
-            RoundedRectangle(cornerRadius: 10).fill(Color.fekthorWell)
+            Rectangle().fill(Color.white.opacity(0.07))
             if thumbs.isEmpty {
                 Image(systemName: "folder")
-                    .font(.title3)
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color.accentColor)
             } else {
                 let columns = [
-                    GridItem(.fixed(16), spacing: 3), GridItem(.fixed(16), spacing: 3),
+                    GridItem(.fixed(13), spacing: 2), GridItem(.fixed(13), spacing: 2),
                 ]
-                LazyVGrid(columns: columns, spacing: 3) {
+                LazyVGrid(columns: columns, spacing: 2) {
                     ForEach(Array(thumbs.prefix(4).enumerated()), id: \.offset) { _, image in
                         Image(nsImage: image)
                             .resizable()
                             .interpolation(.high)
                             .scaledToFit()
-                            .frame(width: 16, height: 16)
+                            .frame(width: 13, height: 13)
                     }
                 }
             }
         }
-        .frame(width: 44, height: 44)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.07)))
     }
 }

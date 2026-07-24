@@ -364,6 +364,9 @@ struct EditorTimelineDrawer: View {
         case .group(let g):
             attributes = g.attributes
             kind = "group"
+        case .image(let i):
+            attributes = i.attributes
+            kind = "image"
         case .raw:
             return binding.target
         }

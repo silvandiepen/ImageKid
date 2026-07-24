@@ -1,5 +1,6 @@
 import AppKit
 import FekthorKit
+import ImageKidKit
 import SwiftUI
 
 extension Notification.Name {
@@ -9,6 +10,8 @@ extension Notification.Name {
     static let fekthorSave = Notification.Name("fekthor.save")
     static let fekthorSaveAs = Notification.Name("fekthor.saveAs")
     static let fekthorTraceImage = Notification.Name("fekthor.traceImage")
+    static let fekthorSelectAll = Notification.Name("fekthor.selectAll")
+    static let fekthorUndo = Notification.Name("fekthor.undo")
     static let fekthorGroup = Notification.Name("fekthor.group")
     static let fekthorUngroup = Notification.Name("fekthor.ungroup")
     static let fekthorBringForward = Notification.Name("fekthor.bringForward")
@@ -146,6 +149,10 @@ struct FekthorApp: App {
         }
         .windowToolbarStyle(.unified)
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About Fekthor") { AboutWindow.show(.fekthor) }
+            }
+
             CommandGroup(replacing: .newItem) {
                 Button(menuState.workspaceOpen ? "New Icon" : "New File") {
                     NotificationCenter.default.post(name: .fekthorNewFile, object: nil)
@@ -180,7 +187,20 @@ struct FekthorApp: App {
                 }
                 .disabled(!menuState.editorOpen)
             }
+            CommandGroup(replacing: .undoRedo) {
+                Button("Undo") {
+                    NotificationCenter.default.post(name: .fekthorUndo, object: nil)
+                }
+                .keyboardShortcut("z", modifiers: .command)
+                .disabled(!menuState.editorOpen)
+            }
             CommandGroup(after: .pasteboard) {
+                Divider()
+                Button("Select All") {
+                    NotificationCenter.default.post(name: .fekthorSelectAll, object: nil)
+                }
+                .keyboardShortcut("a", modifiers: .command)
+                .disabled(!menuState.editorOpen)
                 Divider()
                 Button("Trace Image…") {
                     NotificationCenter.default.post(name: .fekthorTraceImage, object: nil)

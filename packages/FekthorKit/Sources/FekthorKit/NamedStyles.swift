@@ -162,6 +162,10 @@ public enum NamedStyles {
                 let kept = classList(of: s.attributes).filter { !doomed.contains($0) }
                 s.attributes = settingClassList(s.attributes, to: kept)
                 return .shape(s)
+            case .image(var i):
+                let kept = classList(of: i.attributes).filter { !doomed.contains($0) }
+                i.attributes = settingClassList(i.attributes, to: kept)
+                return .image(i)
             case .group(var g):
                 let kept = classList(of: g.attributes).filter { !doomed.contains($0) }
                 g.attributes = settingClassList(g.attributes, to: kept)
@@ -232,6 +236,8 @@ public enum NamedStyles {
                 break
             case .shape(let s):
                 visit(s.id, s.attributes)
+            case .image(let i):
+                visit(i.id, i.attributes)
             case .group(let g):
                 visit(g.id, g.attributes)
                 walk(g.children, visit)
@@ -255,6 +261,15 @@ public enum NamedStyles {
                     }
                 }
                 return .shape(s)
+            case .image(var i):
+                if classList(of: i.attributes).contains(style.name) {
+                    let rewritten = writing(style, into: i.style)
+                    if rewritten != i.style {
+                        i.style = rewritten
+                        changed = true
+                    }
+                }
+                return .image(i)
             case .group(var g):
                 if classList(of: g.attributes).contains(style.name) {
                     let rewritten = writing(style, into: g.style)

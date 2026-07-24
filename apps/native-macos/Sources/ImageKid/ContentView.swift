@@ -82,6 +82,20 @@ struct ContentView: View {
         } message: {
             Text(appModel.errorMessage ?? "Unknown error")
         }
+        // The one-time "want the Best Quality model?" question. Asked the
+        // first time a feature runs without it; "Not Now" is remembered.
+        .alert(
+            appModel.bestQualityOffer?.title ?? "",
+            isPresented: Binding(
+                get: { appModel.bestQualityOffer != nil },
+                set: { if !$0 { appModel.declineBestQualityOffer() } }
+            )
+        ) {
+            Button("Download Best Quality") { appModel.acceptBestQualityOffer() }
+            Button("Not Now", role: .cancel) { appModel.declineBestQualityOffer() }
+        } message: {
+            Text(appModel.bestQualityOffer?.message ?? "")
+        }
     }
 
     @ViewBuilder
@@ -97,6 +111,8 @@ struct ContentView: View {
                         appModel.openPanel()
                     }, newAction: {
                         appModel.isShowingNewFile = true
+                    }, openURLAction: { url in
+                        appModel.load([url])
                     })
                 }
         }

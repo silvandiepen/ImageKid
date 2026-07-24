@@ -9,7 +9,7 @@
     <h2 :class="bemm('heading')">This website</h2>
     <p :class="bemm('copy')">This website is a static site served by Cloudflare. When you visit, Cloudflare may process standard network request metadata such as IP address, user agent, requested URL, timestamps, and security signals to deliver and protect the site. The ImageKid project does not add website analytics or advertising trackers.</p>
     <h2 :class="bemm('heading')">Contact</h2>
-    <p :class="bemm('copy')">For a privacy question, email <a :class="bemm('link')" href="mailto:hello@hakobs.com">hello@hakobs.com</a> or use <a :class="bemm('link')" href="https://github.com/silvandiepen/imageKid/issues">GitHub Issues</a>. Do not attach private media to a public issue.</p>
+    <p :class="bemm('copy')">For a privacy question, email <a :class="bemm('link')" href="mailto:hello@hakobs.com">hello@hakobs.com</a>. Do not attach private media to a public issue.</p>
     <p :class="bemm('last-updated')">Last updated: 17 Jul 2026</p>
   </div>
 </template>

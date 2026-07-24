@@ -13,36 +13,38 @@ const data: ProductPageData = {
   name: meta.name,
   icon: meta.icon,
   eyebrow: "Batch upscaler for Mac",
-  tagline: "Enlarge a whole folder, locally.",
+  tagline: "Small pictures, made big.",
   lead:
-    "ImageKid Upscale does one thing well: drop in a batch of images, pick a scale, and it enlarges every one on your Mac. No accounts, no credits, no per-image fees — pay once and keep using it.",
+    "Drop in a folder. Pick 2×, 4× or 8×. Walk away. Every image comes back bigger, done on your Mac, with no credits ticking down while you wait.",
   chips: ["macOS", "On-device", "No subscription"],
   actions: [
     { label: "Get notified", to: "mailto:hello@hakobs.com?subject=ImageKid%20Upscale", variant: "primary", external: true },
     { label: "See ImageKid", to: "/imagekid", variant: "outline" }
   ],
   featuresEyebrow: "How it works",
-  featuresTitle: "Drop, scale, generate.",
+  featuresTitle: "Three steps. That is the whole app.",
   features: [
-    { title: "Drag in a batch", description: "Drop files or add them from the Open panel. The queue shows a thumbnail, status, and progress per file." },
-    { title: "Pick a scale", description: "2×, 4×, or 8× — set it once and it applies to the whole queue." },
-    { title: "Standard or Best Quality", description: "A fast, always-available Core Image path, or an optional on-device Core ML upscaler for maximum detail." },
-    { title: "Safe output", description: "Writes to a sibling ImageKid Upscaled folder with collision-safe names. Originals are never overwritten unless you choose to." },
-    { title: "Serial & predictable", description: "Processes one image at a time to keep memory and heat under control, with per-file status and cancel." },
-    { title: "Shared model cache", description: "Best-quality models live in the shared ImageKid App Group, so ImageKid and Upscale never download them twice." }
+    { title: "Drag in a batch", description: "Drop the files in. The queue shows a thumbnail, a status and a progress bar for each one." },
+    { title: "Pick a scale", description: "2×, 4× or 8×. Set it once; it applies to everything in the queue." },
+    { title: "Two levels of good", description: "Standard is instant and always there. Best Quality downloads a model that squeezes out more detail — still on your Mac." },
+    { title: "Your originals survive", description: "Results go to a sibling folder with collision-safe names. Nothing is overwritten unless you ask for it." },
+    { title: "One at a time, on purpose", description: "Serial processing keeps memory and heat sane on a laptop. Cancel whenever; finished files stay finished." },
+    { title: "Downloads models once", description: "The big models live in a shared cache, so ImageKid and Upscale never fetch the same one twice." }
   ],
   sections: [
     {
       eyebrow: "Why it exists",
-      title: "Pay once, not per image.",
+      title: "Your Mac can already do this.",
       copy:
-        "Hosted upscalers charge subscriptions or credits for work your Mac can already do. Upscale is a focused, one-time-purchase utility for the people who run this job again and again.",
-      bullets: ["No subscription or credits", "No account, no telemetry", "Runs fully on-device"],
+        "Hosted upscalers bill you per image, or monthly, for a job the machine on your desk handles fine. This is a small one-time-purchase utility for people who run that job over and over.",
+      bullets: ["No subscription, no credits", "No account, no telemetry", "Never leaves your Mac"],
+      image: "/media/accent/upscale-closeup.jpg",
+      imageAlt: "",
       imageSide: "right",
-      tone: 1
+      tone: 2
     }
   ],
-  closingTitle: "Part of the ImageKid family.",
-  closingCopy: "Need the full editor or a batch background remover instead? They share the same engine."
+  closingTitle: "One of four.",
+  closingCopy: "Want the full editor, or the one that removes backgrounds instead? Same engine underneath."
 };
 </script>

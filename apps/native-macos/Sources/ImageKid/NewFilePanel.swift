@@ -56,6 +56,7 @@ extension NSImage {
 /// image if there is one) and a background. Usable from the workspace and the
 /// welcome screen.
 struct NewFilePanel: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var appModel: AppModel
     @State private var width: Int = 1000
     @State private var height: Int = 1000
@@ -83,9 +84,9 @@ struct NewFilePanel: View {
         }
         .padding(20)
         .frame(width: 340)
-        .foregroundStyle(.white)
+        .foregroundStyle(Color.panelInk(colorScheme))
         .background(Color.black.opacity(0.86), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(.white.opacity(0.12)))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Color.panelFill(colorScheme, 0.12)))
         .shadow(color: .black.opacity(0.4), radius: 30, y: 14)
         .darkPanelControl()
         .onAppear(perform: prefillFromClipboard)
@@ -102,7 +103,7 @@ struct NewFilePanel: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 12, weight: .bold))
                     .frame(width: 26, height: 26)
-                    .background(.white.opacity(0.10), in: Circle())
+                    .background(Color.panelFill(colorScheme, 0.10), in: Circle())
             }
             .buttonStyle(.plain)
             .help("Close")
@@ -112,7 +113,7 @@ struct NewFilePanel: View {
     private var clipboardNote: some View {
         Label("Using the size of the image on your clipboard.", systemImage: "doc.on.clipboard")
             .font(.caption)
-            .foregroundStyle(.white.opacity(0.6))
+            .foregroundStyle(Color.panelInk(colorScheme, 0.6))
             .fixedSize(horizontal: false, vertical: true)
     }
 
@@ -122,11 +123,11 @@ struct NewFilePanel: View {
                 TextField("Width", value: widthBinding, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 80)
-                Text("×").foregroundStyle(.white.opacity(0.5))
+                Text("×").foregroundStyle(Color.panelInk(colorScheme, 0.5))
                 TextField("Height", value: heightBinding, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 80)
-                Text("px").foregroundStyle(.white.opacity(0.5))
+                Text("px").foregroundStyle(Color.panelInk(colorScheme, 0.5))
                 Spacer()
                 Toggle(isOn: $lockRatio) {
                     Image(systemName: lockRatio ? "lock" : "lock.open")
@@ -157,11 +158,11 @@ struct NewFilePanel: View {
                 Text(preset.0).font(.caption.weight(.semibold))
                 Text("\(preset.1)×\(preset.2)")
                     .font(.system(size: 9))
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(Color.panelInk(colorScheme, 0.5))
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 7)
-            .background(.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .background(Color.panelFill(colorScheme, 0.075), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -216,7 +217,7 @@ struct NewFilePanel: View {
     @ViewBuilder
     private func field<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.72))
+            Text(title).font(.caption.weight(.semibold)).foregroundStyle(Color.panelInk(colorScheme, 0.72))
             content()
         }
     }

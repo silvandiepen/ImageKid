@@ -36,6 +36,8 @@ export interface ProductPageData {
   actions: ProductAction[];
   /** Optional hero screenshot; when absent the icon panel is shown. */
   heroImage?: string;
+  /** Cut-out character render; when set, the hero uses AppHero. */
+  character?: string;
   heroImageAlt?: string;
   featuresTitle?: string;
   featuresEyebrow?: string;

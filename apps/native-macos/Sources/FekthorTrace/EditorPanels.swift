@@ -71,6 +71,15 @@ enum EditorPanel: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The rail's shipped order: everyday palettes first, occasional ones
+    /// last — a short window keeps the head on the rail and pushes the tail
+    /// behind the ⋯ overflow, which is exactly the ranking a new user wants.
+    /// Dragging a button rewrites this per user (persisted).
+    static let defaultRailOrder: [EditorPanel] = [
+        .fill, .stroke, .swatches, .layers, .opacity, .corners, .transform,
+        .align, .combine, .styles, .grid, .history, .gridPresets, .animation,
+    ]
+
     /// The floating palettes' shared width (FloatingToolPanel `width`).
     static let panelWidth: CGFloat = 240
 
@@ -235,6 +244,20 @@ final class EditorPanelsState: ObservableObject {
         }
     }
 
+    /// Move one rail button to a given slot — how a panel is pushed behind
+    /// the ⋯ overflow (to the end) or pulled back onto the rail. Where the
+    /// rail stops and the overflow starts is purely this order plus the
+    /// window height, so one move does both jobs.
+    func moveRailItem(_ panel: EditorPanel, to index: Int) {
+        guard let from = railOrder.firstIndex(of: panel) else { return }
+        let to = Swift.max(0, Swift.min(railOrder.count - 1, index))
+        guard from != to else { return }
+        var order = railOrder
+        order.remove(at: from)
+        order.insert(panel, at: to)
+        railOrder = order
+    }
+
     // v3 keys: v1 shipped every palette open in an overlapping pile, v2
     // scattered them over fixed offsets; v3 re-defaults everyone once into
     // the edge-docked layout without touching other preferences. Positions
@@ -317,11 +340,14 @@ final class EditorPanelsState: ObservableObject {
         legacyPositions = loadedLegacy
         sizes = loadedSizes
         // Rail order: stored order first (unknown names dropped), then any
-        // panel the stored list doesn't know yet, in canonical order.
+        // panel the stored list doesn't know yet, in default order.
         var loadedOrder: [EditorPanel] = []
         if let raw = AppDefaults.store.array(forKey: Self.railOrderKey) as? [String] {
             loadedOrder = raw.compactMap(EditorPanel.init(rawValue:))
         }
+        loadedOrder += EditorPanel.defaultRailOrder.filter { !loadedOrder.contains($0) }
+        // Belt and braces: a panel added without touching the default order
+        // still gets a button (at the end) instead of silently vanishing.
         loadedOrder += EditorPanel.allCases.filter { !loadedOrder.contains($0) }
         railOrder = loadedOrder
     }
@@ -606,19 +632,21 @@ struct EditorPanelsLayer: View {
 
     var body: some View {
         // The rail sits left of the palette dock like ImageKid's; the
-        // GeometryReader only feeds the dock size into positions — it
-        // observes layout, never the session, so the no-session-rebuild
-        // discipline above still holds.
-        HStack(alignment: .top, spacing: 12) {
-            // Above the palettes so the rail's hover tips never hide
-            // behind a left-docked palette.
-            panelRail.zIndex(1)
-            GeometryReader { geo in
-                let dock = geo.size
-                palettes(in: dock)
-                    .onChange(of: geo.size, initial: true) {
-                        panels.migrateLegacyPositions(in: geo.size)
-                    }
+        // GeometryReaders only feed sizes into layout (the outer one caps
+        // how many rail chips fit) — they observe layout, never the session,
+        // so the no-session-rebuild discipline above still holds.
+        GeometryReader { outer in
+            HStack(alignment: .top, spacing: 12) {
+                // Above the palettes so the rail's hover tips never hide
+                // behind a left-docked palette.
+                panelRail(in: outer.size.height).zIndex(1)
+                GeometryReader { geo in
+                    let dock = geo.size
+                    palettes(in: dock)
+                        .onChange(of: geo.size, initial: true) {
+                            panels.migrateLegacyPositions(in: geo.size)
+                        }
+                }
             }
         }
         .padding(12)
@@ -694,38 +722,53 @@ struct EditorPanelsLayer: View {
     /// the next free dock slot, a minimized one (its button stays lit)
     /// restores where it was, an open one hides. Buttons drag onto each
     /// other to rearrange; the order persists.
-    private var panelRail: some View {
-        VStack(spacing: 8) {
+    private func panelRail(in height: CGFloat) -> some View {
+        let order = panels.railOrder
+        let split = RailMetrics.split(order, in: height)
+        return VStack(spacing: RailMetrics.spacing) {
             RailPaintWells(session: session, workspace: workspace)
-            ForEach(panels.railOrder) { panel in
-                // Lit = actually on the canvas; a minimized/closed palette
-                // dims its button (clicking a dim button brings it back).
-                let isActive = panels.isExpanded(panel)
-                MinimizedPanelChip(systemImage: panel.systemImage, isActive: isActive) {
-                    panels.railToggle(panel)
-                }
-                .modifier(
-                    RailHoverTip(
-                        text: (isActive ? "Hide " : "Show ") + panel.title))
-                .accessibilityLabel(panel.title)
-                .accessibilityIdentifier("rail.\(panel.rawValue)")
-                .onDrag {
-                    draggingRailPanel = panel
-                    return NSItemProvider(object: panel.rawValue as NSString)
-                }
-                .onDrop(
-                    of: [.text],
-                    delegate: RailReorderDelegate(
-                        target: panel, panels: panels, dragging: $draggingRailPanel))
+            ForEach(split.shown) { panel in
+                railChip(panel, overflowIndex: split.shown.count)
+            }
+            if !split.hidden.isEmpty {
+                RailOverflowButton(
+                    hidden: split.hidden, railSlots: split.shown.count,
+                    panels: panels, dragging: $draggingRailPanel)
             }
         }
-        // A whisper of chrome so the rail reads as one strip over the
-        // canvas, matching the palettes' dark glass.
-        .padding(10)
-        .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 16))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(.white.opacity(0.10), lineWidth: 1))
+        // Shared with ImageKid — see PanelRailChrome in ImageKidKit.
+        .panelRailChrome()
+    }
+
+    /// One rail button: toggles its palette, drags to reorder, and can be
+    /// pushed behind the … overflow from its context menu.
+    private func railChip(_ panel: EditorPanel, overflowIndex: Int) -> some View {
+        // Lit = actually on the canvas; a minimized/closed palette
+        // dims its button (clicking a dim button brings it back).
+        let isActive = panels.isExpanded(panel)
+        return MinimizedPanelChip(
+            systemImage: panel.systemImage, isActive: isActive, size: RailMetrics.chip
+        ) {
+            panels.railToggle(panel)
+        }
+        .modifier(RailHoverTip(text: (isActive ? "Hide " : "Show ") + panel.title))
+        // The instant hover tip is the rail's labelling; the system tooltip
+        // carries the same words for VoiceOver and slow-hover discovery.
+        .help((isActive ? "Hide the " : "Show the ") + panel.title + " palette")
+        .accessibilityLabel(panel.title)
+        .accessibilityIdentifier("rail.\(panel.rawValue)")
+        .contextMenu {
+            Button("Move to ⋯") { panels.moveRailItem(panel, to: panels.railOrder.count - 1) }
+                .disabled(panels.railOrder.count <= overflowIndex)
+        }
+        .onDrag {
+            draggingRailPanel = panel
+            return NSItemProvider(object: panel.rawValue as NSString)
+        }
+        .onDrop(
+            of: [.text],
+            delegate: RailReorderDelegate(
+                target: panel, panels: panels, dragging: $draggingRailPanel))
     }
 
     private func palette(
@@ -931,6 +974,125 @@ struct EditorPanelsLayer: View {
     }
 }
 
+/// Rail geometry, and the height-driven split between the buttons on the
+/// rail and the ones behind its ⋯ overflow. The chip is a touch smaller than
+/// ImageKid's dock chip — this rail carries fourteen of them — and the split
+/// is recomputed from the live canvas height, so a short window keeps a
+/// usable rail instead of running its buttons off the bottom edge.
+enum RailMetrics {
+    // Delegated to ImageKidKit so Fekthor and ImageKid cannot drift apart.
+    static let chip = PanelRailMetrics.chip
+    static let spacing = PanelRailMetrics.spacing
+    static let padding = PanelRailMetrics.padding
+    /// The fill/stroke wells + swap button that sit above the chips.
+    static let wellsHeight: CGFloat = 69
+    static let step = PanelRailMetrics.step
+
+    /// How many chips fit in `height`, and which panels those are. When
+    /// something has to give, the ⋯ button takes the last slot and the tail
+    /// of the rail order moves behind it — so the buttons you keep at the
+    /// top stay put and the ones you care least about are one click away.
+    /// The geometry itself lives in ImageKidKit (`PanelRailLayout`), where
+    /// it is unit-tested without a window.
+    static func split(_ order: [EditorPanel], in height: CGFloat)
+        -> (shown: [EditorPanel], hidden: [EditorPanel])
+    {
+        PanelRailLayout.split(
+            order, height: height, chip: chip, spacing: spacing, padding: padding,
+            reserved: wellsHeight)
+    }
+}
+
+/// The ⋯ button: everything that did not fit on the rail, one click away.
+/// Its panels can be clicked open from the popover, dragged back onto the
+/// rail, or sent here by dropping a rail button on it.
+private struct RailOverflowButton: View {
+    let hidden: [EditorPanel]
+    /// How many chips the rail itself shows — where a promoted panel lands.
+    let railSlots: Int
+    @ObservedObject var panels: EditorPanelsState
+    @Binding var dragging: EditorPanel?
+
+    @State private var showing = false
+
+    var body: some View {
+        let openCount = hidden.filter { panels.isExpanded($0) }.count
+        MinimizedPanelChip(
+            systemImage: "ellipsis", isActive: openCount > 0, size: RailMetrics.chip
+        ) {
+            showing.toggle()
+        }
+        // No hover tip: the ⋯ is just the affordance for "more panels".
+        // The system tooltip still carries the words for VoiceOver.
+        .help("More palettes — drag buttons in and out to choose what the rail shows")
+        .accessibilityLabel("More palettes")
+        .accessibilityIdentifier("rail.overflow")
+        // Dropping a rail button here pushes it behind the ⋯.
+        .onDrop(of: [.text], delegate: RailDemoteDelegate(panels: panels, dragging: $dragging))
+        .popover(isPresented: $showing, arrowEdge: .trailing) {
+            VStack(alignment: .leading, spacing: 8) {
+                LazyVGrid(
+                    columns: Array(
+                        repeating: GridItem(.fixed(RailMetrics.chip), spacing: RailMetrics.spacing),
+                        count: min(4, max(1, hidden.count))),
+                    spacing: RailMetrics.spacing
+                ) {
+                    ForEach(hidden) { panel in
+                        chip(panel)
+                    }
+                }
+                Text("Drag one onto the rail to keep it there.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(12)
+        }
+    }
+
+    private func chip(_ panel: EditorPanel) -> some View {
+        MinimizedPanelChip(
+            systemImage: panel.systemImage, isActive: panels.isExpanded(panel),
+            size: RailMetrics.chip
+        ) {
+            panels.railToggle(panel)
+            showing = false
+        }
+        .help(panel.title)
+        .accessibilityLabel(panel.title)
+        .accessibilityIdentifier("rail.overflow.\(panel.rawValue)")
+        .contextMenu {
+            Button("Move to Rail") {
+                panels.moveRailItem(panel, to: max(0, railSlots - 1))
+                showing = false
+            }
+        }
+        .onDrag {
+            dragging = panel
+            // The popover would swallow the drop targets behind it.
+            showing = false
+            return NSItemProvider(object: panel.rawValue as NSString)
+        }
+    }
+}
+
+/// Dropping a rail button on the ⋯ moves it to the end of the rail order —
+/// i.e. behind the overflow.
+private struct RailDemoteDelegate: DropDelegate {
+    let panels: EditorPanelsState
+    @Binding var dragging: EditorPanel?
+
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        defer { dragging = nil }
+        guard let dragging else { return false }
+        withAnimation(.easeInOut(duration: 0.15)) {
+            panels.moveRailItem(dragging, to: panels.railOrder.count - 1)
+        }
+        return true
+    }
+}
+
 /// The rail's own tooltip: instant, readable, right of the icon — the
 /// system .help() bubble is too slow to serve as the rail's labelling.
 private struct RailHoverTip: ViewModifier {
@@ -1103,7 +1265,7 @@ struct SwatchesPanelContent: View {
         func walk(_ nodes: [GraphicNode]) {
             for node in nodes {
                 switch node {
-                case .raw: continue
+                case .raw, .image: continue  // placed rasters carry no paint
                 case .group(let g): walk(g.children)
                 case .shape(let s):
                     let style = s.effectiveStyle
@@ -1226,12 +1388,7 @@ struct SwatchesPanelContent: View {
             let alt = NSEvent.modifierFlags.contains(.option)
             apply(hex, asStroke: (target == .stroke) != alt)
         } label: {
-            RoundedRectangle(cornerRadius: 5)
-                .fill(swatchColor(hex))
-                .frame(width: 22, height: 22)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5)
-                        .strokeBorder(.white.opacity(0.25), lineWidth: 1))
+            SwatchDot(color: swatchColor(hex))
         }
         .buttonStyle(.plain)
         .help("\(hex) — click: active well · ⌥-click: the other")
@@ -1389,36 +1546,30 @@ struct RailPaintWells: View {
         let selection = StyleSelection(session: session)
         let fill = selection.summary(of: { $0.fill })
         let stroke = selection.summary(of: { $0.stroke })
-        VStack(spacing: 6) {
-            FillStrokeWells(fill: fill, stroke: stroke, target: $session.paintTarget) { _ in
-                editorShown = true
-            }
-            .popover(isPresented: $editorShown, arrowEdge: .trailing) {
-                PaintWellEditor(session: session, workspace: workspace)
-            }
-            swapButton
+        // Shared with ImageKid — see PaintWellsBar in ImageKidKit.
+        PaintWellsBar(
+            active: Binding(
+                get: { session.paintTarget == .fill ? .primary : .secondary },
+                set: { session.paintTarget = $0 == .primary ? .fill : .stroke }),
+            primaryHelp: "Fill",
+            secondaryHelp: "Stroke",
+            onEdit: { _ in editorShown = true },
+            onSwap: swapPaints,
+            primary: { PaintWellGlyph(summary: fill, ring: false) },
+            secondary: { PaintWellGlyph(summary: stroke, ring: true) }
+        )
+        .popover(isPresented: $editorShown, arrowEdge: .trailing) {
+            PaintWellEditor(session: session, workspace: workspace)
         }
-        .padding(.bottom, 4)
     }
 
-    private var swapButton: some View {
-        Button {
-            session.editSelectionStyle("swap-paints", label: "Swap fill & stroke") { style in
-                let fill = style.fill
-                style.fill = style.stroke
-                style.stroke = fill
-            }
-            session.endStyleEdit()
-        } label: {
-            Image(systemName: "arrow.left.arrow.right")
-                .font(.system(size: 9, weight: .semibold))
-                .frame(width: 20, height: 20)
-                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
-                .contentShape(RoundedRectangle(cornerRadius: 6))
+    private func swapPaints() {
+        session.editSelectionStyle("swap-paints", label: "Swap fill & stroke") { style in
+            let fill = style.fill
+            style.fill = style.stroke
+            style.stroke = fill
         }
-        .buttonStyle(.plain)
-        .help("Swap fill and stroke")
-        .accessibilityIdentifier("swatches.swap")
+        session.endStyleEdit()
     }
 }
 

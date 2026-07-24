@@ -24,7 +24,7 @@ final class ExportTests: XCTestCase {
                 switch n {
                 case .shape(let s): shapes.append(s)
                 case .group(let g): walk(g.children)
-                case .raw: break
+                case .raw, .image: break
                 }
             }
         }

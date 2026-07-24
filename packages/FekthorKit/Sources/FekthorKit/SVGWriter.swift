@@ -93,6 +93,8 @@ public enum SVGWriter {
                     body += pad + "</g>\n"
                 case .shape(let s):
                     body += pad + shapeText(s, gradientID: gradientID) + "\n"
+                case .image(let i):
+                    body += pad + imageText(i) + "\n"
                 }
             }
         }
@@ -178,6 +180,27 @@ public enum SVGWriter {
             }
             return "<\(tag)\(attrs)/>"
         }
+    }
+
+    /// `<image>`: rect, href (always written as plain `href`), then the same
+    /// transform/style tail every node gets. The href is emitted verbatim —
+    /// base64 payloads must not be reflowed or re-escaped beyond XML rules.
+    static func imageText(_ i: ImageNode) -> String {
+        var attrs = nodeAttrText(i.attributes)
+        attrs +=
+            " x=\"\(SVGNum.text(i.x))\" y=\"\(SVGNum.text(i.y))\""
+            + " width=\"\(SVGNum.text(i.width))\" height=\"\(SVGNum.text(i.height))\""
+        attrs += " href=\"\(escapeAttr(i.href))\""
+        if let par = i.preserveAspectRatio {
+            attrs += " preserveAspectRatio=\"\(escapeAttr(par))\""
+        }
+        if let t = i.transform, !t.raw.isEmpty {
+            attrs += " transform=\"\(escapeAttr(t.raw))\""
+        }
+        if !i.style.declarations.isEmpty {
+            attrs += " style=\"\(escapeAttr(SVGStyle.serialize(i.style)))\""
+        }
+        return "<image\(attrs)/>"
     }
 
     static func nodeAttrText(_ attributes: NodeAttributes) -> String {

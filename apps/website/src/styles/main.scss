@@ -2,16 +2,25 @@
   $project-colors: (
     "dark": #151820,
     "light": #f8f8f6,
-    "primary": #315fdb,
-    "secondary": #315fdb,
+    // Brand-true and bright. These are SURFACES — @sil/ui derives a matching
+    // --color-{name}-text for each, so they no longer have to double as ink.
+    "primary": #0c71d1,
+    "secondary": #0c71d1,
     "border": #151820,
-    "fekthor": #6c5cf0,
-    "upscale": #0e9a83,
-    "cutout": #e0552a
+    "imagekid": #57a8f5,
+    "fekthor": #f0741e,
+    "upscale": #12b39a,
+    "cutout": #1daace,
+    "cream": #f7d9ae
   )
 );
 
 * { box-sizing: border-box; }
+
+:root {
+  // Sections are rounded slabs, not full-bleed stripes.
+  --radius-section: clamp(24px, 3vw, 48px);
+}
 
 html {
   width: 100%;
@@ -41,9 +50,9 @@ a { color: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 h1, h2, h3, p, ul, ol, figure { margin: 0; }
 h1, h2, h3 { font-family: var(--font-family-heading); font-weight: 600; letter-spacing: 0; }
-h1 { max-width: 18ch; font-size: clamp(var(--font-size-xxl), 5vw, var(--font-size-xxxxl)); line-height: 1.04; }
-h2 { font-size: clamp(var(--font-size-xl), 3.5vw, var(--font-size-xxxl)); line-height: 1.15; }
-h3 { font-size: var(--font-size-l); }
+h1 { max-width: 16ch; font-size: clamp(var(--font-size-xxxl), 7vw, calc(var(--font-size-xxxxl) * 1.35)); line-height: 0.98; letter-spacing: -0.02em; font-weight: 800; }
+h2 { max-width: 18ch; font-size: clamp(var(--font-size-xxl), 5vw, calc(var(--font-size-xxxxl) * 0.95)); line-height: 1.02; letter-spacing: -0.015em; font-weight: 800; }
+h3 { font-size: var(--font-size-xl); letter-spacing: -0.01em; font-weight: 700; }
 p, li { line-height: 1.6; }
 ul, ol { display: grid; gap: var(--space-s); padding-inline-start: var(--space-l); }
 pre { max-width: 100%; overflow-x: auto; margin: 0; padding: var(--space-l); border: var(--border-width) solid color-mix(in srgb, var(--color-foreground), transparent 88%); border-radius: var(--border-radius-l); background: color-mix(in srgb, var(--color-foreground), transparent 96%); }
@@ -260,19 +269,64 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
 }
 
 /* Per-app accent — always an alias of a palette-mapped semantic token, never a raw value. Solid identity marks only; washes, borders, and shadows derive from background/foreground. */
-.home-page, .product-page { --app-accent: var(--color-primary); }
-.home-page__app-card--imagekid, .home-page__showcase--imagekid, .product-page--imagekid, .product-page__family-card--imagekid { --app-accent: var(--color-primary); }
-.home-page__app-card--fekthor, .home-page__showcase--fekthor, .product-page--fekthor, .product-page__family-card--fekthor { --app-accent: var(--color-fekthor); }
-.home-page__app-card--upscale, .product-page--upscale, .product-page__family-card--upscale { --app-accent: var(--color-upscale); }
-.home-page__app-card--cutout, .product-page--cutout, .product-page__family-card--cutout { --app-accent: var(--color-cutout); }
+// Following @sil/ui's colour strategy: a section sets --app-color (the
+// surface) and --app-text-color (the most-contrast shade of that same hue).
+// @sil/ui generates --color-{name}-text automatically, but its 80% mix only
+// clears 2.4:1 on mid-lightness colours like the orange, so these are pinned
+// to a tinted dark that holds 6:1 — same idea, enough contrast for body text.
+.home-page, .product-page {
+  --app-color: var(--color-imagekid);
+  --app-text-color: #0d273e;
+  --app-accent: var(--color-primary);
+}
+
+// A section painted in its app's colour. Everything inside inherits the
+// derived text colour, so nothing has to be restyled per app.
+.section-bold {
+  background: var(--app-color);
+  color: var(--app-text-color);
+  border-radius: var(--radius-section);
+
+  h1, h2, h3, p, li, strong { color: var(--app-text-color); }
+  .product-page__eyebrow,
+  .home-page__eyebrow { color: color-mix(in srgb, var(--app-text-color), transparent 30%); }
+}
+
+.home-page__app-card--imagekid, .home-page__showcase--imagekid, .product-page--imagekid, .product-page__family-card--imagekid { --app-color: var(--color-imagekid); --app-text-color: #0d273e; --app-accent: var(--color-primary); }
+.home-page__app-card--fekthor, .home-page__showcase--fekthor, .product-page--fekthor, .product-page__family-card--fekthor { --app-color: var(--color-fekthor); --app-text-color: #2b1302; --app-accent: #b4530c; }
+.home-page__app-card--upscale, .product-page--upscale, .product-page__family-card--upscale { --app-color: var(--color-upscale); --app-text-color: #032621; --app-accent: #0a7a68; }
+.home-page__app-card--cutout, .product-page--cutout, .product-page__family-card--cutout { --app-color: var(--color-cutout); --app-text-color: #05232a; --app-accent: #157c96; }
 
 /* Home — app family grid */
 .home-page__apps { scroll-margin-top: calc(var(--space-xxl) * 2); display: grid; gap: var(--space-xl); }
 .home-page__app-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-m); }
-.home-page__app-card { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "icon copy" "meta meta"; align-content: start; gap: var(--space-s) var(--space-l); padding: var(--space-l); border-radius: var(--border-radius-l); background: color-mix(in srgb, var(--color-background), var(--color-foreground) 5%); border: var(--border-width) solid transparent; text-decoration: none; transition: border-color 0.15s ease, transform 0.15s ease; }
-.home-page__app-card:hover { border-color: color-mix(in srgb, var(--color-foreground), transparent 70%); transform: translateY(-2px); }
-.home-page__app-card--flagship { background: color-mix(in srgb, var(--color-foreground), transparent 92%); }
-.home-page__app-icon { grid-area: icon; width: var(--space-xxl); height: var(--space-xxl); border-radius: var(--border-radius-m); box-shadow: 0 var(--space-xs) var(--space-m) color-mix(in srgb, var(--color-foreground), transparent 84%); }
+// Each card wears its own app's colour at full strength — this is the grid
+// that makes the family legible at a glance, so it should be the loudest
+// thing on the page after the hero.
+.home-page__app-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: "icon copy" "meta meta";
+  align-content: start;
+  gap: var(--space-m) var(--space-l);
+  padding: clamp(var(--space-l), 3vw, var(--space-xl));
+  border-radius: var(--radius-section);
+  background: var(--app-color);
+  color: var(--app-text-color);
+  text-decoration: none;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+
+  &:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 18px 40px color-mix(in srgb, var(--app-color), transparent 55%);
+  }
+}
+.home-page__app-card--flagship { grid-column: span 2; }
+.home-page__app-name { font-size: clamp(var(--font-size-xl), 2.6vw, var(--font-size-xxl)); font-weight: 800; letter-spacing: -0.015em; }
+.home-page__app-tagline { font-size: var(--font-size-l); font-weight: 600; opacity: 0.85; }
+.home-page__app-summary, .home-page__app-meta { opacity: 0.72; }
+.home-page__app-icon { grid-area: icon; width: var(--space-xxl); height: var(--space-xxl); }
 .home-page__app-copy { grid-area: copy; display: grid; gap: var(--space-xs); align-content: start; }
 .home-page__app-name { font-family: var(--font-family-heading); font-weight: 600; font-size: var(--font-size-l); }
 .home-page__app-tagline { color: color-mix(in srgb, var(--color-foreground), transparent 20%); font-weight: 600; }
@@ -282,19 +336,20 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
 .home-page__app-status::before { width: var(--space-s); aspect-ratio: 1; border-radius: 50%; background: var(--app-accent); content: ""; }
 
 /* Home — flagship showcases */
-.home-page__showcase { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr); align-items: center; gap: var(--space-xl); padding: var(--space-xl); border-radius: var(--border-radius-xl); background: color-mix(in srgb, var(--color-background), var(--color-foreground) 5%); }
+.home-page__showcase { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr); align-items: center; gap: clamp(var(--space-l), 4vw, var(--space-xxl)); padding: clamp(var(--space-l), 4vw, calc(var(--space-xxl) * 1.2)); border-radius: var(--radius-section); background: color-mix(in srgb, var(--app-color), var(--color-background) 86%); }
 .home-page__showcase > * { min-width: 0; }
-.home-page__showcase--fekthor { background: color-mix(in srgb, var(--color-foreground), transparent 92%); }
+.home-page__showcase--fekthor { background: var(--app-color); color: var(--app-text-color); }
+.home-page__showcase--fekthor .home-page__eyebrow { color: color-mix(in srgb, var(--app-text-color), transparent 30%); }
 .home-page__showcase-copy { display: grid; gap: var(--space-m); align-content: center; }
 .home-page__showcase-brand { display: flex; align-items: center; gap: var(--space-s); }
-.home-page__showcase-brand img { border-radius: var(--border-radius-s); }
+
 .home-page__showcase-list { list-style: none; padding: 0; display: grid; gap: var(--space-s); }
 .home-page__showcase-list li { position: relative; padding-inline-start: var(--space-l); color: color-mix(in srgb, var(--color-foreground), transparent 24%); }
 .home-page__showcase-list li::before { position: absolute; left: 0; top: 0.62em; width: var(--space-s); height: var(--space-xs); border-radius: var(--border-radius-xl); background: var(--app-accent); content: ""; }
 .home-page__showcase-copy .button { justify-self: start; }
 .home-page__showcase-image { display: block; width: 100%; height: auto; border-radius: var(--border-radius-l); box-shadow: 0 var(--space-m) var(--space-xxl) color-mix(in srgb, var(--color-foreground), transparent 88%); }
 .home-page__showcase-panel { display: grid; place-items: center; aspect-ratio: 4 / 3; border-radius: var(--border-radius-l); background: color-mix(in srgb, var(--color-background), var(--color-foreground) 8%); }
-.home-page__showcase-panel-icon { border-radius: var(--border-radius-l); box-shadow: 0 var(--space-m) var(--space-xxl) color-mix(in srgb, var(--color-foreground), transparent 80%); }
+
 
 /* Product pages (ImageKid, Fekthor, Upscale, Cutout) */
 .product-page {
@@ -312,7 +367,7 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
   &__status { display: inline-flex; align-items: center; gap: var(--space-xs); padding: var(--space-xs) var(--space-s); border-radius: var(--border-radius-xl); background: color-mix(in srgb, var(--color-foreground), transparent 88%); color: var(--color-foreground); font-size: var(--font-size-xs); font-weight: 700; letter-spacing: 0.02em; }
   &__status::before { width: var(--space-s); aspect-ratio: 1; border-radius: 50%; background: var(--app-accent); content: ""; }
   &__identity { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-m); }
-  &__hero-icon { border-radius: var(--border-radius-l); box-shadow: 0 var(--space-s) var(--space-l) color-mix(in srgb, var(--color-foreground), transparent 80%); }
+
   &__lead { max-width: 52ch; color: color-mix(in srgb, var(--color-foreground), transparent 22%); font-size: var(--font-size-l); }
   &__actions { display: flex; flex-wrap: wrap; gap: var(--space-s); }
   &__chips { display: flex; flex-wrap: wrap; gap: var(--space-xs) var(--space-m); color: color-mix(in srgb, var(--color-foreground), transparent 40%); font-size: var(--font-size-xs); }
@@ -320,7 +375,7 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
   &__chips span::before { position: absolute; top: 50%; left: 0; width: var(--space-xs); aspect-ratio: 1; transform: translateY(-50%); border-radius: 50%; background: var(--app-accent); content: ""; }
   &__hero-image { display: block; width: 100%; height: auto; border-radius: var(--border-radius-l); box-shadow: 0 var(--space-m) var(--space-xxl) color-mix(in srgb, var(--color-foreground), transparent 86%); }
   &__hero-panel { display: grid; place-items: center; aspect-ratio: 4 / 3; border-radius: var(--border-radius-xl); background: color-mix(in srgb, var(--color-background), var(--color-foreground) 8%); }
-  &__hero-panel-icon { border-radius: var(--border-radius-l); box-shadow: 0 var(--space-m) var(--space-xxl) color-mix(in srgb, var(--color-foreground), transparent 78%); }
+
 
   &__section-intro { display: grid; gap: var(--space-m); max-width: 62ch; }
   &__section-copy { color: color-mix(in srgb, var(--color-foreground), transparent 34%); }
@@ -328,24 +383,72 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
   &__features { display: grid; gap: var(--space-xl); padding-block: var(--space-xxl) var(--space-xl); }
   &__feature-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-m); }
   &__feature { min-width: 0; display: grid; align-content: start; gap: var(--space-s); padding: var(--space-l); border-radius: var(--border-radius-l); background: color-mix(in srgb, var(--color-background), var(--color-foreground) 4%); }
-  &__feature-marker { width: var(--space-xxl); height: var(--space-xs); border-radius: var(--border-radius-xl); background: var(--app-accent); }
+  &__feature-marker { width: var(--space-xxl); height: var(--space-xs); border-radius: var(--border-radius-xl); background: var(--app-color); }
   &__feature-title { font-size: var(--font-size-l); }
   &__feature-copy { color: color-mix(in srgb, var(--color-foreground), transparent 32%); font-size: var(--font-size-s); }
 
   &__band { margin-inline: calc(50% - 50vw); padding: var(--space-xxl) max(var(--space-xl), calc((100vw - 1180px) / 2 + var(--space-xl))); }
-  &__band--tone-1 { background: color-mix(in srgb, var(--color-foreground), transparent 95%); }
-  &__band--tone-2 { background: color-mix(in srgb, var(--color-foreground), transparent 92%); }
-  &__band--tone-3 { background: color-mix(in srgb, var(--color-foreground), transparent 89%); }
-  &__band--tone-4 { background: color-mix(in srgb, var(--color-foreground), transparent 86%); }
-  &__band--tone-5 { background: color-mix(in srgb, var(--color-foreground), transparent 83%); }
+  // Bands are rounded slabs in the app's own colour, inset from the page edge
+  // with space between them, rather than full-bleed stripes butted together.
+  // Even tones go bold (the full colour); odd tones stay quiet.
+  &__band {
+    margin-inline: 0;
+    margin-block: var(--space-l);
+    padding: clamp(var(--space-xl), 6vw, calc(var(--space-xxl) * 1.6)) clamp(var(--space-l), 4vw, var(--space-xxl));
+    border-radius: var(--radius-section);
+  }
+  &__band--tone-1, &__band--tone-3, &__band--tone-5 {
+    background: color-mix(in srgb, var(--app-color), var(--color-background) 88%);
+  }
+  &__band--tone-2, &__band--tone-4 {
+    background: var(--app-color);
+    color: var(--app-text-color);
+
+    .product-page__band-title,
+    .product-page__band-lead,
+    .product-page__band-list li { color: var(--app-text-color); }
+    .product-page__band-lead { opacity: 0.94; }
+    .product-page__eyebrow { color: color-mix(in srgb, var(--app-text-color), transparent 32%); }
+    .product-page__band-list li::before { background: var(--app-text-color); }
+  }
+
   &__band-inner { width: min(1180px, 100%); margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: var(--space-xl); }
   &__band--image-left &__band-copy { order: 2; }
   &__band--image-left &__band-media, &__band--image-left &__band-panel { order: 1; }
   &__band-copy { display: grid; gap: var(--space-m); }
-  &__band-title { font-size: clamp(var(--font-size-xl), 3vw, var(--font-size-xxl)); line-height: 1.15; }
-  &__band-lead { max-width: 46ch; color: color-mix(in srgb, var(--color-foreground), transparent 26%); font-size: var(--font-size-l); }
+  // Character accents sit in the band with no frame — they are cut-outs, so a
+  // panel or shadow around them reads as a sticker.
+  // The cut-outs are transparent PNGs, so they can run past the band's edge
+  // and simply blend into the colour behind them. Oversized and cropped
+  // reads as a figure standing in the section, not a picture placed in it.
+  &__band-character {
+    position: relative;
+    align-self: stretch;
+    min-height: 420px;
+    overflow: hidden;
+    margin-block: calc(clamp(var(--space-xl), 6vw, calc(var(--space-xxl) * 1.6)) * -1);
+    margin-inline-end: calc(clamp(var(--space-l), 4vw, var(--space-xxl)) * -1);
+  }
+  // Anchored from the top so the FEET crop, never the head — the same
+  // framing the apps' own home screens use. A cropped head reads as a
+  // mistake; cropped feet read as a figure standing in the section.
+  &__band-character-image {
+    position: absolute;
+    top: 6%;
+    left: 50%;
+    translate: -50% 0;
+    width: min(118%, 560px);
+    height: auto;
+    filter: drop-shadow(0 26px 40px rgb(20 16 8 / 0.26));
+  }
+  &__band--image-left &__band-character {
+    margin-inline: calc(clamp(var(--space-l), 4vw, var(--space-xxl)) * -1) 0;
+  }
+
+  &__band-title { max-width: 16ch; font-size: clamp(var(--font-size-xxl), 4.4vw, calc(var(--font-size-xxxxl) * 0.8)); line-height: 1.03; letter-spacing: -0.015em; font-weight: 800; }
+  &__band-lead { max-width: 44ch; color: color-mix(in srgb, var(--color-foreground), transparent 10%); font-size: clamp(var(--font-size-l), 1.5vw, var(--font-size-xl)); line-height: 1.5; }
   &__band-list { list-style: none; padding: 0; display: grid; gap: var(--space-s); }
-  &__band-list li { position: relative; padding-inline-start: var(--space-l); color: color-mix(in srgb, var(--color-foreground), transparent 28%); }
+  &__band-list li { position: relative; padding-inline-start: var(--space-l); font-size: var(--font-size-default); color: color-mix(in srgb, var(--color-foreground), transparent 12%); }
   &__band-list li::before { position: absolute; left: 0; top: 0.62em; width: var(--space-s); height: var(--space-xs); border-radius: var(--border-radius-xl); background: var(--app-accent); content: ""; }
   &__band-image { display: block; width: 100%; height: auto; border-radius: var(--border-radius-l); box-shadow: 0 var(--space-m) var(--space-xxl) color-mix(in srgb, var(--color-foreground), transparent 88%); }
   &__band-panel { display: grid; place-items: center; aspect-ratio: 4 / 3; border-radius: var(--border-radius-l); background: color-mix(in srgb, var(--color-background), var(--color-foreground) 6%); }
@@ -355,7 +458,7 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
   &__family-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-m); }
   &__family-card { min-width: 0; display: grid; gap: var(--space-xs); padding: var(--space-l); border-radius: var(--border-radius-l); background: color-mix(in srgb, var(--color-background), var(--color-foreground) 4%); border: var(--border-width) solid transparent; text-decoration: none; transition: border-color 0.15s ease; }
   &__family-card:hover { border-color: color-mix(in srgb, var(--color-foreground), transparent 70%); }
-  &__family-icon { width: var(--space-xl); height: var(--space-xl); border-radius: var(--border-radius-s); }
+  &__family-icon { width: var(--space-xl); height: var(--space-xl); }
   &__family-name { font-weight: 600; font-size: var(--font-size-l); }
   &__family-tagline { color: color-mix(in srgb, var(--color-foreground), transparent 38%); font-size: var(--font-size-s); }
 }

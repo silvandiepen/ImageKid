@@ -555,34 +555,47 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
 public struct MinimizedPanelChip: View {
     let systemImage: String
     let isActive: Bool
+    /// Edge length; nil keeps the platform default. Glyph and corner radius
+    /// scale with it, so a smaller chip is the same chip, not a new look —
+    /// a long rail (Fekthor's 14 palettes) asks for a tighter one.
+    let size: CGFloat?
     let action: () -> Void
 
-    public init(systemImage: String, isActive: Bool = false, action: @escaping () -> Void) {
+    public init(
+        systemImage: String, isActive: Bool = false, size: CGFloat? = nil,
+        action: @escaping () -> Void
+    ) {
         self.systemImage = systemImage
         self.isActive = isActive
+        self.size = size
         self.action = action
     }
 
     /// 38pt reads right next to macOS chrome; touch needs the full 44pt.
     private var chipSize: CGFloat {
+        if let size { return size }
         #if os(iOS)
-        44
+        return 44
         #else
-        38
+        return 38
         #endif
     }
+
+    /// Proportions of the 38pt chip: a 15pt glyph in an 11pt-radius square.
+    private var glyphSize: CGFloat { (chipSize * 0.4).rounded() }
+    private var cornerRadius: CGFloat { (chipSize * 0.29).rounded() }
 
     public var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: glyphSize, weight: .semibold))
                 .frame(width: chipSize, height: chipSize)
                 .background(
                     isActive ? Color.accentColor.opacity(0.9) : Color.black.opacity(0.80),
-                    in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .strokeBorder(.white.opacity(isActive ? 0.0 : 0.12))
                 )
                 .foregroundStyle(.white)
@@ -594,24 +607,71 @@ public struct MinimizedPanelChip: View {
 /// Always-visible rail of toggle buttons — one per panel. Each button
 /// shows/hides its panel and is highlighted while the panel is open.
 /// Lay out vertically (default) or horizontally.
+/// Shared rail metrics. Fekthor arrived at these for a 14-palette rail and
+/// they are now the house style, so ImageKid's rail matches rather than
+/// inventing its own chrome.
+public enum PanelRailMetrics {
+    public static let chip: CGFloat = 32
+    public static let spacing: CGFloat = 6
+    public static let padding: CGFloat = 8
+    public static let railRadius: CGFloat = 16
+    public static var step: CGFloat { chip + spacing }
+}
+
+/// The rail's container chrome: a whisper of glass so the strip reads as one
+/// object over the canvas, matching the palettes. Fekthor arrived at these
+/// numbers; ImageKid now uses the same ones rather than floating bare chips.
+private struct PanelRailChrome: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        content
+            .padding(PanelRailMetrics.padding)
+            .background(
+                colorScheme == .dark ? Color.black.opacity(0.35) : Color.white.opacity(0.85),
+                in: RoundedRectangle(cornerRadius: PanelRailMetrics.railRadius))
+            .overlay(
+                RoundedRectangle(cornerRadius: PanelRailMetrics.railRadius)
+                    .strokeBorder(
+                        colorScheme == .dark ? .white.opacity(0.10) : .black.opacity(0.08),
+                        lineWidth: 1))
+    }
+}
+
+public extension View {
+    /// Wraps a rail in the shared container chrome.
+    func panelRailChrome() -> some View { modifier(PanelRailChrome()) }
+}
+
 public struct PanelDockRail<ID: Hashable>: View {
     @ObservedObject var model: PanelDockModel<ID>
     let axis: Axis
+    let chip: CGFloat
+    let spacing: CGFloat
 
-    public init(model: PanelDockModel<ID>, axis: Axis = .vertical) {
+    public init(
+        model: PanelDockModel<ID>,
+        axis: Axis = .vertical,
+        chip: CGFloat = PanelRailMetrics.chip,
+        spacing: CGFloat = PanelRailMetrics.spacing
+    ) {
         self.model = model
         self.axis = axis
+        self.chip = chip
+        self.spacing = spacing
     }
 
     public var body: some View {
         let layout = axis == .horizontal
-            ? AnyLayout(HStackLayout(spacing: 8))
-            : AnyLayout(VStackLayout(spacing: 8))
+            ? AnyLayout(HStackLayout(spacing: spacing))
+            : AnyLayout(VStackLayout(spacing: spacing))
         layout {
             ForEach(model.order, id: \.self) { id in
                 if let spec = model.spec(id) {
                     let isActive = model.isExpanded(id)
-                    MinimizedPanelChip(systemImage: spec.systemImage, isActive: isActive) {
+                    MinimizedPanelChip(
+                        systemImage: spec.systemImage, isActive: isActive, size: chip
+                    ) {
                         model.railToggle(id)
                     }
                     .help((isActive ? "Hide " : "Show ") + spec.title)

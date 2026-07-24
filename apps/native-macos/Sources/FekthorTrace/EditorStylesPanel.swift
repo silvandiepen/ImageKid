@@ -81,6 +81,12 @@ enum ClassRetag {
                     changed = true
                 }
                 return .shape(s)
+            case .image(var img):
+                if let next = edit(ClassTokens.list(img.attributes)) {
+                    img.attributes = ClassTokens.setting(img.attributes, to: next)
+                    changed = true
+                }
+                return .image(img)
             case .group(var g):
                 if let next = edit(ClassTokens.list(g.attributes)) {
                     g.attributes = ClassTokens.setting(g.attributes, to: next)

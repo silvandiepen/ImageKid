@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 /// Lists annotation layers front-to-back, with selection, reordering,
 /// duplication and deletion. Front-most layer sits at the top of the list.
 struct LayersPanel: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var session: ImageSession
     @ObservedObject var appModel: AppModel
     @Binding var offset: CGSize
@@ -157,7 +158,7 @@ struct LayersPanel: View {
         .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            isSelected ? Color.accentColor.opacity(0.30) : Color.white.opacity(0.05),
+            isSelected ? Color.accentColor.opacity(0.30) : Color.panelInk(colorScheme, 0.05),
             in: RoundedRectangle(cornerRadius: 8)
         )
         .contentShape(Rectangle())
@@ -194,7 +195,7 @@ struct LayersPanel: View {
                     .clipShape(RoundedRectangle(cornerRadius: 5))
                     .overlay(
                         RoundedRectangle(cornerRadius: 5)
-                            .strokeBorder(editingMask ? Color.accentColor : .white.opacity(0.25), lineWidth: editingMask ? 2 : 1)
+                            .strokeBorder(editingMask ? Color.accentColor : Color.panelFill(colorScheme, 0.25), lineWidth: editingMask ? 2 : 1)
                     )
                     .opacity(layer.isMaskEnabled ? 1 : 0.4)
                     .onTapGesture { session.beginMaskEdit(layerID: layer.id) }
@@ -213,7 +214,7 @@ struct LayersPanel: View {
                         .opacity(layer.isMaskEnabled ? 1 : 0.35)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.white.opacity(0.8))
+                .foregroundStyle(Color.panelInk(colorScheme, 0.8))
                 .help(layer.isMaskEnabled ? "Disable mask" : "Enable mask")
             } else if isSelected {
                 Button {
@@ -224,7 +225,7 @@ struct LayersPanel: View {
                         .opacity(0.5)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.white.opacity(0.7))
+                .foregroundStyle(Color.panelInk(colorScheme, 0.7))
                 .help("Add mask")
             }
             visibilityButton(isOn: layer.isVisible) {
@@ -235,7 +236,7 @@ struct LayersPanel: View {
         .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            isSelected ? Color.accentColor.opacity(0.30) : Color.white.opacity(0.05),
+            isSelected ? Color.accentColor.opacity(0.30) : Color.panelInk(colorScheme, 0.05),
             in: RoundedRectangle(cornerRadius: 8)
         )
         .contentShape(Rectangle())
@@ -295,20 +296,20 @@ struct LayersPanel: View {
                 .clipShape(RoundedRectangle(cornerRadius: 5))
             Text("Background")
                 .font(.system(size: 13))
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(Color.panelInk(colorScheme, 0.85))
                 .lineLimit(1)
             Spacer()
             if session.backgroundRemovedImage != nil {
                 Image(systemName: "theatermask.and.paintbrush")
                     .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.6))
+                    .foregroundStyle(Color.panelInk(colorScheme, 0.6))
             }
             Button {
                 session.unlockBackground()
             } label: {
                 Image(systemName: "lock.fill")
                     .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(Color.panelInk(colorScheme, 0.5))
             }
             .buttonStyle(.plain)
             .help("Unlock — make the background a movable layer")
@@ -319,7 +320,7 @@ struct LayersPanel: View {
         .contextMenu {
             Button("Unlock Background") { session.unlockBackground() }
         }
-        .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+        .background(Color.panelFill(colorScheme, 0.05), in: RoundedRectangle(cornerRadius: 8))
         .contextMenu {
             Button(session.backgroundRemovedImage != nil ? "Restore Background" : "Remove Background") {
                 appModel.removeBackground()
@@ -352,7 +353,7 @@ struct LayersPanel: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .background(Color.panelFill(colorScheme, 0.08), in: RoundedRectangle(cornerRadius: 8))
         .contextMenu {
             Button("Ungroup") { session.ungroup(id: group.id) }
         }
@@ -385,7 +386,7 @@ struct LayersPanel: View {
                 .font(.system(size: 12))
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.white.opacity(0.7))
+        .foregroundStyle(Color.panelInk(colorScheme, 0.7))
         .help(isOn ? "Hide" : "Show")
     }
 
@@ -424,7 +425,7 @@ struct LayersPanel: View {
             Image(systemName: symbol)
                 .font(.system(size: 13, weight: .medium))
                 .frame(width: 30, height: 28)
-                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                .background(Color.panelFill(colorScheme, 0.08), in: RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
         .help(help)

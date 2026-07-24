@@ -213,6 +213,10 @@ public enum Containers {
                     next += 1
                     walk(&g.children)
                     nodes[i] = .group(g)
+                case .image(var img):
+                    img.id = next
+                    next += 1
+                    nodes[i] = .image(img)
                 case .raw(var r):
                     r.id = next
                     next += 1

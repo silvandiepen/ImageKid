@@ -4,6 +4,7 @@ import ImageKidKit
 /// A named, jump-to-any-step history timeline (Photoshop-style). The current
 /// step is highlighted; steps after it are dimmed and redoable.
 struct HistoryPanel: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var session: ImageSession
     @Binding var offset: CGSize
     @Binding var size: CGSize
@@ -33,7 +34,7 @@ struct HistoryPanel: View {
                 HStack {
                     Text("\(session.historyIndex + 1) of \(session.history.count)")
                         .font(.caption.monospacedDigit())
-                        .foregroundStyle(.white.opacity(0.58))
+                        .foregroundStyle(Color.panelInk(colorScheme, 0.58))
                     Spacer()
                     Button { session.undo() } label: {
                         Image(systemName: "arrow.uturn.backward")
@@ -87,13 +88,13 @@ struct HistoryPanel: View {
                 Spacer()
                 Text("\(index)")
                     .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.white.opacity(0.35))
+                    .foregroundStyle(Color.panelInk(colorScheme, 0.35))
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                isCurrent ? Color.accentColor.opacity(0.30) : Color.white.opacity(0.05),
+                isCurrent ? Color.accentColor.opacity(0.30) : Color.panelInk(colorScheme, 0.05),
                 in: RoundedRectangle(cornerRadius: 8)
             )
             .opacity(isFuture ? 0.4 : 1)

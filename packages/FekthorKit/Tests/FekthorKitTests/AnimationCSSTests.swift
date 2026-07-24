@@ -43,7 +43,7 @@ final class AnimationCSSTests: XCTestCase {
                 case .shape(let s): return s
                 case .group(let g):
                     if let hit = find(g.children) { return hit }
-                case .raw: break
+                case .raw, .image: break
                 }
             }
             return nil

@@ -11,7 +11,7 @@
     <h2 :class="bemm('heading')">Liability</h2>
     <p :class="bemm('copy')">To the extent permitted by applicable law, the software and website are provided without warranties. The maintainers are not responsible for loss arising from use of this early-stage software.</p>
     <h2 :class="bemm('heading')">Contact</h2>
-    <p :class="bemm('copy')">Questions can be sent to <a :class="bemm('link')" href="mailto:hello@hakobs.com">hello@hakobs.com</a> or raised through <a :class="bemm('link')" href="https://github.com/silvandiepen/imageKid/issues">GitHub Issues</a>.</p>
+    <p :class="bemm('copy')">Questions can be sent to <a :class="bemm('link')" href="mailto:hello@hakobs.com">hello@hakobs.com</a>.</p>
     <p :class="bemm('last-updated')">Last updated: 17 Jul 2026</p>
   </div>
 </template>
