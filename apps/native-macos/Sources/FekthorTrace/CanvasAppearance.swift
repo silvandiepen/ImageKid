@@ -11,10 +11,11 @@ import SwiftUI
 final class CanvasAppearance: ObservableObject {
     static let shared = CanvasAppearance()
 
-    static let defaultOpacity: Double = 0.7
+    static let defaultOpacity: Double = 0
 
-    /// Canvas background colour as "#rrggbb"; nil = the system text
-    /// background (the pre-existing canvas tone).
+    /// Canvas background colour as "#rrggbb"; nil = black. With the
+    /// default 0 opacity the surround is pure backdrop glass — the wash
+    /// only appears once the opacity comes up.
     @Published var backgroundHex: String? {
         didSet { AppDefaults.store.set(backgroundHex, forKey: Self.hexKey) }
     }
@@ -37,7 +38,7 @@ final class CanvasAppearance: ObservableObject {
     /// The base colour before the opacity wash.
     var baseColor: Color {
         guard let backgroundHex, let c = PaintValue.parseHex(backgroundHex) else {
-            return Color(nsColor: .textBackgroundColor)
+            return .black
         }
         return Color(
             red: Double(c.r) / 255, green: Double(c.g) / 255, blue: Double(c.b) / 255)

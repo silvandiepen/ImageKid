@@ -314,7 +314,7 @@ struct EditorCanvasView: View {
                 drawGuide(guide.document, in: &ctx, doc: doc, t: t)
             }
             if let g = grid, g.visible, g.spacing > 0 {
-                drawGrid(g, in: &ctx, doc: doc, t: t)
+                drawGrid(g, in: &ctx, doc: doc, t: t, over: canvasSize)
             }
             ctx.stroke(Path(board), with: .color(.gray.opacity(0.4)), lineWidth: 1)
 
@@ -407,7 +407,8 @@ struct EditorCanvasView: View {
     /// multiplies both line opacities, clamped so cranked-up grids never
     /// overwhelm the artwork.
     private func drawGrid(
-        _ g: EditorGridConfig, in ctx: inout GraphicsContext, doc: GraphicDocument, t: T
+        _ g: EditorGridConfig, in ctx: inout GraphicsContext, doc: GraphicDocument, t: T,
+        over size: CGSize
     ) {
         let majorPx = g.spacing * Double(t.s)
         guard majorPx >= 4 else { return }
@@ -421,49 +422,53 @@ struct EditorCanvasView: View {
             let subStep = g.spacing / Double(subs + 1)
             if subStep * Double(t.s) >= 4 {
                 var p = Path()
-                addGridLines(&p, doc: doc, step: subStep, t: t, skipEvery: subs + 1)
+                addGridLines(&p, doc: doc, step: subStep, t: t, skipEvery: subs + 1, over: size)
                 ctx.stroke(p, with: .color(line.opacity(subAlpha)), lineWidth: 0.5)
             }
         }
         var p = Path()
-        addGridLines(&p, doc: doc, step: g.spacing, t: t, skipEvery: 0)
+        addGridLines(&p, doc: doc, step: g.spacing, t: t, skipEvery: 0, over: size)
         ctx.stroke(p, with: .color(line.opacity(majorAlpha)), lineWidth: 0.5)
     }
 
-    /// Vertical + horizontal lines every `step` across the viewBox. With
-    /// `skipEvery` > 0, every Nth line is left out (subdivision passes skip
-    /// the positions the major pass draws).
+    /// Vertical + horizontal lines every `step` across the WHOLE visible
+    /// canvas — the grid runs over the translucent surround, not just the
+    /// artboard — anchored to the artboard's origin so the lines keep
+    /// matching it. With `skipEvery` > 0, every Nth line is left out
+    /// (subdivision passes skip the positions the major pass draws).
     private func addGridLines(
-        _ p: inout Path, doc: GraphicDocument, step: Double, t: T, skipEvery: Int
+        _ p: inout Path, doc: GraphicDocument, step: Double, t: T, skipEvery: Int,
+        over size: CGSize
     ) {
         let vb = doc.viewBox
-        let x0 = vb.minX
-        let y0 = vb.minY
-        let x1 = vb.minX + vb.width
-        let y1 = vb.minY + vb.height
-        let top = CGFloat(y0) * t.s + t.ty
-        let bottom = CGFloat(y1) * t.s + t.ty
-        let leading = CGFloat(x0) * t.s + t.tx
-        let trailing = CGFloat(x1) * t.s + t.tx
-        var i = 0
-        while true {
-            let x = x0 + Double(i) * step
-            if x > x1 + 1e-9 { break }
-            if skipEvery == 0 || i % skipEvery != 0 {
-                let vx = CGFloat(x) * t.s + t.tx
-                p.move(to: CGPoint(x: vx, y: top))
-                p.addLine(to: CGPoint(x: vx, y: bottom))
+        let s = Double(t.s)
+        // The doc-space window the canvas shows.
+        let docX0 = (0 - Double(t.tx)) / s
+        let docX1 = (Double(size.width) - Double(t.tx)) / s
+        let docY0 = (0 - Double(t.ty)) / s
+        let docY1 = (Double(size.height) - Double(t.ty)) / s
+        // Line indices count from the artboard origin; negatives run left/up
+        // of it, so the skip test needs a positive modulus.
+        func skipped(_ i: Int) -> Bool {
+            skipEvery > 0 && ((i % skipEvery) + skipEvery) % skipEvery == 0
+        }
+        var i = Int(floor((docX0 - vb.minX) / step))
+        let lastX = Int(ceil((docX1 - vb.minX) / step))
+        while i <= lastX {
+            if !skipped(i) {
+                let vx = CGFloat(vb.minX + Double(i) * step) * t.s + t.tx
+                p.move(to: CGPoint(x: vx, y: 0))
+                p.addLine(to: CGPoint(x: vx, y: size.height))
             }
             i += 1
         }
-        i = 0
-        while true {
-            let y = y0 + Double(i) * step
-            if y > y1 + 1e-9 { break }
-            if skipEvery == 0 || i % skipEvery != 0 {
-                let vy = CGFloat(y) * t.s + t.ty
-                p.move(to: CGPoint(x: leading, y: vy))
-                p.addLine(to: CGPoint(x: trailing, y: vy))
+        i = Int(floor((docY0 - vb.minY) / step))
+        let lastY = Int(ceil((docY1 - vb.minY) / step))
+        while i <= lastY {
+            if !skipped(i) {
+                let vy = CGFloat(vb.minY + Double(i) * step) * t.s + t.ty
+                p.move(to: CGPoint(x: 0, y: vy))
+                p.addLine(to: CGPoint(x: size.width, y: vy))
             }
             i += 1
         }

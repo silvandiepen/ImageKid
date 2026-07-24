@@ -878,6 +878,8 @@ enum CompareMode: String, CaseIterable {
 
 private struct ComparisonView: View {
     @ObservedObject var model: ConversionModel
+    /// Observed so a Settings change repaints the trace panes live too.
+    @ObservedObject private var canvasAppearance = CanvasAppearance.shared
     @Binding var mode: CompareMode
     @Binding var zoom: CGFloat
     @Binding var offset: CGSize
@@ -1024,7 +1026,7 @@ private struct ComparisonView: View {
             .padding(8)
             GeometryReader { inner in
                 ZStack {
-                    Rectangle().fill(Color(nsColor: .textBackgroundColor))
+                    Rectangle().fill(CanvasAppearance.shared.effectiveBackground)
                     content(inner.size)
                 }
                 .clipped()
@@ -1136,7 +1138,7 @@ private struct ComparisonView: View {
             }
             .padding(8)
             ZStack {
-                Rectangle().fill(Color(nsColor: .textBackgroundColor))
+                Rectangle().fill(CanvasAppearance.shared.effectiveBackground)
                 VectorEditLayer(model: model, zoom: $zoom, offset: $offset, busy: busy)
             }
             .clipped()
@@ -1153,7 +1155,7 @@ private struct ComparisonView: View {
             .padding(8)
             GeometryReader { _ in
                 ZStack {
-                    Rectangle().fill(Color(nsColor: .textBackgroundColor))
+                    Rectangle().fill(CanvasAppearance.shared.effectiveBackground)
                     if let image {
                         Image(nsImage: image)
                             .resizable()
