@@ -2,48 +2,68 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
-    @StateObject private var modelDownloader = ModelDownloader()
+    /// The app-wide downloader: a download started by a Best Quality offer
+    /// has to show its progress here.
+    @ObservedObject private var modelDownloader = ModelDownloader.shared
+    @ObservedObject private var tabRouter = SettingsTabRouter.shared
+    @State private var tab: SettingsTab = .system
     @State private var openAIKey = ""
     @State private var openAIKeyStatus: String?
     @State private var quickActions: [QuickActionDefinition] = []
 
     var body: some View {
-        TabView {
+        TabView(selection: $tab) {
             systemPane
                 .tabItem {
                     Label("System", systemImage: "macwindow")
                 }
+                .tag(SettingsTab.system)
 
             quickActionsPane
                 .tabItem {
                     Label("Actions", systemImage: "bolt.fill")
                 }
+                .tag(SettingsTab.actions)
 
             appearancePane
             .tabItem {
                 Label("Appearance", systemImage: "paintbrush")
             }
+            .tag(SettingsTab.appearance)
 
             backgroundRemovalPane
                 .tabItem {
                     Label("Background", systemImage: "eraser")
                 }
+                .tag(SettingsTab.background)
 
             enhancePane
                 .tabItem {
                     Label("Enhance", systemImage: "wand.and.stars")
                 }
+                .tag(SettingsTab.enhance)
 
             magicPane
                 .tabItem {
                     Label("Magic", systemImage: "sparkles")
                 }
+                .tag(SettingsTab.magic)
         }
         .frame(width: 540, height: 380)
         .onAppear {
             openAIKey = KeychainStore.string(for: "openai-api-key") ?? ""
             quickActions = settings.quickActions
+            showRequestedTab()
         }
+        // Opened by a Best Quality offer: land on the pane with that
+        // model's download on it (the window may already be open).
+        .onChange(of: tabRouter.requested) { showRequestedTab() }
+    }
+
+    private func showRequestedTab() {
+        guard let requested = tabRouter.requested else { return }
+        tab = requested
+        tabRouter.requested = nil
     }
 
     private var systemPane: some View {

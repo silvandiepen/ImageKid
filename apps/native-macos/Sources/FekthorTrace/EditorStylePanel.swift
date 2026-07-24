@@ -107,8 +107,6 @@ private struct SelectionHeader: View {
 struct FillPanelContent: View {
     @ObservedObject var session: EditorSession
 
-    @State private var hex = ""
-
     /// Every selected fill is a gradient — the palette swaps the colour
     /// controls for the stops editor (EditorGradientPanel.swift).
     private var allGradients: Bool {
@@ -130,23 +128,14 @@ struct FillPanelContent: View {
                 GradientStopsEditor(session: session)
             } else {
                 PaintControls(
-                    session: session, editKey: "fill", hex: $hex,
+                    session: session, editKey: "fill",
                     get: { $0.fill }, set: { $0.fill = $1 })
             }
             KeywordPickerRow(
                 session: session, label: "Rule", name: "fill-rule", editKey: "fill-rule",
                 options: [("nonzero", "Nonzero"), ("evenodd", "Even-odd")])
         }
-        .onAppear { sync() }
-        .onChange(of: session.generation) { _, _ in sync() }
-        .onChange(of: session.selection) { _, _ in
-            session.endStyleEdit()
-            sync()
-        }
-    }
-
-    private func sync() {
-        hex = StyleSelection.hexText(StyleSelection(session: session).summary(of: { $0.fill }))
+        .onChange(of: session.selection) { _, _ in session.endStyleEdit() }
     }
 }
 
@@ -155,7 +144,6 @@ struct FillPanelContent: View {
 struct StrokePanelContent: View {
     @ObservedObject var session: EditorSession
 
-    @State private var hex = ""
     @State private var widthText = ""
     @State private var dashText = ""
 
@@ -163,7 +151,7 @@ struct StrokePanelContent: View {
         VStack(alignment: .leading, spacing: 12) {
             SelectionHeader(session: session)
             PaintControls(
-                session: session, editKey: "stroke", hex: $hex,
+                session: session, editKey: "stroke",
                 get: { $0.stroke }, set: { $0.stroke = $1 })
             widthRow
             StrokeGlyphRow(
@@ -241,9 +229,7 @@ struct StrokePanelContent: View {
     }
 
     private func sync() {
-        let selection = StyleSelection(session: session)
-        hex = StyleSelection.hexText(selection.summary(of: { $0.stroke }))
-        let styles = selection.styles
+        let styles = StyleSelection(session: session).styles
         let widths = styles.map { $0.strokeWidth }
         if let first = widths.first, widths.allSatisfy({ $0 == first }), let w = first {
             widthText = w == w.rounded() ? String(Int(w)) : String(w)
@@ -299,12 +285,11 @@ struct OpacityPanelContent: View {
     }
 }
 
-// MARK: - Shared paint controls (none / colour well / hex)
+// MARK: - Shared paint controls (none / colour well)
 
 private struct PaintControls: View {
     @ObservedObject var session: EditorSession
     let editKey: String
-    @Binding var hex: String
     let get: (Style) -> PaintValue?
     let set: (inout Style, PaintValue?) -> Void
 
@@ -336,10 +321,7 @@ private struct PaintControls: View {
                         apply { set(&$0, paint(from: color)) }
                     })
                     .accessibilityIdentifier("panel.\(editKey).well")
-                TextField("hex", text: $hex)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.caption.monospaced())
-                    .onSubmit { commitHex() }
+                Spacer(minLength: 0)
             }
             if summary == .mixed {
                 Text("mixed").font(.caption2).foregroundStyle(.secondary)
@@ -400,17 +382,6 @@ private struct PaintControls: View {
             b: UInt8(max(0, min(255, ns.blueComponent * 255))))
     }
 
-    private func commitHex() {
-        let trimmed = hex.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-        if trimmed.lowercased() == "none" {
-            apply { set(&$0, PaintValue.none) }
-            return
-        }
-        let value = trimmed.hasPrefix("#") ? trimmed : "#" + trimmed
-        guard let c = PaintValue.parseHex(value) else { return }
-        apply { set(&$0, .color(r: c.r, g: c.g, b: c.b)) }
-    }
 }
 
 // MARK: - Cap / Join icon rows

@@ -555,34 +555,47 @@ public final class PanelDockModel<ID: Hashable>: ObservableObject {
 public struct MinimizedPanelChip: View {
     let systemImage: String
     let isActive: Bool
+    /// Edge length; nil keeps the platform default. Glyph and corner radius
+    /// scale with it, so a smaller chip is the same chip, not a new look —
+    /// a long rail (Fekthor's 14 palettes) asks for a tighter one.
+    let size: CGFloat?
     let action: () -> Void
 
-    public init(systemImage: String, isActive: Bool = false, action: @escaping () -> Void) {
+    public init(
+        systemImage: String, isActive: Bool = false, size: CGFloat? = nil,
+        action: @escaping () -> Void
+    ) {
         self.systemImage = systemImage
         self.isActive = isActive
+        self.size = size
         self.action = action
     }
 
     /// 38pt reads right next to macOS chrome; touch needs the full 44pt.
     private var chipSize: CGFloat {
+        if let size { return size }
         #if os(iOS)
-        44
+        return 44
         #else
-        38
+        return 38
         #endif
     }
+
+    /// Proportions of the 38pt chip: a 15pt glyph in an 11pt-radius square.
+    private var glyphSize: CGFloat { (chipSize * 0.4).rounded() }
+    private var cornerRadius: CGFloat { (chipSize * 0.29).rounded() }
 
     public var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: glyphSize, weight: .semibold))
                 .frame(width: chipSize, height: chipSize)
                 .background(
                     isActive ? Color.accentColor.opacity(0.9) : Color.black.opacity(0.80),
-                    in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .strokeBorder(.white.opacity(isActive ? 0.0 : 0.12))
                 )
                 .foregroundStyle(.white)

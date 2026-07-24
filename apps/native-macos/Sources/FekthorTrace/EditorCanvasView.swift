@@ -343,6 +343,10 @@ struct EditorCanvasView: View {
                     var p = Path(shapePath(shape))
                     p = p.applying(cg)
                     ctx.stroke(p, with: .color(.blue.opacity(0.55)), lineWidth: 2)
+                } else if let image = doc.firstImage(id: id) {
+                    var p = Path(imagePath(image))
+                    p = p.applying(cg)
+                    ctx.stroke(p, with: .color(.blue.opacity(0.55)), lineWidth: 2)
                 }
             }
 
@@ -559,6 +563,16 @@ struct EditorCanvasView: View {
                 switch node {
                 case .raw: continue
                 case .group(let g): walk(g.children)
+                case .image(let i):
+                    guard !excluded.contains(i.id) else { continue }
+                    // A placed raster has no anchors: its corners and centre
+                    // are the magnets.
+                    let b = i.bounds
+                    pts.append(Pt(b.minX, b.minY))
+                    pts.append(Pt(b.maxX, b.minY))
+                    pts.append(Pt(b.minX, b.maxY))
+                    pts.append(Pt(b.maxX, b.maxY))
+                    pts.append(Pt((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2))
                 case .shape(let s):
                     guard !excluded.contains(s.id) else { continue }
                     for a in Editing2.anchors(of: s) {
@@ -619,6 +633,8 @@ struct EditorCanvasView: View {
             switch node {
             case .raw:
                 continue  // defs/style blocks have no direct rendering
+            case .image(let i):
+                drawImage(i, into: &ctx, base: base, opacity: opacity)
             case .group(let g):
                 let groupStyle = g.renderStyle
                 // Layers hide: display:none skips the whole subtree.
@@ -1026,6 +1042,42 @@ struct EditorCanvasView: View {
         Color(red: Double(c.r) / 255, green: Double(c.g) / 255, blue: Double(c.b) / 255)
     }
 
+    /// Draw a placed raster: its own rect under the node's transform, at the
+    /// group/node opacity. Decoding is cached by href (`ImageEmbed`), so a
+    /// redraw costs a blit, not a base64 decode.
+    private func drawImage(
+        _ i: ImageNode, into ctx: inout GraphicsContext, base: CGAffineTransform, opacity: Double
+    ) {
+        let style = i.renderStyle
+        guard !style.isDisplayNone, i.width > 0, i.height > 0,
+            let bitmap = ImageEmbed.decode(i.href)
+        else { return }
+        var imageBase = base
+        if let t = i.transform {
+            let m = t.matrix
+            imageBase =
+                CGAffineTransform(a: m[0], b: m[1], c: m[2], d: m[3], tx: m[4], ty: m[5])
+                .concatenating(base)
+        }
+        ctx.drawLayer { layer in
+            layer.transform = imageBase
+            layer.opacity = opacity * (style.opacity ?? 1)
+            layer.draw(
+                Image(decorative: bitmap, scale: 1),
+                in: CGRect(x: i.x, y: i.y, width: i.width, height: i.height))
+        }
+    }
+
+    /// A placed raster's frame as a document-space path (transform baked) —
+    /// selection outline and hit testing share it.
+    private func imagePath(_ i: ImageNode) -> CGPath {
+        let rect = CGRect(x: i.x, y: i.y, width: i.width, height: i.height)
+        guard let t = i.transform else { return CGPath(rect: rect, transform: nil) }
+        let m = t.matrix
+        var affine = CGAffineTransform(a: m[0], b: m[1], c: m[2], d: m[3], tx: m[4], ty: m[5])
+        return CGPath(rect: rect, transform: &affine)
+    }
+
     private func shapePath(_ s: ShapeNode) -> CGPath {
         let base = CGPathBuilder.path(for: s.kind)
         guard let t = s.transform else { return base }
@@ -1092,6 +1144,8 @@ struct EditorCanvasView: View {
         /// Selected shapes as they were at drag start; every event recomputes
         /// from these so nothing accumulates.
         var originals: [ShapeNode]
+        /// The selected placed images at drag start, same contract.
+        var imageOriginals: [ImageNode]
         /// Doc-space selection bounds at drag start.
         var box: CGRect
     }
@@ -1100,9 +1154,13 @@ struct EditorCanvasView: View {
     private func selectionDocBounds() -> CGRect? {
         var rect: CGRect? = nil
         for id in session.selection {
-            guard let shape = session.document.firstShape(id: id),
-                let b = Editing2.bounds(of: shape)
-            else { continue }
+            var bounds: (minX: Double, minY: Double, maxX: Double, maxY: Double)? = nil
+            if let shape = session.document.firstShape(id: id) {
+                bounds = Editing2.bounds(of: shape)
+            } else if let image = session.document.firstImage(id: id) {
+                bounds = image.bounds
+            }
+            guard let b = bounds else { continue }
             let r = CGRect(
                 x: b.minX, y: b.minY, width: b.maxX - b.minX, height: b.maxY - b.minY)
             rect = rect.map { $0.union(r) } ?? r
@@ -1127,6 +1185,10 @@ struct EditorCanvasView: View {
 
     private func selectedOriginals() -> [ShapeNode] {
         session.selection.sorted().compactMap { session.document.firstShape(id: $0) }
+    }
+
+    private func selectedImageOriginals() -> [ImageNode] {
+        session.selection.sorted().compactMap { session.document.firstImage(id: $0) }
     }
 
     // MARK: - Interaction
@@ -1285,7 +1347,9 @@ struct EditorCanvasView: View {
             let knob = rotateKnobPoint(for: view)
             if hypot(knob.x - v.startLocation.x, knob.y - v.startLocation.y) <= hitRadius - 1 {
                 session.beginGesture(label: "Rotate")
-                transformDrag = TransformDrag(kind: .rotate, originals: selectedOriginals(), box: box)
+                transformDrag = TransformDrag(
+                    kind: .rotate, originals: selectedOriginals(),
+                    imageOriginals: selectedImageOriginals(), box: box)
                 return
             }
             for h in BoxHandle.allCases {
@@ -1296,7 +1360,8 @@ struct EditorCanvasView: View {
                     // same rules as anchor drags (⌃ bypasses).
                     snapMagnets = collectMagnets(excluding: session.selection)
                     transformDrag = TransformDrag(
-                        kind: .scale(h), originals: selectedOriginals(), box: box)
+                        kind: .scale(h), originals: selectedOriginals(),
+                        imageOriginals: selectedImageOriginals(), box: box)
                     return
                 }
             }
@@ -1564,6 +1629,7 @@ struct EditorCanvasView: View {
         let fx = sx
         let fy = sy
         session.updateShapes(drag.originals.map { Editing2.scaled($0, sx: fx, sy: fy, around: a) })
+        session.updateImages(drag.imageOriginals.map { $0.scaled(sx: fx, sy: fy, around: a) })
         session.status = String(
             format: "%.1f × %.1f", Double(box.width) * abs(sx), Double(box.height) * abs(sy))
     }
@@ -1577,6 +1643,7 @@ struct EditorCanvasView: View {
             angle = (angle / step).rounded() * step
         }
         session.updateShapes(drag.originals.map { Editing2.rotated($0, by: angle, around: c) })
+        session.updateImages(drag.imageOriginals.map { $0.rotated(by: angle, around: c) })
         var deg = angle * 180 / .pi
         while deg > 180 { deg -= 360 }
         while deg <= -180 { deg += 360 }
@@ -1608,7 +1675,7 @@ struct EditorCanvasView: View {
             func walkPoints(_ nodes: [GraphicNode]) {
                 for node in nodes {
                     switch node {
-                    case .raw: continue
+                    case .raw, .image: continue  // no anchors to marquee
                     case .group(let g):
                         guard !g.renderStyle.isDisplayNone, !session.lockedNodes.contains(g.id)
                         else { continue }
@@ -1652,6 +1719,14 @@ struct EditorCanvasView: View {
                         !session.lockedNodes.contains(g.id)
                     else { continue }
                     walk(g.children)
+                case .image(let i):
+                    guard !i.renderStyle.isDisplayNone,
+                        !session.lockedNodes.contains(i.id)
+                    else { continue }
+                    let b = i.bounds
+                    let r = CGRect(
+                        x: b.minX, y: b.minY, width: b.maxX - b.minX, height: b.maxY - b.minY)
+                    if r.intersects(docRect) { picked.insert(i.id) }
                 case .shape(let s):
                     guard !s.renderStyle.isDisplayNone,
                         !session.lockedNodes.contains(s.id)
@@ -1934,6 +2009,13 @@ struct EditorCanvasView: View {
             for node in nodes {
                 switch node {
                 case .raw: continue
+                case .image(let i):
+                    // A placed raster is a solid rectangle: anywhere inside
+                    // its (possibly transformed) frame selects it.
+                    guard !i.renderStyle.isDisplayNone,
+                        !session.lockedNodes.contains(i.id)
+                    else { continue }
+                    if imagePath(i).contains(cgPoint) { hit = i.id }
                 case .group(let g):
                     // Hidden or locked groups are untouchable, subtree
                     // included (Layers palette semantics).
@@ -2020,10 +2102,10 @@ struct EditorCanvasView: View {
                 dark.draw(in: NSRect(origin: origin, size: glyph))
                 return true
             }
-            // Hotspot in top-left image coordinates: the glyph's bottom
-            // centre, one halo pixel in.
-            let hotSpot = NSPoint(
-                x: canvas.width / 2, y: min(canvas.height - 1, origin.y + glyph.height + 1))
+            // Hotspot in top-left image coordinates: the NIB — the tip at the
+            // TOP of the glyph, one halo pixel in. (Pointing it at the bottom
+            // put the click one glyph below where the nib is drawn.)
+            let hotSpot = NSPoint(x: canvas.width / 2, y: max(0, origin.y - 1))
             return NSCursor(image: image, hotSpot: hotSpot)
         }()
 
@@ -2039,6 +2121,18 @@ struct EditorCanvasView: View {
 
     private func menuItems(at point: CGPoint, in size: CGSize) -> [(String, () -> Void)] {
         var items: [(String, () -> Void)] = []
+        // A placed raster's headline action: trace it and swap the vectors in.
+        if let hit = hitNode(at: point, in: size),
+            session.document.firstImage(id: hit) != nil
+        {
+            items.append((
+                "Vectorize…",
+                {
+                    selectedAnchors = []
+                    session.requestVectorize(node: hit)
+                }
+            ))
+        }
         if let sel = single, let shape = session.document.firstShape(id: sel) {
             let t = transform(doc: session.document, in: size)
             var best: (Editing2.Anchor, CGFloat)? = nil

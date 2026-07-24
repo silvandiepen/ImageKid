@@ -9,7 +9,9 @@ struct EnhanceSheet: View {
     let onCancel: () -> Void
     let onApply: (EnhanceQuality, EnhanceSize) -> Void
 
-    @StateObject private var modelDownloader = ModelDownloader()
+    /// Shared with Settings so a download started in either place shows its
+    /// progress in both.
+    @ObservedObject private var modelDownloader = ModelDownloader.shared
     @AppStorage("enhanceQuality") private var qualityRaw = EnhanceQuality.high.rawValue
     @AppStorage("enhanceSize") private var sizeRaw = EnhanceSize.same.rawValue
 

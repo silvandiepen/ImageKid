@@ -55,6 +55,14 @@ extension GroupNode {
     }
 }
 
+extension ImageNode {
+    /// A placed raster's style with its presentation attributes layered
+    /// beneath (opacity and `display` are the ones that matter here).
+    public var renderStyle: Style {
+        style.resolvedForRender(with: attributes)
+    }
+}
+
 extension GraphicNode {
     /// Hidden for rendering/hit-testing: the node's render style (inline
     /// style + presentation attributes + class rules) says `display: none`.
@@ -62,6 +70,7 @@ extension GraphicNode {
         switch self {
         case .shape(let s): return s.renderStyle.isDisplayNone
         case .group(let g): return g.renderStyle.isDisplayNone
+        case .image(let i): return i.renderStyle.isDisplayNone
         case .raw: return false
         }
     }

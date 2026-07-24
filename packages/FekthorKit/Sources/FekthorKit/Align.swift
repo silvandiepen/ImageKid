@@ -139,6 +139,9 @@ public enum Align {
         case .shape(var s):
             s.transform = TransformValue.composed(ancestor, s.transform)
             return Editing2.bounds(of: s)
+        case .image(var i):
+            i.transform = TransformValue.composed(ancestor, i.transform)
+            return i.bounds
         case .group(let g):
             let inner = TransformValue.composed(ancestor, g.transform)
             var acc: Bounds? = nil
@@ -208,6 +211,8 @@ public enum Align {
                         break
                     case .shape(let s):
                         nodes[i] = .shape(Editing2.translated(s, dx: local.dx, dy: local.dy))
+                    case .image(let img):
+                        nodes[i] = .image(img.translated(dx: local.dx, dy: local.dy))
                     case .group(var g):
                         g.transform = TransformValue.composed(
                             translation(local.dx, local.dy), g.transform)

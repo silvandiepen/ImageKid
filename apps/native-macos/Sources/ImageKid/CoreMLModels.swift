@@ -68,6 +68,11 @@ enum CoreMLModel: String, CaseIterable, Identifiable {
 /// Settings UI.
 @MainActor
 final class ModelDownloader: ObservableObject {
+    /// One downloader for the whole app: a download started from a Best
+    /// Quality offer has to show its progress in Settings and in the Enhance
+    /// sheet, and two instances would each see only their own work.
+    static let shared = ModelDownloader()
+
     enum State: Equatable {
         case notDownloaded
         case downloading(Double)

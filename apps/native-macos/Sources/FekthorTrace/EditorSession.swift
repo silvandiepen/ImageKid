@@ -101,6 +101,9 @@ final class EditorSession: ObservableObject {
         var snapshotTaken = false
     }
     @Published var distort: DistortState? = nil
+    /// Non-nil while the canvas has asked for a placed image to be
+    /// vectorized; the app opens the vectorizer on it and clears this.
+    @Published var vectorizeRequest: VectorizeRequest? = nil
     /// File-local swatches and named styles — the per-file layer under the
     /// workspace's shared sets. Carried INSIDE the SVG as a
     /// `<metadata id="fekthor-meta">` block (FileMeta): loaded here on open,
@@ -130,6 +133,10 @@ final class EditorSession: ObservableObject {
     /// Non-nil while a style-panel control is coalescing its edits into the
     /// snapshot taken at its first change (one undo step per control edit).
     private var styleEditKey: String? = nil
+
+    /// Longest side a placed raster keeps inside the document (see
+    /// `insertImage`); matches the trace pipeline's own working ceiling.
+    static let maxPlacedImageSide = 2048
 
     static var defaultDrawingStyle: Style {
         var s = Style()
@@ -313,6 +320,8 @@ final class EditorSession: ObservableObject {
                 case .shape(let s):
                     guard s.id != id, !s.renderStyle.isDisplayNone else { continue }
                     out.append(contentsOf: Editing2.bakedPaths(of: s))
+                case .image:
+                    continue  // a raster has no outline to cross
                 }
             }
         }
@@ -426,9 +435,13 @@ final class EditorSession: ObservableObject {
 
     func translateSelection(dx: Double, dy: Double) {
         for id in selection {
-            guard let shape = document.firstShape(id: id) else { continue }
-            let moved = Editing2.translated(shape, dx: dx, dy: dy)
-            mutate { $0.replaceShape(id: id, with: moved) }
+            if let shape = document.firstShape(id: id) {
+                let moved = Editing2.translated(shape, dx: dx, dy: dy)
+                mutate { $0.replaceShape(id: id, with: moved) }
+            } else if let image = document.firstImage(id: id) {
+                let moved = image.translated(dx: dx, dy: dy)
+                mutate { $0.replaceImage(id: id, with: moved) }
+            }
         }
     }
 
@@ -465,16 +478,31 @@ final class EditorSession: ObservableObject {
         }
     }
 
+    /// Replace several placed images in one mutation — the raster sibling of
+    /// `updateShapes`, used by the same move/scale/rotate drags.
+    func updateImages(_ images: [ImageNode]) {
+        guard !images.isEmpty else { return }
+        mutate { doc in
+            for i in images { doc.replaceImage(id: i.id, with: i) }
+        }
+    }
+
     /// The selected shapes in id order (Transform palette, distort entry).
     func selectionShapes() -> [ShapeNode] {
         selection.sorted().compactMap { document.firstShape(id: $0) }
     }
 
+    /// The selected placed images in id order.
+    func selectionImages() -> [ImageNode] {
+        selection.sorted().compactMap { document.firstImage(id: $0) }
+    }
+
     /// Union of the selection's geometric bounds (doc coordinates).
     func selectionBounds() -> (minX: Double, minY: Double, maxX: Double, maxY: Double)? {
         var out: (minX: Double, minY: Double, maxX: Double, maxY: Double)? = nil
-        for shape in selectionShapes() {
-            guard let b = Editing2.bounds(of: shape) else { continue }
+        for b in selectionShapes().compactMap({ Editing2.bounds(of: $0) })
+            + selectionImages().map({ $0.bounds })
+        {
             if let cur = out {
                 out = (
                     Swift.min(cur.minX, b.minX), Swift.min(cur.minY, b.minY),
@@ -1095,6 +1123,120 @@ final class EditorSession: ObservableObject {
         status = "Added \(tool.rawValue)."
     }
 
+    // MARK: - Placed images (paste / drop / vectorize)
+
+    /// Place a raster in the document (⌘V or a drop on the canvas). It stays
+    /// an image: the pixels ride along as a base64 PNG inside the SVG, so the
+    /// file remains self-contained and the picture survives save/reopen until
+    /// it is vectorized. Centred on the artboard at its own aspect ratio,
+    /// shrunk to fit when it is bigger. One undo step; the image ends up
+    /// selected so the very next right-click can vectorize it.
+    func insertImage(_ source: CGImage, name: String? = nil) {
+        // Cap what rides inside the file: 2048 is the trace pipeline's own
+        // ceiling, and a phone photo's full resolution would otherwise bloat
+        // the SVG by megabytes for pixels nothing ever reads.
+        var bitmap = source
+        if max(source.width, source.height) > EditorSession.maxPlacedImageSide,
+            let raster = try? RasterImage.from(cgImage: source),
+            let scaled = raster.scaled(maxDimension: EditorSession.maxPlacedImageSide).cgImage()
+        {
+            bitmap = scaled
+        }
+        let pw = Double(bitmap.width)
+        let ph = Double(bitmap.height)
+        guard pw > 0, ph > 0 else { return }
+        guard let href = ImageEmbed.dataURI(for: bitmap) else {
+            status = "That image could not be embedded."
+            return
+        }
+        let vb = document.viewBox
+        let fit = min(1, min(vb.width / pw, vb.height / ph))
+        let w = pw * fit
+        let h = ph * fit
+        var attributes = NodeAttributes()
+        if let name, !name.isEmpty {
+            attributes.extras.append(XMLAttr(name: "data-name", value: name))
+        }
+        let node = ImageNode(
+            id: document.nextNodeID, href: href,
+            x: vb.minX + (vb.width - w) / 2, y: vb.minY + (vb.height - h) / 2,
+            width: w, height: h, attributes: attributes)
+        beginGesture(label: "Place image")
+        mutate { $0.nodes.append(.image(node)) }
+        selection = [node.id]
+        status = "Placed a \(bitmap.width)×\(bitmap.height) image — right-click it to vectorize."
+    }
+
+    /// A pending Vectorize handoff: the canvas raises it, the app opens the
+    /// vectorizer on that image and puts the result back through
+    /// `replaceImageWithTrace`.
+    struct VectorizeRequest: Identifiable, Equatable {
+        /// The image node to replace.
+        let id: Int
+        let name: String
+    }
+
+    /// Right-click ▸ Vectorize on a placed image.
+    func requestVectorize(node id: Int) {
+        guard let image = document.firstImage(id: id) else { return }
+        guard ImageEmbed.decode(image.href) != nil else {
+            status = "This image links to pixels the file does not carry — nothing to vectorize."
+            return
+        }
+        selection = [id]
+        vectorizeRequest = VectorizeRequest(
+            id: id,
+            name: image.attributes.extras.first(where: { $0.name == "data-name" })?.value
+                ?? image.attributes.svgID ?? "image")
+    }
+
+    /// The pixels of a placed image, for the trace pipeline.
+    func imageRaster(node id: Int) -> RasterImage? {
+        guard let image = document.firstImage(id: id) else { return nil }
+        return ImageEmbed.rasterImage(image.href)
+    }
+
+    /// Vectorize ▸ Save: swap the placed image for the traced geometry,
+    /// mapped into the image's own frame (baked — no wrapper transform) and
+    /// dropped in at the image's z-position. One undo step, result selected.
+    @discardableResult
+    func replaceImageWithTrace(node id: Int, traced: GraphicDocument) -> Bool {
+        guard let image = document.firstImage(id: id) else {
+            status = "That image is no longer in the document."
+            return false
+        }
+        // A rotated/skewed image needs a wrapping group to carry its matrix;
+        // reserve that group's id before the traced nodes take theirs.
+        let groupID = document.nextNodeID
+        let placed = TracePlacement.nodes(
+            of: traced,
+            into: (x: image.x, y: image.y, width: image.width, height: image.height),
+            firstID: groupID + 1)
+        guard !placed.isEmpty else {
+            status = "The trace produced no shapes — the image was kept."
+            return false
+        }
+        // A rotated/skewed image cannot be expressed by baked geometry alone;
+        // its matrix rides along on the wrapping group so the vectors land
+        // exactly where the picture was.
+        let nodes: [GraphicNode]
+        if let t = image.transform {
+            nodes = [
+                .group(
+                    GroupNode(
+                        id: groupID, attributes: image.attributes, transform: t,
+                        children: placed))
+            ]
+        } else {
+            nodes = placed
+        }
+        beginGesture(label: "Vectorize")
+        mutate { $0.replaceNode(id: id, with: nodes) }
+        selection = Set(nodes.map(\.id))
+        status = "Vectorized — \(placed.count) shape(s) replaced the image."
+        return true
+    }
+
     // MARK: - Pen tool (path under construction; commits as ONE shape)
 
     /// Place the next anchor (a corner until a drag pulls handles out).
@@ -1294,7 +1436,7 @@ final class EditorSession: ObservableObject {
         func collect(_ nodes: [GraphicNode]) {
             for node in nodes {
                 switch node {
-                case .raw: continue
+                case .raw, .image: continue  // booleans need real outlines
                 case .group(let g): collect(g.children)
                 case .shape(let s):
                     if selection.contains(s.id) { ordered.append(s) }
@@ -1344,6 +1486,36 @@ final class EditorSession: ObservableObject {
         case .exclude: label = "Excluded"
         }
         status = "\(label) \(ordered.count) shapes."
+    }
+
+    /// Edit ▸ Select All (⌘A): every VISIBLE object on the canvas — the same
+    /// set a marquee across the whole artboard would catch. Hidden layers and
+    /// locked ones stay out (you cannot manipulate what you cannot see or
+    /// have deliberately pinned down), hidden groups skip their whole subtree,
+    /// and `defs`/metadata fragments are not objects at all. No document
+    /// mutation, so no undo step.
+    func selectAllVisible() {
+        var ids: Set<Int> = []
+        func walk(_ nodes: [GraphicNode]) {
+            for node in nodes {
+                guard !node.isHiddenNode, !lockedNodes.contains(node.id) else { continue }
+                switch node {
+                case .raw:
+                    continue
+                case .group(let g):
+                    walk(g.children)
+                case .shape(let s):
+                    ids.insert(s.id)
+                case .image(let i):
+                    ids.insert(i.id)
+                }
+            }
+        }
+        walk(document.nodes)
+        selectedAnchors = []
+        selection = ids
+        generation += 1
+        status = ids.isEmpty ? "Nothing to select." : "Selected \(ids.count) object(s)."
     }
 
     func deleteSelection() {
@@ -1637,6 +1809,7 @@ extension GraphicNode {
         switch self {
         case .shape(let s): return s.attributes
         case .group(let g): return g.attributes
+        case .image(let i): return i.attributes
         case .raw: return NodeAttributes()
         }
     }
@@ -1668,6 +1841,10 @@ extension GraphicDocument {
                 case .shape(var s) where s.id == id:
                     edit(&s.attributes, &s.style)
                     nodes[i] = .shape(s)
+                    return true
+                case .image(var img) where img.id == id:
+                    edit(&img.attributes, &img.style)
+                    nodes[i] = .image(img)
                     return true
                 case .group(var g):
                     if g.id == id {

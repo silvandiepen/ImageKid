@@ -40,6 +40,10 @@ enum ThumbnailRenderer {
             switch node {
             case .raw:
                 continue  // defs/style blocks have no direct rendering
+            case .image(let i):
+                // Placed rasters go through the engine renderer so the
+                // gallery thumbnail matches the canvas exactly.
+                GraphicRenderer.drawImage(i, in: ctx, opacity: opacity)
             case .group(let g):
                 let groupStyle = g.renderStyle
                 if groupStyle.isDisplayNone { continue }  // hidden layer

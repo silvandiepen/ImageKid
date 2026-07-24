@@ -133,6 +133,12 @@ final class ConversionModel: ObservableObject {
         status = "Clipboard has no image."
     }
 
+    /// Trace an in-memory raster — the entry the editor's Vectorize uses for
+    /// a placed image (its pixels never touch disk).
+    func load(raster: RasterImage, name: String) {
+        adopt(raster, name: name)
+    }
+
     private func adopt(_ img: RasterImage, name: String) {
         originalImage = img
         sourceIsSmall = max(img.width, img.height) <= Enhance.maxInputSide

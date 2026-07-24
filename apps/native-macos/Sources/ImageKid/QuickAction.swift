@@ -248,11 +248,8 @@ enum QuickActionRunner {
             guard let source = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
                 throw QuickActionError.imagePreparationFailed
             }
-            let engine = BackgroundRemovalEngine(
-                rawValue: UserDefaults.standard.string(forKey: "backgroundRemovalEngine")
-                    ?? BackgroundRemovalEngine.builtIn.rawValue
-            ) ?? .builtIn
-            let output = try await BackgroundRemovalService.removeBackground(from: source, engine: engine)
+            let output = try await BackgroundRemovalService.removeBackground(
+                from: source, engine: BackgroundRemovalService.effectiveEngine)
             return NSImage(cgImage: output, size: CGSize(width: output.width, height: output.height))
 
         case .upscale(let scale):

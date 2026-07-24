@@ -167,6 +167,8 @@ extension EditorSession {
                     if raw.xml.contains("url(#") {
                         pinned.insert("*")
                     }
+                case .image:
+                    continue  // a raster references no gradient
                 case .group(let g):
                     // Presentation attributes are written verbatim — a
                     // url(#) there must keep its def.
@@ -212,7 +214,7 @@ extension EditorSession {
         func retype(_ nodes: inout [GraphicNode]) {
             for i in nodes.indices {
                 switch nodes[i] {
-                case .raw: continue
+                case .raw, .image: continue
                 case .group(var g):
                     retype(&g.children)
                     nodes[i] = .group(g)
