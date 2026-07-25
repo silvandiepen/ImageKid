@@ -83,9 +83,12 @@ re-rasterization both rely on it. No `Math.random`.
   eyedropper), selections, transform, canvas rotate/flip, reference layer.
 - **P5 Brush breadth + export** — wet/smudge/blur, brush groups, custom brush
   import, perf passes; layered export.
-- **P6 Polish & launch** — iPad workflow (panel dock + gestures — the iPad shell
-  is still the P1 skeleton), **website Inka page + brand assets** (deferred here to
-  avoid broken image refs), release-boundary entry.
+- **P6 Polish & launch** — iPad workflow **DONE**: the iPad app has full macOS
+  parity (hybrid document, layers, undo/redo, `.inka` save/open, canvas nav) on the
+  ImageKidKit floating panel dock, plus Procreate-style gestures — Pencil/finger
+  draws, two-finger pan, pinch-zoom, two-finger tap undo, three-finger tap redo.
+  Still open: pinch-rotate, **website Inka page + brand assets** (deferred to avoid
+  broken image refs), release-boundary entry.
 - **P7 (opt-in) ImageKid adoption** — route ImageKid's freehand through
   `BrushKit`/`BrushRender`, retiring `MaskPainter.paintStroke` / the iOS
   `Brush.swift` presets.

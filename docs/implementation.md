@@ -89,11 +89,13 @@ brushes (Ink Pen, Pencil, Charcoal, Airbrush, Marker) show the range, and Inka's
 macOS **brush editor** exposes every parameter with a live preview and
 `.inkbrush` save/load. Inka depends on BrushKit, BrushRender, InkaKit,
 ImageKidKit and ImageKidCore; like every app here it never imports another app.
-On macOS Inka is a working drawing app — hybrid vector-stroke layers (rebuilt from
-the document each change), a layers panel, undo/redo, `.inka` document save/open,
-and canvas zoom/pan/fit — but not yet launch-ready: no selections/transform, no
-iPad workflow (the iPad shell is still the walking skeleton), no website/brand.
-See `docs/inka/` — [README](inka/README.md), [BRUSH-ENGINE](inka/BRUSH-ENGINE.md),
+Inka is a working drawing app on **both macOS and iPad** — hybrid vector-stroke
+layers (rebuilt from the document each change), a layers panel, undo/redo, `.inka`
+document save/open, and canvas zoom/pan/fit, all on the shared ImageKidKit floating
+panel dock; the iPad adds Procreate-style touch gestures (two-finger pan,
+pinch-zoom, two-/three-finger tap undo/redo). Not yet launch-ready: no
+selections/transform, no canvas rotate, no website/brand/store. See `docs/inka/` —
+[README](inka/README.md), [BRUSH-ENGINE](inka/BRUSH-ENGINE.md),
 [ARCHITECTURE](inka/ARCHITECTURE.md), [PLAN](inka/PLAN.md).
 
 ## Incomplete or provisional

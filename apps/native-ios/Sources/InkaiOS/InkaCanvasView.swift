@@ -4,9 +4,11 @@ import SwiftUI
 import UIKit
 
 /// SwiftUI host for the Metal canvas on iPad. Wraps an `MTKView` subclass that
-/// captures touches — Apple Pencil force/tilt/azimuth, or a finger — and feeds
-/// `InkaCanvasRenderer` in canvas pixel coordinates. Uses coalesced touches so
-/// the high-frequency Pencil samples all reach the engine.
+/// captures touches — Apple Pencil force/tilt/azimuth, or a finger — mapped
+/// through the renderer's canvas transform to canvas pixels, and adds the
+/// Procreate-style navigation gestures: two-finger pan, pinch-zoom, two-finger
+/// tap = undo, three-finger tap = redo. A pencil always draws (so you can rest a
+/// hand); with no pencil, one finger draws and two navigate.
 struct InkaCanvasView: UIViewRepresentable {
     @ObservedObject var model: InkaModel
 
@@ -20,29 +22,67 @@ struct InkaCanvasView: UIViewRepresentable {
         view.enableSetNeedsDisplay = false
         view.preferredFramesPerSecond = 120
         view.colorPixelFormat = .bgra8Unorm
-        view.isMultipleTouchEnabled = false
+        view.isMultipleTouchEnabled = true
         view.model = model
+        renderer?.viewSize = view.bounds.size
+        view.installGestures()
         return view
     }
 
     func updateUIView(_ uiView: MTKView, context: Context) {
-        model.renderer?.brush = model.currentBrush
+        model.renderer?.brush = model.brush
         model.renderer?.color = model.currentColorRGBA
+        model.renderer?.viewSize = uiView.bounds.size
         (uiView as? InputMTKView)?.model = model
     }
 }
 
-/// An MTKView that turns touches into `StrokeSample`s. Pressure comes from
-/// `UITouch.force` (Pencil); a finger has no force, so it draws at full
-/// pressure. Tilt rides on `altitudeAngle`/`azimuthAngle`.
-final class InputMTKView: MTKView {
+/// An MTKView that turns touches into `StrokeSample`s and hosts the navigation
+/// gestures. Pressure comes from `UITouch.force` (Pencil); a finger draws at
+/// full pressure. Tilt rides on `altitudeAngle`/`azimuthAngle`.
+final class InputMTKView: MTKView, UIGestureRecognizerDelegate {
     weak var model: InkaModel?
+
+    /// The touch currently drawing (pencil preferred), if any.
+    private var drawingTouch: UITouch?
+    /// Zoom captured at the start of a pinch.
+    private var pinchStartZoom: CGFloat = 1
+    /// Offset captured at the start of a two-finger pan.
+    private var panStartOffset: CGSize = .zero
+
+    func installGestures() {
+        let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch))
+        pinch.delegate = self
+        addGestureRecognizer(pinch)
+
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan))
+        pan.minimumNumberOfTouches = 2
+        pan.maximumNumberOfTouches = 2
+        pan.delegate = self
+        addGestureRecognizer(pan)
+
+        let undoTap = UITapGestureRecognizer(target: self, action: #selector(handleUndoTap))
+        undoTap.numberOfTouchesRequired = 2
+        undoTap.delegate = self
+        addGestureRecognizer(undoTap)
+
+        let redoTap = UITapGestureRecognizer(target: self, action: #selector(handleRedoTap))
+        redoTap.numberOfTouchesRequired = 3
+        redoTap.delegate = self
+        addGestureRecognizer(redoTap)
+    }
+
+    // Pinch + pan should run together; taps are exclusive of drags by nature.
+    func gestureRecognizer(
+        _ g: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool { true }
+
+    // MARK: - Drawing
 
     private func sample(_ touch: UITouch) -> StrokeSample {
         let p = touch.location(in: self)
-        let canvas = model?.document.size ?? bounds.size
-        let scaleX = canvas.width / max(bounds.width, 1)
-        let scaleY = canvas.height / max(bounds.height, 1)
+        let canvas = model?.renderer?.canvasPoint(from: p, in: bounds.size) ?? p
         let pressure: Double
         if touch.type == .pencil, touch.maximumPossibleForce > 0 {
             pressure = Double(touch.force / touch.maximumPossibleForce)
@@ -50,20 +90,40 @@ final class InputMTKView: MTKView {
             pressure = 1
         }
         return StrokeSample(
-            position: CGPoint(x: p.x * scaleX, y: p.y * scaleY),
+            position: canvas,
             pressure: max(0.02, pressure),
             altitude: Double(touch.type == .pencil ? touch.altitudeAngle : .pi / 2),
             azimuth: Double(touch.type == .pencil ? touch.azimuthAngle(in: self) : 0),
             timestamp: touch.timestamp)
     }
 
+    /// Pick the touch that should draw: a pencil if present, else a lone finger.
+    private func drawingCandidate(_ event: UIEvent?) -> UITouch? {
+        let all = event?.allTouches ?? []
+        if let pencil = all.first(where: { $0.type == .pencil && $0.phase != .ended && $0.phase != .cancelled }) {
+            return pencil
+        }
+        let fingers = all.filter { $0.type != .pencil && $0.phase != .ended && $0.phase != .cancelled }
+        return fingers.count == 1 ? fingers.first : nil
+    }
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let touch = touches.first else { return }
-        model?.renderer?.beginStroke(at: sample(touch))
+        guard let candidate = drawingCandidate(event) else {
+            // Two+ fingers (no pencil): navigation, not drawing — drop any stroke.
+            if drawingTouch != nil { model?.renderer?.cancelStroke(); drawingTouch = nil }
+            return
+        }
+        // A second finger arriving while a finger was drawing turns it into a
+        // navigation gesture: cancel the nascent stroke.
+        if drawingTouch != nil, drawingTouch !== candidate {
+            model?.renderer?.cancelStroke()
+        }
+        drawingTouch = candidate
+        model?.renderer?.beginStroke(at: sample(candidate))
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let touch = touches.first else { return }
+        guard let touch = drawingTouch, touches.contains(touch) else { return }
         // Feed every coalesced sample so fast Pencil strokes stay smooth.
         for coalesced in event?.coalescedTouches(for: touch) ?? [touch] {
             model?.renderer?.extendStroke(to: sample(coalesced))
@@ -71,10 +131,53 @@ final class InputMTKView: MTKView {
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let touch = drawingTouch, touches.contains(touch) else { return }
         model?.renderer?.endStroke()
+        drawingTouch = nil
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        model?.renderer?.endStroke()
+        guard let touch = drawingTouch, touches.contains(touch) else { return }
+        model?.renderer?.cancelStroke()
+        drawingTouch = nil
+    }
+
+    // MARK: - Navigation gestures
+
+    @objc private func handlePinch(_ g: UIPinchGestureRecognizer) {
+        guard let r = model?.renderer else { return }
+        switch g.state {
+        case .began:
+            pinchStartZoom = r.zoom
+            if drawingTouch != nil { r.cancelStroke(); drawingTouch = nil }
+        case .changed:
+            r.zoom = min(32, max(0.1, pinchStartZoom * g.scale))
+        default:
+            break
+        }
+    }
+
+    @objc private func handlePan(_ g: UIPanGestureRecognizer) {
+        guard let r = model?.renderer else { return }
+        switch g.state {
+        case .began:
+            panStartOffset = r.offset
+            if drawingTouch != nil { r.cancelStroke(); drawingTouch = nil }
+        case .changed:
+            let t = g.translation(in: self)
+            r.offset = CGSize(width: panStartOffset.width + t.x, height: panStartOffset.height + t.y)
+        default:
+            break
+        }
+    }
+
+    @objc private func handleUndoTap(_ g: UITapGestureRecognizer) {
+        guard g.state == .ended else { return }
+        model?.undo()
+    }
+
+    @objc private func handleRedoTap(_ g: UITapGestureRecognizer) {
+        guard g.state == .ended else { return }
+        model?.redo()
     }
 }

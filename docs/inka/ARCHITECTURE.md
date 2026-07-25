@@ -86,7 +86,13 @@ Each shell converts platform input into one `StrokeInput` (canvas pixels):
   mouse).
 - **iPad** (`InkaCanvasView`, InkaiOS) — a UIKit `MTKView` subclass reads
   Apple Pencil `force`/`altitudeAngle`/`azimuthAngle` and **coalesced touches**
-  (so fast strokes keep every sample); a finger draws at full pressure.
+  (so fast strokes keep every sample); a finger draws at full pressure. UIKit
+  gesture recognizers add the Procreate-style navigation: a pencil (or lone
+  finger) draws while **two fingers pan, pinch zooms, a two-finger tap undoes and
+  a three-finger tap redoes** (a second touch cancels the nascent stroke, so
+  navigation never leaves a stray mark). Both feed the renderer's canvas
+  transform, so touch points map through `canvasPoint(from:in:)` exactly like the
+  mouse on macOS.
 
 The `InkaCanvasRenderer`/`FullscreenBlitter` are duplicated across the two
 shells today (both are cross-platform Metal); extracting a shared canvas module
@@ -102,16 +108,21 @@ ImageKid and Fekthor use — nothing bespoke:
   driven by a `PanelDockModel<InkaPanel>` and the reusable **`PanelDockController`**
   (the drag/settle/place glue, newly extracted into ImageKidKit so all apps can
   share it instead of hand-rolling it).
-- Panels: **Brushes** (preset grid) and **Brush** (the editor). They dock to the
-  right by default in Inka.
+- Panels: **Brushes** (preset grid), **Brush** (the editor) and **Layers**
+  (add/delete/reorder, per-layer visibility + opacity, active-layer select). They
+  dock to the right by default in Inka, on both macOS and iPad.
 
 ## App state
 
-`InkaModel` (`@MainActor ObservableObject`, one per shell) owns the document, the
-live renderer, and the working `Brush`/colour. Selecting a preset replaces the
-working brush; the brush editor mutates it live; committed strokes are recorded
-onto the top stroke layer. Export flattens the committed canvas to PNG (macOS
-save panel / iPad share sheet).
+`InkaModel` (`@MainActor ObservableObject`, one per shell — macOS and iPad mirror
+each other) owns the document, the live renderer, the working `Brush`/colour, the
+active layer, and a 40-deep undo/redo history of document snapshots. Selecting a
+preset replaces the working brush; the brush editor mutates it live; committed
+strokes are recorded onto the active stroke layer and the renderer's committed
+texture is rebuilt from the document after every change (so undo, layer visibility
+and opacity are non-destructive). Export flattens through `InkaRasterizer` to PNG
+(macOS save panel / iPad share sheet); documents persist as `.inka` (macOS
+open/save panels / iPad Files importer/exporter).
 
 ## Build & run
 
