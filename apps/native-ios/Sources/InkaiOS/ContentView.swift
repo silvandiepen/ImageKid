@@ -165,6 +165,12 @@ struct ContentView: View {
             Button { model.renderer?.fit() } label: {
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
             }
+            Menu {
+                Button("Flip Horizontal") { model.renderer?.flipX.toggle() }
+                Button("Flip Vertical") { model.renderer?.flipY.toggle() }
+            } label: {
+                Image(systemName: "arrow.left.arrow.right")
+            }
             Button { model.clearActiveLayer() } label: { Image(systemName: "trash") }
             Divider().frame(height: 22)
             Button { model.imageImportRequested = true } label: { Image(systemName: "photo.badge.plus") }

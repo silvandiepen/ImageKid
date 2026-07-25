@@ -215,7 +215,14 @@ struct ContentView: View {
             Spacer()
 
             Button { model.renderer?.fit(); model.requestRedraw?(); nudge() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
-                .keyboardShortcut("0", modifiers: .command).help("Fit")
+                .keyboardShortcut("0", modifiers: .command).help("Fit & reset view")
+            Menu {
+                Button("Flip Horizontal") { model.renderer?.flipX.toggle(); model.requestRedraw?() }
+                Button("Flip Vertical") { model.renderer?.flipY.toggle(); model.requestRedraw?() }
+            } label: {
+                Image(systemName: "arrow.left.arrow.right")
+            }
+            .menuIndicator(.hidden).frame(width: 34).help("Flip the canvas view")
             Button { model.clearActiveLayer() } label: { Image(systemName: "trash") }
                 .help("Clear layer")
 

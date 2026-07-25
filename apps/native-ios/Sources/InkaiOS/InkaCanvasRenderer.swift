@@ -34,6 +34,9 @@ final class InkaCanvasRenderer: NSObject, MTKViewDelegate {
     var zoom: CGFloat = 1
     var offset: CGSize = .zero
     var rotation: CGFloat = 0
+    /// Mirror the canvas view (checking composition); does not alter the document.
+    var flipX = false
+    var flipY = false
     /// The MTKView's point size, set by the view each layout — drives the fit.
     var viewSize: CGSize = .zero
 
@@ -241,8 +244,10 @@ final class InkaCanvasRenderer: NSObject, MTKViewDelegate {
     func viewPoint(fromCanvas p: CGPoint, in view: CGSize) -> CGPoint {
         let s = scale(in: view)
         let c = screenCenter(in: view)
-        let lx = (p.x - canvasSize.width / 2) * s
-        let ly = (p.y - canvasSize.height / 2) * s
+        let lx0 = (p.x - canvasSize.width / 2) * s
+        let ly0 = (p.y - canvasSize.height / 2) * s
+        let lx = flipX ? -lx0 : lx0
+        let ly = flipY ? -ly0 : ly0
         let cosT = cos(rotation), sinT = sin(rotation)
         return CGPoint(x: c.x + lx * cosT - ly * sinT, y: c.y + lx * sinT + ly * cosT)
     }
@@ -256,7 +261,9 @@ final class InkaCanvasRenderer: NSObject, MTKViewDelegate {
         let cosT = cos(rotation), sinT = sin(rotation)
         let lx = dx * cosT + dy * sinT
         let ly = -dx * sinT + dy * cosT
-        return CGPoint(x: lx / s + canvasSize.width / 2, y: ly / s + canvasSize.height / 2)
+        let ux = flipX ? -lx : lx
+        let uy = flipY ? -ly : ly
+        return CGPoint(x: ux / s + canvasSize.width / 2, y: uy / s + canvasSize.height / 2)
     }
 
     /// The four canvas corners as view points (top-left origin), for overlays.
@@ -274,6 +281,8 @@ final class InkaCanvasRenderer: NSObject, MTKViewDelegate {
         zoom = 1
         offset = .zero
         rotation = 0
+        flipX = false
+        flipY = false
     }
 
     // MARK: - MTKViewDelegate
