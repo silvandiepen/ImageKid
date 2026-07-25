@@ -2,7 +2,7 @@
   <DocsShell>
     <div :class="bemm()">
       <header :class="bemm('header')">
-        <img :class="bemm('icon')" src="/media/brand/inka.svg" alt="" width="72" height="72" />
+        <img :class="bemm('icon')" src="/media/brand/inka.png" alt="" width="72" height="72" />
         <div>
           <p :class="bemm('eyebrow')">Inka documentation</p>
           <h1 :class="bemm('title')">Everything Inka does.</h1>

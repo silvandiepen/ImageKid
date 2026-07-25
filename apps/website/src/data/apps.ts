@@ -67,8 +67,8 @@ export const apps: AppMeta[] = [
     tagline: "Drawing, with a serious brush engine.",
     summary:
       "Paint and illustrate on Mac and iPad — real pressure brushes, layers, and a canvas you can spin. Nothing uploaded.",
-    icon: "/media/brand/inka.svg",
-    hero: "/media/brand/inka.svg",
+    icon: "/media/brand/inka.png",
+    hero: "/media/character/inka.png",
     accent: "inka",
     to: "/inka",
     status: "In development",
