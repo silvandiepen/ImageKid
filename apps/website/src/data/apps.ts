@@ -62,6 +62,22 @@ export const apps: AppMeta[] = [
     flagship: true
   },
   {
+    id: "inka",
+    name: "Inka",
+    tagline: "Drawing, with a serious brush engine.",
+    summary:
+      "Paint and illustrate on Mac and iPad — real pressure brushes, layers, and a canvas you can spin. Nothing uploaded.",
+    icon: "/media/brand/inka.svg",
+    hero: "/media/brand/inka.svg",
+    accent: "inka",
+    to: "/inka",
+    status: "In development",
+    platforms: "macOS · iPad",
+    glyph: "ui/paint-brush",
+    statusGlyph: "ui/settings",
+    flagship: true
+  },
+  {
     id: "upscale",
     name: "ImageKid Upscale",
     tagline: "Small pictures, made big.",

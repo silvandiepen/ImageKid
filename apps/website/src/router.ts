@@ -11,6 +11,8 @@ import GettingStartedPage from "./pages/GettingStartedPage.vue";
 import HomePage from "./pages/HomePage.vue";
 import ImageKidDocsPage from "./pages/ImageKidDocsPage.vue";
 import ImageKidPage from "./pages/ImageKidPage.vue";
+import InkaDocsPage from "./pages/InkaDocsPage.vue";
+import InkaPage from "./pages/InkaPage.vue";
 import NotFoundPage from "./pages/NotFoundPage.vue";
 import PrivacyPage from "./pages/PrivacyPage.vue";
 import RoadmapPage from "./pages/RoadmapPage.vue";
@@ -25,12 +27,14 @@ export const router = createRouter({
   routes: [
     { path: "/", component: HomePage }, { path: "/features", component: FeaturesPage },
     { path: "/imagekid", component: ImageKidPage }, { path: "/fekthor", component: FekthorPage },
+    { path: "/inka", component: InkaPage },
     { path: "/upscale", component: UpscalePage }, { path: "/cutout", component: CutoutPage },
     { path: "/docs", component: DocsIndexPage }, { path: "/docs/getting-started", component: GettingStartedPage },
     { path: "/docs/workflows", component: WorkflowsPage }, { path: "/docs/architecture", component: ArchitecturePage },
     { path: "/docs/roadmap", component: RoadmapPage },
     { path: "/docs/imagekid", component: ImageKidDocsPage },
-    { path: "/docs/fekthor", component: FekthorDocsPage }, { path: "/support", component: SupportPage },
+    { path: "/docs/fekthor", component: FekthorDocsPage },
+    { path: "/docs/inka", component: InkaDocsPage }, { path: "/support", component: SupportPage },
     { path: "/privacy", component: PrivacyPage }, { path: "/terms", component: TermsPage },
     { path: "/acknowledgements", component: AcknowledgementsPage },
     { path: "/not-found", component: NotFoundPage }, { path: "/:pathMatch(.*)*", redirect: "/not-found" }

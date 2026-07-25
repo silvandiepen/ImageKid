@@ -97,8 +97,11 @@ re-rasterization both rely on it. No `Math.random`.
   eraser, selection move/scale/rotate, image import, layered export) on the
   ImageKidKit floating panel dock, plus Procreate-style gestures — Pencil/finger
   draws, two-finger pan, pinch-zoom, two-finger rotate, two-finger tap undo,
-  three-finger tap redo. Still open: **website Inka page + brand assets** (deferred
-  to avoid broken image refs), release-boundary entry.
+  three-finger tap redo. **Website**: an Inka product page (`/inka`) and docs page
+  (`/docs/inka`) in the family style, wired into the app registry, nav and docs
+  index, with an accent colour and a placeholder brand mark (`inka.svg`). Still
+  open: the final brand icon (drop `inka.png` into `media/brand/`), marketing
+  imagery for the page, and the release-boundary / store entry.
 - **P7 (opt-in) ImageKid adoption** — route ImageKid's freehand through
   `BrushKit`/`BrushRender`, retiring `MaskPainter.paintStroke` / the iOS
   `Brush.swift` presets.

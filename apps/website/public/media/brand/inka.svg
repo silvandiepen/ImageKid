@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Inka app icon">
+  <defs>
+    <linearGradient id="ik" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8b6bff"/>
+      <stop offset="1" stop-color="#5b3ce0"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="url(#ik)"/>
+  <!-- an ink brush-stroke: a pressure-swelling S-curve, like the app's previews -->
+  <path d="M13 41C21 25 30 45 38 34C44 26 48 24 52 23"
+        fill="none" stroke="#fff" stroke-width="6.5" stroke-linecap="round"/>
+  <!-- an ink drop -->
+  <path d="M46 44c0-4 4-6 4-10 0 4 4 6 4 10a4 4 0 0 1-8 0z" fill="#fff" opacity="0.92"/>
+</svg>

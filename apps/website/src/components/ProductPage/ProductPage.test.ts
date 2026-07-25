@@ -56,7 +56,7 @@ describe("ProductPage", () => {
 
     expect(wrapper.classes()).toContain("product-page--fekthor");
     const familyLinks = wrapper.findAllComponents(RouterLinkStub);
-    expect(familyLinks.map((link) => link.props("to"))).toEqual(["/imagekid", "/upscale", "/cutout"]);
+    expect(familyLinks.map((link) => link.props("to"))).toEqual(["/imagekid", "/inka", "/upscale", "/cutout"]);
     expect(wrapper.find(".product-page__family-card--upscale").exists()).toBe(true);
   });
 });

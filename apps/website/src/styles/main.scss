@@ -11,6 +11,7 @@
     "fekthor": #f0741e,
     "upscale": #12b39a,
     "cutout": #1daace,
+    "inka": #7b61ff,
     "cream": #f7d9ae
   )
 );
@@ -308,6 +309,7 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
 .home-page__app-card--fekthor, .home-page__showcase--fekthor, .product-page--fekthor, .product-page__family-card--fekthor { --app-color: var(--color-fekthor); --app-text-color: #2b1302; --app-accent: #b4530c; }
 .home-page__app-card--upscale, .product-page--upscale, .product-page__family-card--upscale { --app-color: var(--color-upscale); --app-text-color: #032621; --app-accent: #0a7a68; }
 .home-page__app-card--cutout, .product-page--cutout, .product-page__family-card--cutout { --app-color: var(--color-cutout); --app-text-color: #05232a; --app-accent: #157c96; }
+.home-page__app-card--inka, .home-page__showcase--inka, .product-page--inka, .product-page__family-card--inka { --app-color: var(--color-inka); --app-text-color: #f3f0ff; --app-accent: #5b3ce0; }
 
 /* Home — app family grid */
 .home-page__apps { scroll-margin-top: calc(var(--space-xxl) * 2); display: grid; gap: var(--space-xl); }
