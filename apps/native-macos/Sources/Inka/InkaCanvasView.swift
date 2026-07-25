@@ -98,6 +98,9 @@ struct InkaCanvasView: NSViewRepresentable {
             guard let r = model.renderer else { return }
             r.zoom = min(32, max(0.1, r.zoom * factor))
         }
+        func rotate(by radians: CGFloat) {
+            model.renderer?.rotation += radians
+        }
     }
 }
 
@@ -121,6 +124,12 @@ final class InputMTKView: MTKView {
     override func magnify(with event: NSEvent) {
         // Pinch zooms.
         coordinator?.zoom(by: 1 + event.magnification)
+        needsDisplay = true
+    }
+
+    override func rotate(with event: NSEvent) {
+        // Trackpad two-finger rotate spins the canvas (event.rotation is degrees).
+        coordinator?.rotate(by: -CGFloat(event.rotation) * .pi / 180)
         needsDisplay = true
     }
 

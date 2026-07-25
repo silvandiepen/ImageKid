@@ -1,35 +1,39 @@
 import Metal
 import MetalKit
 
-/// Draws textured and solid quads at arbitrary clip-space rects, with "over"
-/// blending — how the canvas renderer presents the paper + committed + live
-/// textures, positioned/scaled by the canvas transform (zoom/pan). Runtime-
-/// compiled shader (same reasoning as BrushRender: `swift build` doesn't
-/// compile `.metal`). Mirrors the macOS blitter so both surfaces share the path.
+/// Draws textured and solid quads from four explicit clip-space corners, with
+/// "over" blending — how the canvas renderer presents the paper + committed +
+/// live textures, positioned by the canvas transform (pan / zoom / **rotate**).
+/// Runtime-compiled shader (same reasoning as BrushRender: `swift build` doesn't
+/// compile `.metal`).
 final class FullscreenBlitter {
     private let texturePipeline: MTLRenderPipelineState?
     private let solidPipeline: MTLRenderPipelineState?
     private let sampler: MTLSamplerState?
 
-    /// A clip-space rect (x,y = bottom-left, in −1…1; w,h in clip units).
-    struct Rect {
-        var x: Float
-        var y: Float
-        var w: Float
-        var h: Float
+    /// Four clip-space corners (−1…1) in triangle-strip order: top-left,
+    /// top-right, bottom-left, bottom-right — matching the texture's rows so
+    /// (0,0) samples the top-left texel. A rotated canvas is just rotated
+    /// corners.
+    struct Quad {
+        var tl: SIMD2<Float>
+        var tr: SIMD2<Float>
+        var bl: SIMD2<Float>
+        var br: SIMD2<Float>
     }
 
     init(device: MTLDevice) {
         let source = """
             #include <metal_stdlib>
             using namespace metal;
-            struct Rect { float x; float y; float w; float h; };
+            struct Quad { float2 tl; float2 tr; float2 bl; float2 br; };
             struct VOut { float4 position [[position]]; float2 uv; };
-            vertex VOut quad_vertex(uint vid [[vertex_id]], constant Rect &r [[buffer(0)]]) {
-                float2 corner = float2((vid << 1) & 2, vid & 2) * 0.5;  // 0,0 1,0 0,1 1,1
+            vertex VOut quad_vertex(uint vid [[vertex_id]], constant Quad &q [[buffer(0)]]) {
+                float2 pos[4] = { q.tl, q.tr, q.bl, q.br };
+                float2 uvs[4] = { float2(0,0), float2(1,0), float2(0,1), float2(1,1) };
                 VOut o;
-                o.position = float4(r.x + corner.x * r.w, r.y + corner.y * r.h, 0, 1);
-                o.uv = float2(corner.x, 1.0 - corner.y);  // texture row 0 at top
+                o.position = float4(pos[vid], 0, 1);
+                o.uv = uvs[vid];   // texture row 0 at top-left
                 return o;
             }
             fragment float4 tex_fragment(
@@ -74,23 +78,23 @@ final class FullscreenBlitter {
         sampler = device.makeSamplerState(descriptor: sd)
     }
 
-    /// Fill a clip-space rect with a solid premultiplied colour (the paper).
-    func fill(encoder: MTLRenderCommandEncoder, rect: Rect, color: SIMD4<Float>) {
+    /// Fill a clip-space quad with a solid premultiplied colour (the paper).
+    func fill(encoder: MTLRenderCommandEncoder, quad: Quad, color: SIMD4<Float>) {
         guard let solidPipeline else { return }
-        var r = rect
+        var q = quad
         var c = color
         encoder.setRenderPipelineState(solidPipeline)
-        encoder.setVertexBytes(&r, length: MemoryLayout<Rect>.stride, index: 0)
+        encoder.setVertexBytes(&q, length: MemoryLayout<Quad>.stride, index: 0)
         encoder.setFragmentBytes(&c, length: MemoryLayout<SIMD4<Float>>.stride, index: 0)
         encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
     }
 
-    /// Draw each texture (bottom → top) into the same clip-space rect.
-    func draw(encoder: MTLRenderCommandEncoder, textures: [MTLTexture], rect: Rect) {
+    /// Draw each texture (bottom → top) into the same clip-space quad.
+    func draw(encoder: MTLRenderCommandEncoder, textures: [MTLTexture], quad: Quad) {
         guard let texturePipeline, let sampler else { return }
-        var r = rect
+        var q = quad
         encoder.setRenderPipelineState(texturePipeline)
-        encoder.setVertexBytes(&r, length: MemoryLayout<Rect>.stride, index: 0)
+        encoder.setVertexBytes(&q, length: MemoryLayout<Quad>.stride, index: 0)
         encoder.setFragmentSamplerState(sampler, index: 0)
         for texture in textures {
             encoder.setFragmentTexture(texture, index: 0)

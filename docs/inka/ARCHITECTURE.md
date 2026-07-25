@@ -88,11 +88,11 @@ Each shell converts platform input into one `StrokeInput` (canvas pixels):
   Apple Pencil `force`/`altitudeAngle`/`azimuthAngle` and **coalesced touches**
   (so fast strokes keep every sample); a finger draws at full pressure. UIKit
   gesture recognizers add the Procreate-style navigation: a pencil (or lone
-  finger) draws while **two fingers pan, pinch zooms, a two-finger tap undoes and
-  a three-finger tap redoes** (a second touch cancels the nascent stroke, so
-  navigation never leaves a stray mark). Both feed the renderer's canvas
-  transform, so touch points map through `canvasPoint(from:in:)` exactly like the
-  mouse on macOS.
+  finger) draws while **two fingers pan, pinch zooms, two fingers rotate, a
+  two-finger tap undoes and a three-finger tap redoes** (a second touch cancels the
+  nascent stroke/selection, so navigation never leaves a stray mark). Both feed the
+  renderer's canvas transform, so touch points map through `canvasPoint(from:in:)`
+  exactly like the mouse on macOS.
 
 The `InkaCanvasRenderer`/`FullscreenBlitter` are duplicated across the two
 shells today (both are cross-platform Metal); extracting a shared canvas module
@@ -109,13 +109,18 @@ ImageKid and Fekthor use — nothing bespoke:
   (the drag/settle/place glue, newly extracted into ImageKidKit so all apps can
   share it instead of hand-rolling it).
 - Panels: **Brushes** (preset grid), **Brush** (the editor), **Colours** (well +
-  eyedropper + palette/recents, macOS) and **Layers** (add/delete/reorder,
-  per-layer visibility + opacity, active-layer select). They dock to the right by
-  default in Inka, on both macOS and iPad.
-- Canvas tools (macOS): **draw**, **eyedropper** (samples the committed texture),
-  and **move** (marquee-select strokes on the active layer and translate them —
-  arrow-key nudge, delete, escape). The move tool edits the vector strokes in
-  place, so it stays non-destructive and undoable.
+  eyedropper + palette/recents) and **Layers** (add/delete/reorder, per-layer
+  visibility + opacity, active-layer select). They dock to the right by default in
+  Inka, on both macOS and iPad (Colours opens on demand from the rail).
+- Canvas tools (both surfaces): **draw**, **eyedropper** (samples the committed
+  texture), and **move** (marquee-select strokes on the active layer and translate
+  them — delete on both; arrow-key nudge / escape on macOS). The move tool edits
+  the vector strokes in place, so it stays non-destructive and undoable.
+- The canvas is a **free transform** — pan, zoom and rotate about its centre. The
+  renderer keeps `zoom`/`offset`/`rotation`; `viewPoint`/`canvasPoint` are exact
+  inverses, and `FullscreenBlitter` draws the paper + textures from four rotated
+  clip-space corners. macOS uses scroll-pan / pinch-zoom / trackpad-rotate; iPad
+  uses two-finger pan / pinch / rotate, recognised simultaneously. Fit resets all.
 
 ## App state
 

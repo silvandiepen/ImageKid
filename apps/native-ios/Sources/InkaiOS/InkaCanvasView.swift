@@ -43,12 +43,16 @@ struct InkaCanvasView: UIViewRepresentable {
 final class InputMTKView: MTKView, UIGestureRecognizerDelegate {
     weak var model: InkaModel?
 
-    /// The touch currently drawing (pencil preferred), if any.
+    /// The touch currently active (pencil preferred), if any.
     private var drawingTouch: UITouch?
+    /// The tool latched when the active touch began (draw / eyedropper / move).
+    private var activeGesture: InkaTool = .draw
     /// Zoom captured at the start of a pinch.
     private var pinchStartZoom: CGFloat = 1
     /// Offset captured at the start of a two-finger pan.
     private var panStartOffset: CGSize = .zero
+    /// Rotation captured at the start of a two-finger rotate.
+    private var rotateStart: CGFloat = 0
 
     func installGestures() {
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch))
@@ -60,6 +64,10 @@ final class InputMTKView: MTKView, UIGestureRecognizerDelegate {
         pan.maximumNumberOfTouches = 2
         pan.delegate = self
         addGestureRecognizer(pan)
+
+        let rotate = UIRotationGestureRecognizer(target: self, action: #selector(handleRotate))
+        rotate.delegate = self
+        addGestureRecognizer(rotate)
 
         let undoTap = UITapGestureRecognizer(target: self, action: #selector(handleUndoTap))
         undoTap.numberOfTouchesRequired = 2
@@ -109,36 +117,57 @@ final class InputMTKView: MTKView, UIGestureRecognizerDelegate {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let candidate = drawingCandidate(event) else {
-            // Two+ fingers (no pencil): navigation, not drawing — drop any stroke.
-            if drawingTouch != nil { model?.renderer?.cancelStroke(); drawingTouch = nil }
+            // Two+ fingers (no pencil): navigation, not drawing — drop any gesture.
+            abandonActiveGesture()
             return
         }
-        // A second finger arriving while a finger was drawing turns it into a
-        // navigation gesture: cancel the nascent stroke.
-        if drawingTouch != nil, drawingTouch !== candidate {
-            model?.renderer?.cancelStroke()
-        }
+        // A second finger arriving while one was active turns it into navigation.
+        if drawingTouch != nil, drawingTouch !== candidate { abandonActiveGesture() }
         drawingTouch = candidate
-        model?.renderer?.beginStroke(at: sample(candidate))
+        activeGesture = model?.tool ?? .draw
+        switch activeGesture {
+        case .draw: model?.renderer?.beginStroke(at: sample(candidate))
+        case .eyedropper: model?.pickColor(at: sample(candidate).position)
+        case .move: model?.selectionBegin(at: sample(candidate).position)
+        }
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = drawingTouch, touches.contains(touch) else { return }
-        // Feed every coalesced sample so fast Pencil strokes stay smooth.
-        for coalesced in event?.coalescedTouches(for: touch) ?? [touch] {
-            model?.renderer?.extendStroke(to: sample(coalesced))
+        switch activeGesture {
+        case .draw:
+            // Feed every coalesced sample so fast Pencil strokes stay smooth.
+            for coalesced in event?.coalescedTouches(for: touch) ?? [touch] {
+                model?.renderer?.extendStroke(to: sample(coalesced))
+            }
+        case .eyedropper: model?.pickColor(at: sample(touch).position)
+        case .move: model?.selectionUpdate(to: sample(touch).position)
         }
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = drawingTouch, touches.contains(touch) else { return }
-        model?.renderer?.endStroke()
+        switch activeGesture {
+        case .draw: model?.renderer?.endStroke()
+        case .eyedropper: break
+        case .move: model?.selectionEnd()
+        }
         drawingTouch = nil
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = drawingTouch, touches.contains(touch) else { return }
-        model?.renderer?.cancelStroke()
+        abandonActiveGesture()
+    }
+
+    /// Abandon the in-flight single-touch gesture (a second finger or a cancel).
+    private func abandonActiveGesture() {
+        guard drawingTouch != nil else { return }
+        switch activeGesture {
+        case .draw: model?.renderer?.cancelStroke()
+        case .move: model?.selectionEnd()
+        case .eyedropper: break
+        }
         drawingTouch = nil
     }
 
@@ -149,7 +178,7 @@ final class InputMTKView: MTKView, UIGestureRecognizerDelegate {
         switch g.state {
         case .began:
             pinchStartZoom = r.zoom
-            if drawingTouch != nil { r.cancelStroke(); drawingTouch = nil }
+            abandonActiveGesture()
         case .changed:
             r.zoom = min(32, max(0.1, pinchStartZoom * g.scale))
         default:
@@ -162,10 +191,23 @@ final class InputMTKView: MTKView, UIGestureRecognizerDelegate {
         switch g.state {
         case .began:
             panStartOffset = r.offset
-            if drawingTouch != nil { r.cancelStroke(); drawingTouch = nil }
+            abandonActiveGesture()
         case .changed:
             let t = g.translation(in: self)
             r.offset = CGSize(width: panStartOffset.width + t.x, height: panStartOffset.height + t.y)
+        default:
+            break
+        }
+    }
+
+    @objc private func handleRotate(_ g: UIRotationGestureRecognizer) {
+        guard let r = model?.renderer else { return }
+        switch g.state {
+        case .began:
+            rotateStart = r.rotation
+            abandonActiveGesture()
+        case .changed:
+            r.rotation = rotateStart + g.rotation
         default:
             break
         }

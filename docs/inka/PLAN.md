@@ -76,24 +76,26 @@ re-rasterization both rely on it. No `Math.random`.
   layer is spun up if the active one can't take strokes). Raster + imported layers
   round-trip in `InkaDocument` and rasterize on export, but the app only *creates*
   stroke layers so far. Per-layer masks/blend modes beyond opacity are P5.
-- **P4 Illustration workflow** — DONE (core): **undo/redo** (⌘Z / ⌘⇧Z; two-/
-  three-finger tap on iPad; 40-deep document-snapshot history), **`.inka`
-  save/open** + New with a size, **canvas nav** (pinch-zoom, scroll-pan, ⌘0 fit),
-  clear-layer, PNG export via the exact CPU rasterizer. **Colour (macOS)**: a
-  Colours panel with the working well, a document palette + session recents, and
-  an **eyedropper** that samples the committed canvas. **Selection (macOS)**: a
-  **move tool** — marquee-select strokes on the active layer and drag them (it
-  re-positions the vector strokes, non-destructively), with arrow-key nudge (⇧ =
-  ×10), delete and escape. Still open: selection scale/rotate, colour tools on
-  iPad, canvas rotate/flip, colour harmony, reference layer.
+- **P4 Illustration workflow** — DONE (core, both surfaces): **undo/redo** (⌘Z /
+  ⌘⇧Z; two-/three-finger tap on iPad; 40-deep history), **`.inka` save/open** + New
+  with a size, clear-layer, PNG export via the exact CPU rasterizer. **Free canvas
+  transform** — pan, zoom and **rotate** about the centre (macOS scroll/pinch/
+  trackpad-rotate; iPad two-finger pan/pinch/rotate), fit resets all three; input
+  maps through the exact inverse so tools stay correct when rotated. **Colour**: a
+  Colours panel (working well, document palette + session recents) and an
+  **eyedropper** sampling the committed canvas. **Selection**: a **move tool** —
+  marquee-select strokes and drag them (non-destructive), delete, plus arrow-key
+  nudge (⇧ = ×10) / escape on macOS. Still open: selection scale/rotate, canvas
+  flip, colour harmony, reference layer.
 - **P5 Brush breadth + export** — wet/smudge/blur, brush groups, custom brush
   import, perf passes; layered export.
 - **P6 Polish & launch** — iPad workflow **DONE**: the iPad app has full macOS
-  parity (hybrid document, layers, undo/redo, `.inka` save/open, canvas nav) on the
-  ImageKidKit floating panel dock, plus Procreate-style gestures — Pencil/finger
-  draws, two-finger pan, pinch-zoom, two-finger tap undo, three-finger tap redo.
-  Still open: pinch-rotate, **website Inka page + brand assets** (deferred to avoid
-  broken image refs), release-boundary entry.
+  parity (hybrid document, layers, undo/redo, `.inka` save/open, free canvas
+  transform, colour + move-selection) on the ImageKidKit floating panel dock, plus
+  Procreate-style gestures — Pencil/finger draws, two-finger pan, pinch-zoom,
+  two-finger rotate, two-finger tap undo, three-finger tap redo. Still open:
+  **website Inka page + brand assets** (deferred to avoid broken image refs),
+  release-boundary entry.
 - **P7 (opt-in) ImageKid adoption** — route ImageKid's freehand through
   `BrushKit`/`BrushRender`, retiring `MaskPainter.paintStroke` / the iOS
   `Brush.swift` presets.

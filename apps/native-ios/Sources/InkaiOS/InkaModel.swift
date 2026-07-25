@@ -13,6 +13,13 @@ import UniformTypeIdentifiers
 /// after every change, which is what makes undo, layer visibility and opacity
 /// work. File open/save is driven by the SwiftUI file importer/exporter in
 /// `ContentView` via the `Data` helpers here.
+/// What a canvas drag does.
+enum InkaTool: Equatable {
+    case draw
+    case eyedropper
+    case move
+}
+
 @MainActor
 final class InkaModel: ObservableObject {
     @Published var document: InkaDocument
@@ -28,6 +35,20 @@ final class InkaModel: ObservableObject {
     /// only attach to a view, so the panels flip these flags).
     @Published var brushImportRequested = false
     @Published var brushExportRequested = false
+
+    /// The active canvas tool (paint, sample a colour, or move a selection).
+    @Published var tool: InkaTool = .draw { didSet { if tool != .move { clearSelection() } } }
+    /// Recently used colours (most-recent first), in-memory for the session.
+    @Published private(set) var recentColors: [String] = []
+
+    /// Move-tool selection: the chosen strokes (active layer), their bounding box
+    /// and the live marquee — all in canvas pixel space, for the overlay.
+    @Published private(set) var selectedStrokeIDs: Set<UUID> = []
+    @Published private(set) var selectionBounds: CGRect?
+    @Published private(set) var marquee: CGRect?
+    private var marqueeStart: CGPoint?
+    private var moveLast: CGPoint?
+    private var movingSelection = false
 
     let renderer: InkaCanvasRenderer?
 
@@ -80,6 +101,7 @@ final class InkaModel: ObservableObject {
 
     private func record(_ stroke: BrushStroke) {
         snapshot()
+        pushRecent(stroke.color.hex)
         let i = strokeTargetIndex()
         if case .strokes(var strokes) = document.layers[i].content {
             strokes.append(stroke)
@@ -197,6 +219,164 @@ final class InkaModel: ObservableObject {
             document.layers[activeIndex].content = .strokes([])
         }
         rebuild()
+    }
+
+    // MARK: - Colour & palette
+
+    func setColor(_ rgba: RGBA) {
+        color = rgba.color
+        pushRecent(rgba.hex)
+    }
+
+    /// Sample the committed canvas at a canvas point and adopt that colour.
+    @discardableResult
+    func pickColor(at canvasPoint: CGPoint) -> Bool {
+        guard let rgba = renderer?.sampleColor(at: canvasPoint), rgba.a > 0.01 else { return false }
+        setColor(RGBA(r: rgba.r, g: rgba.g, b: rgba.b))
+        tool = .draw
+        return true
+    }
+
+    func addCurrentSwatch() {
+        let hex = currentColorRGBA.hex
+        guard !document.palette.contains(hex) else { return }
+        snapshot()
+        document.palette.append(hex)
+    }
+
+    func removeSwatch(_ hex: String) {
+        guard let i = document.palette.firstIndex(of: hex) else { return }
+        snapshot()
+        document.palette.remove(at: i)
+    }
+
+    func selectSwatch(_ hex: String) {
+        guard let rgba = RGBA(hex: hex) else { return }
+        setColor(rgba)
+    }
+
+    private func pushRecent(_ hex: String) {
+        recentColors.removeAll { $0 == hex }
+        recentColors.insert(hex, at: 0)
+        if recentColors.count > 12 { recentColors.removeLast() }
+    }
+
+    // MARK: - Selection & move (move tool)
+
+    func selectionBegin(at p: CGPoint) {
+        if !selectedStrokeIDs.isEmpty, let b = selectionBounds, b.contains(p) {
+            movingSelection = true
+            moveLast = p
+            snapshot()
+        } else {
+            movingSelection = false
+            marqueeStart = p
+            marquee = CGRect(origin: p, size: .zero)
+            selectedStrokeIDs = []
+            selectionBounds = nil
+        }
+    }
+
+    func selectionUpdate(to p: CGPoint) {
+        if movingSelection {
+            guard let last = moveLast else { return }
+            translateSelection(dx: p.x - last.x, dy: p.y - last.y)
+            moveLast = p
+        } else if let start = marqueeStart {
+            marquee = CGRect(
+                x: min(start.x, p.x), y: min(start.y, p.y),
+                width: abs(p.x - start.x), height: abs(p.y - start.y))
+        }
+    }
+
+    func selectionEnd() {
+        if movingSelection {
+            movingSelection = false
+            moveLast = nil
+            recomputeSelectionBounds()
+        } else if let rect = marquee {
+            selectStrokes(in: rect)
+            marquee = nil
+            marqueeStart = nil
+        }
+    }
+
+    func deleteSelection() {
+        guard !selectedStrokeIDs.isEmpty,
+            document.layers.indices.contains(activeIndex),
+            case .strokes(var strokes) = document.layers[activeIndex].content
+        else { return }
+        snapshot()
+        strokes.removeAll { selectedStrokeIDs.contains($0.id) }
+        document.layers[activeIndex].content = .strokes(strokes)
+        clearSelection()
+        rebuild()
+    }
+
+    func clearSelection() {
+        selectedStrokeIDs = []
+        selectionBounds = nil
+        marquee = nil
+        marqueeStart = nil
+        movingSelection = false
+    }
+
+    private func translateSelection(dx: CGFloat, dy: CGFloat) {
+        guard dx != 0 || dy != 0, document.layers.indices.contains(activeIndex),
+            case .strokes(var strokes) = document.layers[activeIndex].content
+        else { return }
+        for k in strokes.indices where selectedStrokeIDs.contains(strokes[k].id) {
+            for s in strokes[k].input.samples.indices {
+                strokes[k].input.samples[s].position.x += dx
+                strokes[k].input.samples[s].position.y += dy
+            }
+        }
+        document.layers[activeIndex].content = .strokes(strokes)
+        selectionBounds = selectionBounds?.offsetBy(dx: dx, dy: dy)
+        rebuild()
+    }
+
+    private func selectStrokes(in rect: CGRect) {
+        guard document.layers.indices.contains(activeIndex),
+            case .strokes(let strokes) = document.layers[activeIndex].content
+        else { selectedStrokeIDs = []; selectionBounds = nil; return }
+        var ids: Set<UUID> = []
+        var union: CGRect?
+        for st in strokes {
+            let bb = strokeBounds(st)
+            if bb.intersects(rect) {
+                ids.insert(st.id)
+                union = union?.union(bb) ?? bb
+            }
+        }
+        selectedStrokeIDs = ids
+        selectionBounds = union
+    }
+
+    private func recomputeSelectionBounds() {
+        guard document.layers.indices.contains(activeIndex),
+            case .strokes(let strokes) = document.layers[activeIndex].content
+        else { return }
+        var union: CGRect?
+        for st in strokes where selectedStrokeIDs.contains(st.id) {
+            let bb = strokeBounds(st)
+            union = union?.union(bb) ?? bb
+        }
+        selectionBounds = union
+    }
+
+    private func strokeBounds(_ s: BrushStroke) -> CGRect {
+        let pts = s.input.samples.map(\.position)
+        guard let first = pts.first else { return .zero }
+        var minX = first.x, minY = first.y, maxX = first.x, maxY = first.y
+        for p in pts {
+            minX = min(minX, p.x); minY = min(minY, p.y)
+            maxX = max(maxX, p.x); maxY = max(maxY, p.y)
+        }
+        let pad = (document.brush(id: s.brushID)?.size ?? brush.size) / 2 + 1
+        return CGRect(
+            x: minX - pad, y: minY - pad,
+            width: (maxX - minX) + 2 * pad, height: (maxY - minY) + 2 * pad)
     }
 
     // MARK: - .inka document data (driven by the file importer/exporter)

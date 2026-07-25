@@ -70,6 +70,12 @@ struct ContentView: View {
             Divider()
             InkaCanvasView(model: model)
                 .background(Color(white: 0.28))
+                .overlay {
+                    GeometryReader { geo in
+                        InkaSelectionOverlay(model: model, viewSize: geo.size)
+                    }
+                    .allowsHitTesting(false)
+                }
                 .overlay(alignment: .topTrailing) { panelLayer.padding(8) }
         }
         .sheet(item: Binding(
@@ -116,6 +122,19 @@ struct ContentView: View {
             Divider().frame(height: 22)
 
             ColorPicker("", selection: $model.color, supportsOpacity: false).labelsHidden()
+            Button { model.tool = model.tool == .eyedropper ? .draw : .eyedropper } label: {
+                Image(systemName: "eyedropper")
+            }
+            .tint(model.tool == .eyedropper ? .accentColor : nil)
+            Button { model.tool = model.tool == .move ? .draw : .move } label: {
+                Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+            }
+            .tint(model.tool == .move ? .accentColor : nil)
+            if model.tool == .move, !model.selectedStrokeIDs.isEmpty {
+                Button(role: .destructive) { model.deleteSelection() } label: {
+                    Image(systemName: "trash.slash")
+                }
+            }
             Slider(value: sizeBinding, in: 1...200).frame(width: 160)
             Text("\(Int(model.brush.size))")
                 .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
@@ -168,6 +187,17 @@ struct ContentView: View {
                             onDragChanged: { dock.dragChanged(.brush, translation: $0, in: size) },
                             onDragEnded: { _ in dock.dragEnded(.brush, in: size) })
                     }
+                    if dock.model.isExpanded(.colours) {
+                        InkaColoursPanel(
+                            model: model, offset: dock.offsetBinding(.colours, in: size),
+                            size: dock.model.sizeBinding(.colours),
+                            onMinimize: { dock.model.minimize(.colours) },
+                            stackEdges: dock.model.stackEdges(of: .colours),
+                            dockEdges: dock.model.dockEdges(of: .colours, in: size),
+                            isStackFollower: dock.model.isStackFollower(.colours),
+                            onDragChanged: { dock.dragChanged(.colours, translation: $0, in: size) },
+                            onDragEnded: { _ in dock.dragEnded(.colours, in: size) })
+                    }
                     if dock.model.isExpanded(.layers) {
                         InkaLayersPanel(
                             model: model, offset: dock.offsetBinding(.layers, in: size),
@@ -203,7 +233,8 @@ struct ContentView: View {
     /// One-time: park the panels against the right edge (Inka's default is a
     /// right-hand tool column), matching the macOS app.
     private func rightAlignDefaults(in size: CGSize) {
-        let key = "inka.ipad.paneldock.rightDefault.v1"
+        // v2: Colours joined the panel set; it opens on demand from the rail.
+        let key = "inka.ipad.paneldock.rightDefault.v2"
         guard size.width > 0, !UserDefaults.standard.bool(forKey: key) else { return }
         let x = size.width - InkaPanel.panelWidth - PanelPlacement.margin
         var y: CGFloat = 8
@@ -211,6 +242,7 @@ struct ContentView: View {
             dock.model.setPosition(panel, to: CGSize(width: x, height: y), in: size)
             y += dock.model.size(panel).height + PanelPlacement.gap
         }
+        dock.model.setPosition(.colours, to: CGSize(width: x, height: 8), in: size)
         UserDefaults.standard.set(true, forKey: key)
     }
 
@@ -235,6 +267,40 @@ struct ContentView: View {
 
     private var inkaType: UTType { UTType(filenameExtension: "inka") ?? .data }
     private var inkbrushType: UTType { UTType(filenameExtension: "inkbrush") ?? .data }
+}
+
+/// Draws the move tool's live marquee and the current selection's bounding box,
+/// mapping canvas-space rects through the renderer transform (rotated with the
+/// canvas) to view points.
+struct InkaSelectionOverlay: View {
+    @ObservedObject var model: InkaModel
+    let viewSize: CGSize
+
+    var body: some View {
+        Canvas { ctx, _ in
+            guard let r = model.renderer else { return }
+            func path(_ rect: CGRect) -> Path {
+                let c = r.viewCorners(ofCanvasRect: rect, in: viewSize)
+                var p = Path()
+                p.move(to: c[0])
+                p.addLine(to: c[1]); p.addLine(to: c[2]); p.addLine(to: c[3])
+                p.closeSubpath()
+                return p
+            }
+            if let b = model.selectionBounds, !model.selectedStrokeIDs.isEmpty {
+                let pth = path(b)
+                ctx.fill(pth, with: .color(.accentColor.opacity(0.08)))
+                ctx.stroke(
+                    pth, with: .color(.accentColor),
+                    style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
+            }
+            if let m = model.marquee {
+                ctx.stroke(
+                    path(m), with: .color(.white.opacity(0.9)),
+                    style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+            }
+        }
+    }
 }
 
 /// A minimal `FileDocument` that carries raw bytes, so the SwiftUI file exporter
