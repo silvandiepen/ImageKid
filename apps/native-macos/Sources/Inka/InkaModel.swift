@@ -282,6 +282,23 @@ final class InkaModel: ObservableObject {
         CGImageDestinationFinalize(dest)
     }
 
+    /// Export the flattened PNG plus one PNG per visible layer into a folder.
+    func exportLayers() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.prompt = "Export Here"
+        panel.message = "Choose a folder for the flattened image and per-layer PNGs."
+        guard panel.runModal() == .OK, let dir = panel.url else { return }
+        let base = documentURL?.deletingPathExtension().lastPathComponent ?? "Inka"
+        if let flat = InkaRasterizer.flattenedPNG(document) {
+            try? flat.write(to: dir.appendingPathComponent("\(base)-flattened.png"))
+        }
+        for layer in InkaRasterizer.layerPNGs(document) {
+            try? layer.data.write(to: dir.appendingPathComponent("\(base)-\(layer.name).png"))
+        }
+    }
+
     func clearActiveLayer() {
         guard document.layers.indices.contains(activeIndex) else { return }
         snapshot()

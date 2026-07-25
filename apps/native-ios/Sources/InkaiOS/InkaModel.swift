@@ -496,4 +496,23 @@ final class InkaModel: ObservableObject {
         guard let cg = InkaRasterizer.flatten(document) ?? renderer?.committedImage() else { return nil }
         return UIImage(cgImage: cg)
     }
+
+    /// Write the flattened PNG + one PNG per visible layer to a temp folder and
+    /// return the file URLs, for a share sheet ("Save to Files" etc.).
+    func exportLayerFileURLs() -> [URL] {
+        let base = "Inka"
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("InkaExport", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        var urls: [URL] = []
+        if let flat = InkaRasterizer.flattenedPNG(document) {
+            let u = dir.appendingPathComponent("\(base)-flattened.png")
+            if (try? flat.write(to: u)) != nil { urls.append(u) }
+        }
+        for layer in InkaRasterizer.layerPNGs(document) {
+            let u = dir.appendingPathComponent("\(base)-\(layer.name).png")
+            if (try? layer.data.write(to: u)) != nil { urls.append(u) }
+        }
+        return urls
+    }
 }

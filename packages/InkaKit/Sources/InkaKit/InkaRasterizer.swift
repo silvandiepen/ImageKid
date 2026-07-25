@@ -35,6 +35,27 @@ public enum InkaRasterizer {
         return ctx.makeImage()
     }
 
+    /// One PNG per visible layer, named `NN-<layer>` (index-prefixed so names
+    /// stay unique and ordered). For "export layers".
+    public static func layerPNGs(_ document: InkaDocument) -> [(name: String, data: Data)] {
+        var out: [(String, Data)] = []
+        for (i, layer) in document.layers.enumerated() where layer.isVisible {
+            guard let cg = render(layer: layer, in: document),
+                let data = InkaImageFit.pngData(cg)
+            else { continue }
+            let safe = layer.name.replacingOccurrences(of: "/", with: "-")
+                .replacingOccurrences(of: ":", with: "-")
+            out.append((String(format: "%02d-%@", i + 1, safe), data))
+        }
+        return out
+    }
+
+    /// The flattened document as PNG data.
+    public static func flattenedPNG(_ document: InkaDocument) -> Data? {
+        guard let cg = flatten(document) else { return nil }
+        return InkaImageFit.pngData(cg)
+    }
+
     /// Render a single layer to an image at the document's size (the raster
     /// cache a `.strokes` layer would keep). Public so the app can re-render one
     /// layer after an edit without flattening the whole stack.

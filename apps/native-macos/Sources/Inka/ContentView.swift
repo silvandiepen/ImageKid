@@ -234,7 +234,13 @@ struct ContentView: View {
                 .keyboardShortcut("o", modifiers: .command).help("Open .inka")
             Button { model.saveDocument() } label: { Image(systemName: "square.and.arrow.down") }
                 .keyboardShortcut("s", modifiers: .command).help("Save .inka")
-            Button { model.exportPNG() } label: { Label("Export", systemImage: "square.and.arrow.up") }
+            Menu {
+                Button("Export PNG…") { model.exportPNG() }
+                Button("Export Layers…") { model.exportLayers() }
+            } label: {
+                Label("Export", systemImage: "square.and.arrow.up")
+            }
+            .frame(width: 96)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

@@ -16,6 +16,7 @@ struct ContentView: View {
     @StateObject private var dock = PanelDockController(PanelDockModel<InkaPanel>.makeDefault())
     @State private var hasCanvas = false
     @State private var shareImage: UIImage?
+    @State private var shareURLs: URLShareItem?
     @State private var showOpen = false
     @State private var showSave = false
     // Encoded blobs captured at present-time so the exporters don't re-encode
@@ -85,6 +86,7 @@ struct ContentView: View {
         ) { item in
             ShareSheet(items: [item.image])
         }
+        .sheet(item: $shareURLs) { item in ShareSheet(items: item.urls) }
         // .inka open / save
         .fileImporter(isPresented: $showOpen, allowedContentTypes: [inkaType, .data]) { result in
             if case .success(let url) = result { openInka(url) }
@@ -178,7 +180,13 @@ struct ContentView: View {
             Button { saveInkaData = model.inkaData() ?? Data(); showSave = true } label: {
                 Image(systemName: "square.and.arrow.down")
             }
-            Button { shareImage = model.exportImage() } label: {
+            Menu {
+                Button("Share PNG") { shareImage = model.exportImage() }
+                Button("Share Layers") {
+                    let urls = model.exportLayerFileURLs()
+                    if !urls.isEmpty { shareURLs = URLShareItem(urls: urls) }
+                }
+            } label: {
                 Image(systemName: "square.and.arrow.up")
             }
         }
@@ -362,6 +370,11 @@ private struct ShareItem: Identifiable {
     let id = UUID()
     let image: UIImage
     init(_ image: UIImage) { self.image = image }
+}
+
+private struct URLShareItem: Identifiable {
+    let id = UUID()
+    let urls: [URL]
 }
 
 private struct ShareSheet: UIViewControllerRepresentable {
