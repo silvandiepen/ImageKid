@@ -21,6 +21,11 @@ enum InkaTool: Equatable {
     case move
 }
 
+/// The move tool's in-flight gesture.
+enum SelectionTransform {
+    case none, marquee, move, scale, rotate
+}
+
 @MainActor
 final class InkaModel: ObservableObject {
     @Published var document: InkaDocument
@@ -53,8 +58,10 @@ final class InkaModel: ObservableObject {
     @Published private(set) var selectionBounds: CGRect?
     @Published private(set) var marquee: CGRect?
     private var marqueeStart: CGPoint?
-    private var moveLast: CGPoint?
-    private var movingSelection = false
+    private var transformKind: SelectionTransform = .none
+    private var transformCenter: CGPoint = .zero
+    private var transformStart: CGPoint = .zero
+    private var transformOriginals: [UUID: [CGPoint]] = [:]
 
     let renderer: InkaCanvasRenderer?
 
@@ -269,42 +276,111 @@ final class InkaModel: ObservableObject {
 
     // MARK: - Selection & move (move tool)
 
+    private var canvasScale: CGFloat {
+        let s = renderer?.scale(in: renderer?.viewSize ?? .zero) ?? 1
+        return s > 0 ? s : 1
+    }
+    private var grabRadiusCanvas: CGFloat { 16 / canvasScale }
+    private var rotateHandleOffsetCanvas: CGFloat { 36 / canvasScale }
+
+    var rotateHandleCanvasPoint: CGPoint? {
+        guard let b = selectionBounds else { return nil }
+        return CGPoint(x: b.midX, y: b.minY - rotateHandleOffsetCanvas)
+    }
+
     func selectionBegin(at p: CGPoint) {
-        if !selectedStrokeIDs.isEmpty, let b = selectionBounds, b.contains(p) {
-            movingSelection = true
-            moveLast = p
-            snapshot()
-        } else {
-            movingSelection = false
-            marqueeStart = p
-            marquee = CGRect(origin: p, size: .zero)
-            selectedStrokeIDs = []
-            selectionBounds = nil
-        }
+        guard !selectedStrokeIDs.isEmpty, let b = selectionBounds else { startMarquee(p); return }
+        let kind = handle(at: p, bounds: b)
+        if kind == .marquee { startMarquee(p); return }
+        transformKind = kind
+        transformStart = p
+        transformCenter = CGPoint(x: b.midX, y: b.midY)
+        captureOriginals()
+        snapshot()
+    }
+
+    private func startMarquee(_ p: CGPoint) {
+        transformKind = .marquee
+        marqueeStart = p
+        marquee = CGRect(origin: p, size: .zero)
+        selectedStrokeIDs = []
+        selectionBounds = nil
+    }
+
+    private func handle(at p: CGPoint, bounds b: CGRect) -> SelectionTransform {
+        let g = grabRadiusCanvas
+        if let rh = rotateHandleCanvasPoint, hypot(p.x - rh.x, p.y - rh.y) <= g { return .rotate }
+        let corners = [
+            CGPoint(x: b.minX, y: b.minY), CGPoint(x: b.maxX, y: b.minY),
+            CGPoint(x: b.maxX, y: b.maxY), CGPoint(x: b.minX, y: b.maxY),
+        ]
+        if corners.contains(where: { hypot($0.x - p.x, $0.y - p.y) <= g }) { return .scale }
+        if b.insetBy(dx: -g / 2, dy: -g / 2).contains(p) { return .move }
+        return .marquee
     }
 
     func selectionUpdate(to p: CGPoint) {
-        if movingSelection {
-            guard let last = moveLast else { return }
-            translateSelection(dx: p.x - last.x, dy: p.y - last.y)
-            moveLast = p
-        } else if let start = marqueeStart {
+        let c = transformCenter
+        switch transformKind {
+        case .marquee:
+            guard let start = marqueeStart else { return }
             marquee = CGRect(
                 x: min(start.x, p.x), y: min(start.y, p.y),
                 width: abs(p.x - start.x), height: abs(p.y - start.y))
+        case .move:
+            let dx = p.x - transformStart.x, dy = p.y - transformStart.y
+            applyFromOriginals { CGPoint(x: $0.x + dx, y: $0.y + dy) }
+        case .scale:
+            let d0 = max(1e-3, hypot(transformStart.x - c.x, transformStart.y - c.y))
+            let f = max(0.05, min(20, hypot(p.x - c.x, p.y - c.y) / d0))
+            applyFromOriginals { CGPoint(x: c.x + ($0.x - c.x) * f, y: c.y + ($0.y - c.y) * f) }
+        case .rotate:
+            let a = atan2(p.y - c.y, p.x - c.x) - atan2(transformStart.y - c.y, transformStart.x - c.x)
+            let ca = cos(a), sa = sin(a)
+            applyFromOriginals {
+                let dx = $0.x - c.x, dy = $0.y - c.y
+                return CGPoint(x: c.x + dx * ca - dy * sa, y: c.y + dx * sa + dy * ca)
+            }
+        case .none:
+            break
         }
     }
 
     func selectionEnd() {
-        if movingSelection {
-            movingSelection = false
-            moveLast = nil
-            recomputeSelectionBounds()
-        } else if let rect = marquee {
+        if transformKind == .marquee, let rect = marquee {
             selectStrokes(in: rect)
             marquee = nil
             marqueeStart = nil
+        } else {
+            recomputeSelectionBounds()
         }
+        transformKind = .none
+        transformOriginals = [:]
+    }
+
+    private func captureOriginals() {
+        transformOriginals = [:]
+        guard document.layers.indices.contains(activeIndex),
+            case .strokes(let strokes) = document.layers[activeIndex].content
+        else { return }
+        for st in strokes where selectedStrokeIDs.contains(st.id) {
+            transformOriginals[st.id] = st.input.samples.map(\.position)
+        }
+    }
+
+    private func applyFromOriginals(_ f: (CGPoint) -> CGPoint) {
+        guard document.layers.indices.contains(activeIndex),
+            case .strokes(var strokes) = document.layers[activeIndex].content
+        else { return }
+        for k in strokes.indices where selectedStrokeIDs.contains(strokes[k].id) {
+            guard let orig = transformOriginals[strokes[k].id] else { continue }
+            for i in strokes[k].input.samples.indices where i < orig.count {
+                strokes[k].input.samples[i].position = f(orig[i])
+            }
+        }
+        document.layers[activeIndex].content = .strokes(strokes)
+        recomputeSelectionBounds()
+        rebuild()
     }
 
     func deleteSelection() {
@@ -324,22 +400,8 @@ final class InkaModel: ObservableObject {
         selectionBounds = nil
         marquee = nil
         marqueeStart = nil
-        movingSelection = false
-    }
-
-    private func translateSelection(dx: CGFloat, dy: CGFloat) {
-        guard dx != 0 || dy != 0, document.layers.indices.contains(activeIndex),
-            case .strokes(var strokes) = document.layers[activeIndex].content
-        else { return }
-        for k in strokes.indices where selectedStrokeIDs.contains(strokes[k].id) {
-            for s in strokes[k].input.samples.indices {
-                strokes[k].input.samples[s].position.x += dx
-                strokes[k].input.samples[s].position.y += dy
-            }
-        }
-        document.layers[activeIndex].content = .strokes(strokes)
-        selectionBounds = selectionBounds?.offsetBy(dx: dx, dy: dy)
-        rebuild()
+        transformKind = .none
+        transformOriginals = [:]
     }
 
     private func selectStrokes(in rect: CGRect) {

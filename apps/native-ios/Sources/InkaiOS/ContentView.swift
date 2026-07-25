@@ -291,12 +291,26 @@ struct InkaSelectionOverlay: View {
                 p.closeSubpath()
                 return p
             }
+            func handleRect(_ c: CGPoint) -> Path {
+                Path(CGRect(x: c.x - 6, y: c.y - 6, width: 12, height: 12))
+            }
             if let b = model.selectionBounds, !model.selectedStrokeIDs.isEmpty {
                 let pth = path(b)
                 ctx.fill(pth, with: .color(.accentColor.opacity(0.08)))
                 ctx.stroke(
                     pth, with: .color(.accentColor),
                     style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
+                let corners = r.viewCorners(ofCanvasRect: b, in: viewSize)
+                for c in corners { ctx.fill(handleRect(c), with: .color(.accentColor)) }
+                if let rc = model.rotateHandleCanvasPoint {
+                    let rv = r.viewPoint(fromCanvas: rc, in: viewSize)
+                    let topMid = CGPoint(x: (corners[0].x + corners[1].x) / 2, y: (corners[0].y + corners[1].y) / 2)
+                    var line = Path()
+                    line.move(to: topMid)
+                    line.addLine(to: rv)
+                    ctx.stroke(line, with: .color(.accentColor), lineWidth: 1)
+                    ctx.fill(Path(ellipseIn: CGRect(x: rv.x - 7, y: rv.y - 7, width: 14, height: 14)), with: .color(.accentColor))
+                }
             }
             if let m = model.marquee {
                 ctx.stroke(
