@@ -19,10 +19,10 @@ engine — so ImageKid can adopt real brushes later.
 
 ## Status (honest)
 
-**Usable on macOS and iPad, not yet launch-ready.** The engine, the hybrid
-document, and a working drawing app on both surfaces are in; the deeper
-illustration workflow (selections/transform) and launch polish (website, brand,
-store) are not. Do not present the still-PLANNED items below as done.
+**Feature-complete as a drawing app on macOS and iPad; launch polish (website,
+brand, store) still pending.** The engine, the hybrid document, and the full
+drawing/illustration workflow are in on both surfaces. Do not present the
+still-PLANNED items below as done.
 
 - **P0 Foundations** — DONE. The three packages (BrushKit, BrushRender, InkaKit),
   tested; engine output verified via the `brush`/`inka` CLIs.
@@ -46,42 +46,48 @@ store) are not. Do not present the still-PLANNED items below as done.
   transform, so drawing/eyedropper/move stay correct on a rotated canvas.
 - **Eraser (both surfaces)** — DONE. A destination-out blend in the shared
   compositor + rasterizer and an `erase` flag on `BrushStroke`; the eraser uses
-  the current brush's tip, erases non-destructively (recorded as an erase stroke,
-  re-applied on rebuild), and flattens correctly on export.
-- **Colour + selection (both surfaces)** — DONE. A Colours panel (working well,
-  eyedropper, document palette + session recents), an eyedropper that samples the
-  committed canvas, and a **move tool**: marquee-select strokes on the active
-  layer and drag them (non-destructive — it re-positions the vector strokes),
-  delete, and — on macOS — arrow-key nudge (⇧ = ×10) and escape to deselect.
-- **iPad parity** — DONE. The iPad app runs the same hybrid document, layers,
-  undo/redo, save/open, canvas transform and colour/selection as macOS, on the
-  ImageKidKit floating panel dock (Brushes / Brush / Colours / Layers) — plus the
-  Procreate-style gestures: Pencil (or a finger) draws, two fingers pan, pinch
-  zooms, two fingers rotate, two-finger tap undoes, three-finger tap redoes.
-- **P5–P6 Brush breadth, launch** — PLANNED. See [PLAN.md](PLAN.md). Still missing
-  before any release: selection scale/rotate (only marquee-move exists), canvas
-  flip, wet/smudge brushes and brush groups, layered/PSD export, and the
-  website/brand/store work.
+  the current brush's tip, erases non-destructively, and flattens on export.
+- **Colour (both surfaces)** — DONE. A Colours panel (working well, document
+  palette + session recents) and an eyedropper that samples the committed canvas.
+- **Selection + transform (both surfaces)** — DONE. A move tool: marquee-select
+  strokes on the active layer, then **move / scale / rotate** via handles
+  (non-destructive — it re-positions the vector strokes), delete; macOS adds
+  arrow-key nudge (⇧ = ×10) and escape.
+- **Canvas flip (both surfaces)** — DONE. Horizontal / vertical view mirror (a
+  composition aid; the document is untouched); fit resets it.
+- **Import image as a layer (both surfaces)** — DONE. Any image imports as a
+  canvas-fit `.imported` layer, shown live on the GPU canvas and on export.
+- **Layered export (both surfaces)** — DONE. Export the flattened PNG or one PNG
+  per visible layer (macOS to a folder; iPad shares the files).
+- **iPad parity** — DONE. The iPad app runs the same document, layers, tools and
+  transform as macOS on the ImageKidKit floating panel dock, plus Procreate-style
+  gestures: Pencil (or a finger) draws, two fingers pan, pinch zooms, two fingers
+  rotate, two-finger tap undoes, three-finger tap redoes.
+- **P5–P6 remaining** — PLANNED. See [PLAN.md](PLAN.md). Not required for a usable
+  app, still open before a polished launch: wet/smudge/blur brushes, brush groups,
+  custom-texture import, per-layer blend modes + masks, PSD export, colour harmony,
+  and the **website Inka page + brand assets + store entry**.
 
 ## What works today (macOS + iPad)
 
 Open a canvas (or an `.inka` file), pick one of five built-in brushes (Ink Pen,
 Pencil, Charcoal, Airbrush, Marker), tune it in the brush editor with a live
-preview, paint with tablet/Pencil pressure on a Metal canvas, work across layers
-(add/reorder/hide, per-layer opacity), freely pan/zoom/rotate/fit the canvas, pick
-colours (palette, recents, eyedropper), move/delete a marquee selection of
-strokes, undo/redo, save and reopen the document as `.inka`, and export a PNG.
-Both surfaces share the engine, the document, and the floating panel dock; the
-iPad adds touch gestures. Strokes are stored as editable vector `BrushStroke`s and the canvas is
-re-rasterized from the document on every change, so undo, layer visibility and
-opacity are all non-destructive.
+preview, paint with tablet/Pencil pressure on a Metal canvas, **erase**, work
+across layers (add/reorder/hide, per-layer opacity), **import an image as a
+layer**, freely pan/zoom/**rotate**/**flip**/fit the canvas, pick colours
+(palette, recents, eyedropper), **marquee-select and move/scale/rotate/delete**
+strokes, undo/redo, save and reopen the document as `.inka`, and export a
+flattened **or per-layer** PNG. Both surfaces share the engine, the document, and
+the floating panel dock; the iPad adds touch gestures. Strokes are stored as
+editable vector `BrushStroke`s and the canvas is re-rasterized from the document
+on every change, so undo, layer visibility and opacity are all non-destructive.
 
 ## Verification
 
 ```bash
 cd packages/BrushKit    && swift test    # 35
 cd packages/BrushRender && swift test    #  4  (skips without a GPU)
-cd packages/InkaKit     && swift test    #  7
+cd packages/InkaKit     && swift test    #  9
 ```
 
 Plus the family regression: `npm run native:build && npm run native:test`, and
