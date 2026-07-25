@@ -15,6 +15,8 @@ public final class BrushCompositor {
     public let device: MTLDevice
     private let queue: MTLCommandQueue
     private let pipeline: MTLRenderPipelineState
+    /// Destination-out pipeline for the eraser: dst · (1 − srcA).
+    private let erasePipeline: MTLRenderPipelineState
 
     public enum SetupError: Error {
         case noDevice
@@ -45,31 +47,43 @@ public final class BrushCompositor {
             throw SetupError.missingFunctions
         }
 
-        let desc = MTLRenderPipelineDescriptor()
-        desc.vertexFunction = vertex
-        desc.fragmentFunction = fragment
-        let color = desc.colorAttachments[0]!
-        color.pixelFormat = .rgba8Unorm
-        // Standard premultiplied "over": src + dst·(1−srcA).
-        color.isBlendingEnabled = true
-        color.rgbBlendOperation = .add
-        color.alphaBlendOperation = .add
-        color.sourceRGBBlendFactor = .one
-        color.sourceAlphaBlendFactor = .one
-        color.destinationRGBBlendFactor = .oneMinusSourceAlpha
-        color.destinationAlphaBlendFactor = .oneMinusSourceAlpha
-
-        do {
-            pipeline = try device.makeRenderPipelineState(descriptor: desc)
-        } catch {
-            throw SetupError.pipeline(error)
+        func makePipeline(erase: Bool) throws -> MTLRenderPipelineState {
+            let desc = MTLRenderPipelineDescriptor()
+            desc.vertexFunction = vertex
+            desc.fragmentFunction = fragment
+            let color = desc.colorAttachments[0]!
+            color.pixelFormat = .rgba8Unorm
+            color.isBlendingEnabled = true
+            color.rgbBlendOperation = .add
+            color.alphaBlendOperation = .add
+            if erase {
+                // Destination-out: result = dst · (1 − srcA) — the eraser.
+                color.sourceRGBBlendFactor = .zero
+                color.sourceAlphaBlendFactor = .zero
+                color.destinationRGBBlendFactor = .oneMinusSourceAlpha
+                color.destinationAlphaBlendFactor = .oneMinusSourceAlpha
+            } else {
+                // Standard premultiplied "over": src + dst·(1−srcA).
+                color.sourceRGBBlendFactor = .one
+                color.sourceAlphaBlendFactor = .one
+                color.destinationRGBBlendFactor = .oneMinusSourceAlpha
+                color.destinationAlphaBlendFactor = .oneMinusSourceAlpha
+            }
+            do {
+                return try device.makeRenderPipelineState(descriptor: desc)
+            } catch {
+                throw SetupError.pipeline(error)
+            }
         }
+        pipeline = try makePipeline(erase: false)
+        erasePipeline = try makePipeline(erase: true)
     }
 
     /// Stamp `dabs` into `target`. `clear` wipes the target to transparent
     /// first; pass false to paint onto existing content (a live stroke buffer).
+    /// `erase` uses destination-out blending (the eraser) instead of "over".
     public func stamp(
-        _ dabs: [Dab], into target: MTLTexture, clear: Bool
+        _ dabs: [Dab], into target: MTLTexture, clear: Bool, erase: Bool = false
     ) {
         guard !dabs.isEmpty || clear,
             let commandBuffer = queue.makeCommandBuffer()
@@ -88,7 +102,7 @@ public final class BrushCompositor {
             var instances = dabs.map(GPUDab.init)
             var uniforms = GPUUniforms(
                 viewportSize: SIMD2(Float(target.width), Float(target.height)))
-            encoder.setRenderPipelineState(pipeline)
+            encoder.setRenderPipelineState(erase ? erasePipeline : pipeline)
             encoder.setVertexBytes(
                 &instances, length: MemoryLayout<GPUDab>.stride * instances.count, index: 0)
             encoder.setVertexBytes(&uniforms, length: MemoryLayout<GPUUniforms>.stride, index: 1)

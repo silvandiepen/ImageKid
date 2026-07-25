@@ -15,15 +15,19 @@ public struct BrushStroke: Equatable, Sendable, Codable, Identifiable {
     public var input: StrokeInput
     /// The jitter seed captured at draw time, so re-rendering is identical.
     public var seed: UInt64
+    /// When true the stroke erases (destination-out) instead of painting.
+    public var erase: Bool
 
     public init(
-        id: UUID = UUID(), brushID: String, color: RGBA, input: StrokeInput, seed: UInt64 = 0
+        id: UUID = UUID(), brushID: String, color: RGBA, input: StrokeInput, seed: UInt64 = 0,
+        erase: Bool = false
     ) {
         self.id = id
         self.brushID = brushID
         self.color = color
         self.input = input
         self.seed = seed
+        self.erase = erase
     }
 
     /// Regenerate this stroke's dabs against a resolved brush preset.

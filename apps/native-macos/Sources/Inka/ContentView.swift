@@ -187,6 +187,11 @@ struct ContentView: View {
             Divider().frame(height: 20)
 
             ColorPicker("", selection: $model.color, supportsOpacity: false).labelsHidden()
+            Button { model.tool = model.tool == .eraser ? .draw : .eraser } label: {
+                Image(systemName: "eraser")
+            }
+            .tint(model.tool == .eraser ? .accentColor : nil)
+            .help("Eraser")
             Button { model.tool = model.tool == .eyedropper ? .draw : .eyedropper } label: {
                 Image(systemName: "eyedropper")
             }

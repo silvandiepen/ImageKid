@@ -41,12 +41,42 @@ public enum InkaRasterizer {
     public static func render(layer: Layer, in document: InkaDocument) -> CGImage? {
         switch layer.content {
         case .strokes(let strokes):
-            var dabs: [Dab] = []
+            // Composite strokes in order so eraser strokes (destination-out)
+            // remove the paint beneath them. Consecutive paint strokes batch
+            // into one render; an eraser flushes the batch, then erases.
+            let w = document.width
+            let h = document.height
+            guard w > 0, h > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
+                let ctx = CGContext(
+                    data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                    space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return nil }
+            let rect = CGRect(x: 0, y: 0, width: w, height: h)
+
+            var batch: [Dab] = []
+            func flush() {
+                guard !batch.isEmpty,
+                    let img = ReferenceRenderer.render(dabs: batch, size: document.size)
+                else { batch = []; return }
+                ctx.setBlendMode(.normal)
+                ctx.draw(img, in: rect)
+                batch = []
+            }
             for stroke in strokes {
                 guard let brush = document.brush(id: stroke.brushID) else { continue }
-                dabs.append(contentsOf: stroke.dabs(using: brush))
+                let dabs = stroke.dabs(using: brush)
+                if stroke.erase {
+                    flush()
+                    guard let img = ReferenceRenderer.render(dabs: dabs, size: document.size)
+                    else { continue }
+                    ctx.setBlendMode(.destinationOut)
+                    ctx.draw(img, in: rect)
+                } else {
+                    batch.append(contentsOf: dabs)
+                }
             }
-            return ReferenceRenderer.render(dabs: dabs, size: document.size)
+            flush()
+            return ctx.makeImage()
         case .raster(let png), .imported(let png):
             return decodePNG(png)
         }

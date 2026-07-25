@@ -16,6 +16,7 @@ import UniformTypeIdentifiers
 /// What a canvas drag does.
 enum InkaTool: Equatable {
     case draw
+    case eraser
     case eyedropper
     case move
 }
@@ -36,8 +37,13 @@ final class InkaModel: ObservableObject {
     @Published var brushImportRequested = false
     @Published var brushExportRequested = false
 
-    /// The active canvas tool (paint, sample a colour, or move a selection).
-    @Published var tool: InkaTool = .draw { didSet { if tool != .move { clearSelection() } } }
+    /// The active canvas tool (paint, erase, sample a colour, or move).
+    @Published var tool: InkaTool = .draw {
+        didSet {
+            if tool != .move { clearSelection() }
+            renderer?.eraseMode = (tool == .eraser)
+        }
+    }
     /// Recently used colours (most-recent first), in-memory for the session.
     @Published private(set) var recentColors: [String] = []
 

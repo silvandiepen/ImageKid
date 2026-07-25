@@ -89,6 +89,23 @@ final class InkaDocumentTests: XCTestCase {
         XCTAssertGreaterThan(alpha(of: wide, x: 110, y: 45), 0.05)
     }
 
+    func testEraseStrokeRemovesPaintBeneathIt() throws {
+        var doc = InkaDocument.blank(width: 256, height: 128)
+        let paint = sampleStroke()  // a line across the middle (x 20…200, y 60)
+        let eraseInput = StrokeInput(samples: [
+            StrokeSample(position: CGPoint(x: 120, y: 60), pressure: 1),
+            StrokeSample(position: CGPoint(x: 240, y: 60), pressure: 1),
+        ])
+        let erase = BrushStroke(
+            brushID: BrushLibrary.inkPen.id, color: RGBA(r: 0, g: 0, b: 0),
+            input: eraseInput, erase: true)
+        doc.layers[0].content = .strokes([paint, erase])
+        let image = try XCTUnwrap(InkaRasterizer.flatten(doc))
+        XCTAssertGreaterThan(alpha(of: image, x: 40, y: 60), 0.5, "left half stays painted")
+        XCTAssertEqual(
+            alpha(of: image, x: 175, y: 60), 0, accuracy: 0.05, "erased where the eraser passed")
+    }
+
     // MARK: helpers
 
     private func alpha(of image: CGImage, x: Int, y: Int) -> Double {

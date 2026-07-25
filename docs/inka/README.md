@@ -44,6 +44,10 @@ store) are not. Do not present the still-PLANNED items below as done.
   trackpad rotate; iPad: two-finger pan, pinch, and rotate — recognised together).
   Fit (⌘0) resets pan, zoom and rotation. Input maps through the exact inverse
   transform, so drawing/eyedropper/move stay correct on a rotated canvas.
+- **Eraser (both surfaces)** — DONE. A destination-out blend in the shared
+  compositor + rasterizer and an `erase` flag on `BrushStroke`; the eraser uses
+  the current brush's tip, erases non-destructively (recorded as an erase stroke,
+  re-applied on rebuild), and flattens correctly on export.
 - **Colour + selection (both surfaces)** — DONE. A Colours panel (working well,
   eyedropper, document palette + session recents), an eyedropper that samples the
   committed canvas, and a **move tool**: marquee-select strokes on the active

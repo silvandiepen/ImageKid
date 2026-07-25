@@ -92,42 +92,67 @@ final class InkaCanvasRenderer: NSObject, MTKViewDelegate {
     /// `InkaRasterizer` for exact blend/opacity. Raster/imported layers are not
     /// yet shown on the live canvas — the app creates only stroke layers.)
     func rebuild(from document: InkaDocument) {
-        var all: [Dab] = []
+        compositor.stamp([], into: committed, clear: true)
         for layer in document.layers where layer.isVisible {
             guard case .strokes(let strokes) = layer.content else { continue }
             let op = max(0, min(1, layer.opacity))
+            // Paint strokes batch together; an eraser (destination-out) flushes
+            // the batch, then erases. (Live preview flattens layers, so an erase
+            // crosses layers here; export via InkaRasterizer erases per layer.)
+            var batch: [Dab] = []
+            func flush() {
+                if !batch.isEmpty { compositor.stamp(batch, into: committed, clear: false); batch = [] }
+            }
             for stroke in strokes {
                 guard let b = brushProvider(stroke.brushID) else { continue }
                 var dabs = stroke.dabs(using: b)
                 if op < 1 { for i in dabs.indices { dabs[i].alpha *= op } }
-                all.append(contentsOf: dabs)
+                if stroke.erase {
+                    flush()
+                    compositor.stamp(dabs, into: committed, clear: false, erase: true)
+                } else {
+                    batch.append(contentsOf: dabs)
+                }
             }
+            flush()
         }
-        compositor.stamp([], into: committed, clear: true)
-        if !all.isEmpty { compositor.stamp(all, into: committed, clear: false) }
     }
 
     // MARK: - Live stroke input (canvas pixel coordinates)
 
+    /// When true the in-progress stroke erases (destination-out) rather than
+    /// paints. Set by the model from the active tool.
+    var eraseMode = false
+
     func beginStroke(at sample: StrokeSample) {
         currentSamples = [sample]
-        restampLive()
+        if eraseMode {
+            snapshotCommitted()  // so the whole erase re-applies cleanly each step
+            restampErase()
+        } else {
+            restampLive()
+        }
     }
 
     func extendStroke(to sample: StrokeSample) {
         currentSamples.append(sample)
-        restampLive()
+        if eraseMode { restampErase() } else { restampLive() }
     }
 
-    /// Finish: stamp the live stroke into committed, clear live, and emit the
-    /// record. The model records it and calls `rebuild(from:)`.
+    /// Finish: bake the stroke into committed and emit the record. The model
+    /// records it and calls `rebuild(from:)`.
     func endStroke() {
         guard !currentSamples.isEmpty else { return }
         let input = StrokeInput(samples: currentSamples)
-        let dabs = BrushEngine.dabs(for: input, brush: brush, color: color)
-        compositor.stamp(dabs, into: committed, clear: false)
-        compositor.stamp([], into: live, clear: true)
-        onCommitStroke?(BrushStroke(brushID: brush.id, color: color, input: input))
+        if eraseMode {
+            // committed already carries the erase from the last restamp.
+            onCommitStroke?(BrushStroke(brushID: brush.id, color: color, input: input, erase: true))
+        } else {
+            let dabs = BrushEngine.dabs(for: input, brush: brush, color: color)
+            compositor.stamp(dabs, into: committed, clear: false)
+            compositor.stamp([], into: live, clear: true)
+            onCommitStroke?(BrushStroke(brushID: brush.id, color: color, input: input))
+        }
         currentSamples = []
     }
 
@@ -136,6 +161,43 @@ final class InkaCanvasRenderer: NSObject, MTKViewDelegate {
         let dabs = BrushEngine.dabs(for: input, brush: brush, color: color)
         compositor.stamp(dabs, into: live, clear: true)
     }
+
+    /// Re-apply the whole eraser stroke: restore committed to its pre-stroke
+    /// snapshot, then erase the current spine (so within-stroke overlap doesn't
+    /// keep eating alpha for a soft eraser).
+    private func restampErase() {
+        guard let backup = strokeBackup else { return }
+        copyTexture(from: backup, to: committed)
+        let input = StrokeInput(samples: currentSamples)
+        let dabs = BrushEngine.dabs(for: input, brush: brush, color: color)
+        compositor.stamp(dabs, into: committed, clear: false, erase: true)
+    }
+
+    private func snapshotCommitted() {
+        if strokeBackup == nil || strokeBackup?.width != committed.width
+            || strokeBackup?.height != committed.height
+        {
+            strokeBackup = Self.makeTexture(
+                device: device, size: CGSize(width: committed.width, height: committed.height))
+        }
+        if let backup = strokeBackup { copyTexture(from: committed, to: backup) }
+    }
+
+    /// GPU copy between two same-size textures.
+    private func copyTexture(from src: MTLTexture, to dst: MTLTexture) {
+        guard let cmd = queue.makeCommandBuffer(), let blit = cmd.makeBlitCommandEncoder() else { return }
+        blit.copy(
+            from: src, sourceSlice: 0, sourceLevel: 0,
+            sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+            sourceSize: MTLSize(width: min(src.width, dst.width), height: min(src.height, dst.height), depth: 1),
+            to: dst, destinationSlice: 0, destinationLevel: 0,
+            destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0))
+        blit.endEncoding()
+        cmd.commit()
+        cmd.waitUntilCompleted()
+    }
+
+    private var strokeBackup: MTLTexture?
 
     /// The committed canvas as a CGImage (for export / hand-off to the model).
     func committedImage() -> CGImage? { BrushCompositor.cgImage(from: committed) }
