@@ -108,9 +108,14 @@ ImageKid and Fekthor use — nothing bespoke:
   driven by a `PanelDockModel<InkaPanel>` and the reusable **`PanelDockController`**
   (the drag/settle/place glue, newly extracted into ImageKidKit so all apps can
   share it instead of hand-rolling it).
-- Panels: **Brushes** (preset grid), **Brush** (the editor) and **Layers**
-  (add/delete/reorder, per-layer visibility + opacity, active-layer select). They
-  dock to the right by default in Inka, on both macOS and iPad.
+- Panels: **Brushes** (preset grid), **Brush** (the editor), **Colours** (well +
+  eyedropper + palette/recents, macOS) and **Layers** (add/delete/reorder,
+  per-layer visibility + opacity, active-layer select). They dock to the right by
+  default in Inka, on both macOS and iPad.
+- Canvas tools (macOS): **draw**, **eyedropper** (samples the committed texture),
+  and **move** (marquee-select strokes on the active layer and translate them —
+  arrow-key nudge, delete, escape). The move tool edits the vector strokes in
+  place, so it stays non-destructive and undoable.
 
 ## App state
 

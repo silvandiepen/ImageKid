@@ -189,6 +189,21 @@ final class InkaCanvasRenderer: NSObject, MTKViewDelegate {
         return CGPoint(x: (viewPoint.x - rect.minX) / s, y: (viewPoint.y - rect.minY) / s)
     }
 
+    /// Canvas point (top-left) → view point (top-left) — the inverse of
+    /// `canvasPoint(from:in:)`, for drawing selection overlays.
+    func viewPoint(fromCanvas p: CGPoint, in view: CGSize) -> CGPoint {
+        let rect = canvasRect(in: view)
+        let s = scale(in: view)
+        return CGPoint(x: rect.minX + p.x * s, y: rect.minY + p.y * s)
+    }
+
+    /// Canvas rect → view rect (for the marquee / selection outline).
+    func viewRect(fromCanvas r: CGRect, in view: CGSize) -> CGRect {
+        let s = scale(in: view)
+        let o = viewPoint(fromCanvas: r.origin, in: view)
+        return CGRect(x: o.x, y: o.y, width: r.width * s, height: r.height * s)
+    }
+
     /// Fit the canvas to the view (reset zoom/pan).
     func fit() {
         zoom = 1

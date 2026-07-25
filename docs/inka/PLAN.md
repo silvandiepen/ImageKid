@@ -76,11 +76,16 @@ re-rasterization both rely on it. No `Math.random`.
   layer is spun up if the active one can't take strokes). Raster + imported layers
   round-trip in `InkaDocument` and rasterize on export, but the app only *creates*
   stroke layers so far. Per-layer masks/blend modes beyond opacity are P5.
-- **P4 Illustration workflow** — DONE (macOS core): **undo/redo** (⌘Z / ⌘⇧Z, a
-  40-deep document-snapshot history), **`.inka` save/open** (⌘S / ⌘O) + New with a
-  size, **canvas nav** (pinch-zoom, scroll-pan, ⌘0 fit), clear-layer, PNG export
-  via the exact CPU rasterizer. Still open here: colour tools (palette/harmony/
-  eyedropper), selections, transform, canvas rotate/flip, reference layer.
+- **P4 Illustration workflow** — DONE (core): **undo/redo** (⌘Z / ⌘⇧Z; two-/
+  three-finger tap on iPad; 40-deep document-snapshot history), **`.inka`
+  save/open** + New with a size, **canvas nav** (pinch-zoom, scroll-pan, ⌘0 fit),
+  clear-layer, PNG export via the exact CPU rasterizer. **Colour (macOS)**: a
+  Colours panel with the working well, a document palette + session recents, and
+  an **eyedropper** that samples the committed canvas. **Selection (macOS)**: a
+  **move tool** — marquee-select strokes on the active layer and drag them (it
+  re-positions the vector strokes, non-destructively), with arrow-key nudge (⇧ =
+  ×10), delete and escape. Still open: selection scale/rotate, colour tools on
+  iPad, canvas rotate/flip, colour harmony, reference layer.
 - **P5 Brush breadth + export** — wet/smudge/blur, brush groups, custom brush
   import, perf passes; layered export.
 - **P6 Polish & launch** — iPad workflow **DONE**: the iPad app has full macOS

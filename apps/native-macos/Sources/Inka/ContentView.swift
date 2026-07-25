@@ -70,6 +70,13 @@ struct ContentView: View {
             Divider()
             InkaCanvasView(model: model)
                 .background(Color(white: 0.28))
+                // The move-tool marquee / selection outline, in view space.
+                .overlay {
+                    GeometryReader { geo in
+                        InkaSelectionOverlay(model: model, viewSize: geo.size)
+                    }
+                    .allowsHitTesting(false)
+                }
                 // The panels float over the canvas on the RIGHT: dockable
                 // Brushes/Brush panels, then the rail hard against the frame
                 // edge — all ImageKidKit.
@@ -182,6 +189,11 @@ struct ContentView: View {
             }
             .tint(model.tool == .eyedropper ? .accentColor : nil)
             .help("Eyedropper — pick a colour off the canvas")
+            Button { model.tool = model.tool == .move ? .draw : .move } label: {
+                Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+            }
+            .tint(model.tool == .move ? .accentColor : nil)
+            .help("Move — marquee-select strokes and drag them (arrows nudge, ⌫ deletes)")
             HStack(spacing: 6) {
                 Image(systemName: "circle.fill").font(.system(size: 8))
                 Slider(value: sizeBinding, in: 1...200).frame(width: 120)
@@ -219,5 +231,31 @@ struct ContentView: View {
 
     private var sizeBinding: Binding<Double> {
         Binding(get: { model.brush.size }, set: { model.brush.size = $0 })
+    }
+}
+
+/// Draws the move tool's live marquee and the current selection's bounding box,
+/// mapping canvas-space rects through the renderer's transform to view points.
+struct InkaSelectionOverlay: View {
+    @ObservedObject var model: InkaModel
+    let viewSize: CGSize
+
+    var body: some View {
+        Canvas { ctx, _ in
+            guard let r = model.renderer else { return }
+            if let b = model.selectionBounds, !model.selectedStrokeIDs.isEmpty {
+                let rect = r.viewRect(fromCanvas: b, in: viewSize)
+                ctx.stroke(
+                    Path(rect), with: .color(.accentColor),
+                    style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
+                ctx.fill(Path(rect), with: .color(.accentColor.opacity(0.08)))
+            }
+            if let m = model.marquee {
+                let rect = r.viewRect(fromCanvas: m, in: viewSize)
+                ctx.stroke(
+                    Path(rect), with: .color(.white.opacity(0.9)),
+                    style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+            }
+        }
     }
 }

@@ -56,30 +56,38 @@ struct InkaCanvasView: NSViewRepresentable {
                 position: canvas, pressure: pressure, timestamp: event.timestamp)
         }
 
-        /// True while the current gesture is an eyedropper pick (not a stroke).
-        private var picking = false
+        private enum Gesture { case draw, pick, move }
+        /// What the in-flight drag is doing (fixed at mouse-down by the tool).
+        private var gesture: Gesture = .draw
 
         func begin(_ e: NSEvent, in v: NSView) {
             let s = sample(for: e, in: v)
-            if model.tool == .eyedropper {
-                picking = true
+            switch model.tool {
+            case .eyedropper:
+                gesture = .pick
                 model.pickColor(at: s.position)
-                return
+            case .move:
+                gesture = .move
+                model.selectionBegin(at: s.position)
+            case .draw:
+                gesture = .draw
+                model.renderer?.beginStroke(at: s)
             }
-            picking = false
-            model.renderer?.beginStroke(at: s)
         }
         func drag(_ e: NSEvent, in v: NSView) {
-            if picking {
-                // Scrub to keep sampling under the cursor until release.
-                model.pickColor(at: sample(for: e, in: v).position)
-                return
+            let p = sample(for: e, in: v).position
+            switch gesture {
+            case .pick: model.pickColor(at: p)
+            case .move: model.selectionUpdate(to: p)
+            case .draw: model.renderer?.extendStroke(to: sample(for: e, in: v))
             }
-            model.renderer?.extendStroke(to: sample(for: e, in: v))
         }
         func end(_ e: NSEvent, in v: NSView) {
-            if picking { picking = false; return }
-            model.renderer?.endStroke()
+            switch gesture {
+            case .pick: break
+            case .move: model.selectionEnd()
+            case .draw: model.renderer?.endStroke()
+            }
         }
 
         func pan(by delta: CGSize) {
@@ -114,5 +122,24 @@ final class InputMTKView: MTKView {
         // Pinch zooms.
         coordinator?.zoom(by: 1 + event.magnification)
         needsDisplay = true
+    }
+
+    // Move-tool keyboard: arrows nudge the selection (⇧ = ×10), delete removes
+    // it, escape clears it. Falls through to the next responder otherwise.
+    override func keyDown(with event: NSEvent) {
+        guard let model = coordinator?.model, model.tool == .move else {
+            super.keyDown(with: event)
+            return
+        }
+        let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
+        switch Int(event.keyCode) {
+        case 123: model.nudgeSelection(dx: -step, dy: 0)  // ←
+        case 124: model.nudgeSelection(dx: step, dy: 0)   // →
+        case 125: model.nudgeSelection(dx: 0, dy: step)   // ↓ (canvas y grows down)
+        case 126: model.nudgeSelection(dx: 0, dy: -step)  // ↑
+        case 51, 117: model.deleteSelection()             // delete / fwd-delete
+        case 53: model.clearSelection()                   // esc
+        default: super.keyDown(with: event); return
+        }
     }
 }

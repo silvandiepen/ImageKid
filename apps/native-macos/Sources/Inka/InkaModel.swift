@@ -15,6 +15,7 @@ import UniformTypeIdentifiers
 enum InkaTool: Equatable {
     case draw
     case eyedropper
+    case move
 }
 
 @MainActor
@@ -29,10 +30,19 @@ final class InkaModel: ObservableObject {
     @Published var documentURL: URL?
     /// Bumped so undo/redo menu items refresh.
     @Published private(set) var historyToken = 0
-    /// The active canvas tool (paint, or sample a colour off the canvas).
-    @Published var tool: InkaTool = .draw
+    /// The active canvas tool (paint, sample a colour, or move a selection).
+    @Published var tool: InkaTool = .draw { didSet { if tool != .move { clearSelection() } } }
     /// Recently used colours (most-recent first), in-memory for the session.
     @Published private(set) var recentColors: [String] = []
+
+    /// Move-tool selection: the chosen strokes (active layer), their bounding box
+    /// and the live marquee — all in canvas pixel space, for the overlay.
+    @Published private(set) var selectedStrokeIDs: Set<UUID> = []
+    @Published private(set) var selectionBounds: CGRect?
+    @Published private(set) var marquee: CGRect?
+    private var marqueeStart: CGPoint?
+    private var moveLast: CGPoint?
+    private var movingSelection = false
 
     let renderer: InkaCanvasRenderer?
 
@@ -306,6 +316,134 @@ final class InkaModel: ObservableObject {
         recentColors.removeAll { $0 == hex }
         recentColors.insert(hex, at: 0)
         if recentColors.count > 12 { recentColors.removeLast() }
+    }
+
+    // MARK: - Selection & move (move tool)
+
+    /// A canvas-space drag started: either grab the existing selection to move
+    /// it, or begin a fresh marquee.
+    func selectionBegin(at p: CGPoint) {
+        if !selectedStrokeIDs.isEmpty, let b = selectionBounds, b.contains(p) {
+            movingSelection = true
+            moveLast = p
+            snapshot()  // one undo step covers the whole move
+        } else {
+            movingSelection = false
+            marqueeStart = p
+            marquee = CGRect(origin: p, size: .zero)
+            selectedStrokeIDs = []
+            selectionBounds = nil
+        }
+    }
+
+    func selectionUpdate(to p: CGPoint) {
+        if movingSelection {
+            guard let last = moveLast else { return }
+            translateSelection(dx: p.x - last.x, dy: p.y - last.y)
+            moveLast = p
+        } else if let start = marqueeStart {
+            marquee = CGRect(
+                x: min(start.x, p.x), y: min(start.y, p.y),
+                width: abs(p.x - start.x), height: abs(p.y - start.y))
+        }
+    }
+
+    func selectionEnd() {
+        if movingSelection {
+            movingSelection = false
+            moveLast = nil
+            recomputeSelectionBounds()
+        } else if let rect = marquee {
+            selectStrokes(in: rect)
+            marquee = nil
+            marqueeStart = nil
+        }
+    }
+
+    /// Nudge the selection by whole canvas pixels (arrow keys).
+    func nudgeSelection(dx: CGFloat, dy: CGFloat) {
+        guard !selectedStrokeIDs.isEmpty else { return }
+        snapshot()
+        translateSelection(dx: dx, dy: dy)
+    }
+
+    func deleteSelection() {
+        guard !selectedStrokeIDs.isEmpty,
+            document.layers.indices.contains(activeIndex),
+            case .strokes(var strokes) = document.layers[activeIndex].content
+        else { return }
+        snapshot()
+        strokes.removeAll { selectedStrokeIDs.contains($0.id) }
+        document.layers[activeIndex].content = .strokes(strokes)
+        clearSelection()
+        rebuild()
+    }
+
+    func clearSelection() {
+        selectedStrokeIDs = []
+        selectionBounds = nil
+        marquee = nil
+        marqueeStart = nil
+        movingSelection = false
+    }
+
+    private func translateSelection(dx: CGFloat, dy: CGFloat) {
+        guard dx != 0 || dy != 0, document.layers.indices.contains(activeIndex),
+            case .strokes(var strokes) = document.layers[activeIndex].content
+        else { return }
+        for k in strokes.indices where selectedStrokeIDs.contains(strokes[k].id) {
+            for s in strokes[k].input.samples.indices {
+                strokes[k].input.samples[s].position.x += dx
+                strokes[k].input.samples[s].position.y += dy
+            }
+        }
+        document.layers[activeIndex].content = .strokes(strokes)
+        selectionBounds = selectionBounds?.offsetBy(dx: dx, dy: dy)
+        rebuild()
+    }
+
+    private func selectStrokes(in rect: CGRect) {
+        guard document.layers.indices.contains(activeIndex),
+            case .strokes(let strokes) = document.layers[activeIndex].content
+        else { selectedStrokeIDs = []; selectionBounds = nil; return }
+        var ids: Set<UUID> = []
+        var union: CGRect?
+        for st in strokes {
+            let bb = strokeBounds(st)
+            if bb.intersects(rect) {
+                ids.insert(st.id)
+                union = union?.union(bb) ?? bb
+            }
+        }
+        selectedStrokeIDs = ids
+        selectionBounds = union
+    }
+
+    private func recomputeSelectionBounds() {
+        guard document.layers.indices.contains(activeIndex),
+            case .strokes(let strokes) = document.layers[activeIndex].content
+        else { return }
+        var union: CGRect?
+        for st in strokes where selectedStrokeIDs.contains(st.id) {
+            let bb = strokeBounds(st)
+            union = union?.union(bb) ?? bb
+        }
+        selectionBounds = union
+    }
+
+    /// A stroke's canvas-space bounds, padded by the brush radius.
+    private func strokeBounds(_ s: BrushStroke) -> CGRect {
+        let pts = s.input.samples.map(\.position)
+        guard let first = pts.first else { return .zero }
+        var minX = first.x, minY = first.y, maxX = first.x, maxY = first.y
+        for p in pts {
+            minX = min(minX, p.x); minY = min(minY, p.y)
+            maxX = max(maxX, p.x); maxY = max(maxY, p.y)
+        }
+        let pad = (document.brush(id: s.brushID)?.size ?? brush.size) / 2 + 1
+        return CGRect(
+            x: minX - pad, y: minY - pad,
+            width: (maxX - minX) + 2 * pad, height: (maxY - minY) + 2 * pad)
     }
 
     // MARK: - .inkbrush import / export

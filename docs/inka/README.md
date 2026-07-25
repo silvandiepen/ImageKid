@@ -40,15 +40,20 @@ store) are not. Do not present the still-PLANNED items below as done.
   document save/open (⌘S / ⌘O on macOS; Files importer/exporter on iPad) plus New
   with a size, canvas zoom / pan / fit, clear-layer, PNG export through the exact
   CPU rasterizer.
+- **P4 Colour + selection (macOS)** — DONE. A Colours panel (working well,
+  eyedropper, document palette + session recents), an eyedropper that samples the
+  committed canvas, and a **move tool**: marquee-select strokes on the active
+  layer and drag them (non-destructive — it re-positions the vector strokes),
+  arrow-key nudge (⇧ = ×10), delete, escape to deselect.
 - **P6a iPad parity** — DONE. The iPad app now runs the same hybrid document,
   layers, undo/redo, save/open and canvas nav as macOS, using the ImageKidKit
   floating panel dock (Brushes / Brush / Layers) — and the Procreate-style
   gestures: Pencil (or a finger) draws, two fingers pan, pinch zooms, two-finger
   tap undoes, three-finger tap redoes.
 - **P5–P6 Brush breadth, launch** — PLANNED. See [PLAN.md](PLAN.md). Still missing
-  before any release: selections/transform, canvas rotate/flip, wet/smudge brushes
-  and brush groups, layered/PSD export, pinch-rotate, and the website/brand/store
-  work.
+  before any release: selection scale/rotate (only marquee-move exists) and colour
+  tools on iPad, canvas rotate/flip, wet/smudge brushes and brush groups,
+  layered/PSD export, pinch-rotate, and the website/brand/store work.
 
 ## What works today (macOS + iPad)
 
