@@ -20,6 +20,10 @@ export interface AppMeta {
   status: string;
   /** Where it runs, e.g. "macOS · iPad · iPhone". */
   platforms: string;
+  /** open-icon name standing in for what the app does, used in nav and card affordances. */
+  glyph: string;
+  /** open-icon name matching the availability label. */
+  statusGlyph: string;
   /** True for the two flagship apps (ImageKid, Fekthor). */
   flagship: boolean;
 }
@@ -37,6 +41,8 @@ export const apps: AppMeta[] = [
     to: "/imagekid",
     status: "Coming to the App Store",
     platforms: "macOS · iPad · iPhone",
+    glyph: "media/image",
+    statusGlyph: "ui/timer",
     flagship: true
   },
   {
@@ -51,6 +57,8 @@ export const apps: AppMeta[] = [
     to: "/fekthor",
     status: "In development",
     platforms: "macOS",
+    glyph: "ui/vector-curve",
+    statusGlyph: "ui/settings",
     flagship: true
   },
   {
@@ -65,6 +73,8 @@ export const apps: AppMeta[] = [
     to: "/upscale",
     status: "Coming soon",
     platforms: "macOS",
+    glyph: "arrows/arrow-headed-out-center",
+    statusGlyph: "ui/timer",
     flagship: false
   },
   {
@@ -79,6 +89,8 @@ export const apps: AppMeta[] = [
     to: "/cutout",
     status: "Coming soon",
     platforms: "macOS",
+    glyph: "ui/pathfinder-minus-front",
+    statusGlyph: "ui/timer",
     flagship: false
   }
 ];

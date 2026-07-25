@@ -49,7 +49,7 @@
       </div>
       <div :class="bemm('feature-grid')">
         <article v-for="feature in data.features" :key="feature.title" :class="bemm('feature')">
-          <span :class="bemm('feature-marker')" aria-hidden="true" />
+          <Icon v-if="feature.icon" :class="bemm('feature-icon')" :name="feature.icon" size="large" aria-hidden="true" />
           <h3 :class="bemm('feature-title')">{{ feature.title }}</h3>
           <p :class="bemm('feature-copy')">{{ feature.description }}</p>
         </article>
@@ -70,10 +70,17 @@
           <h2 :class="bemm('band-title')">{{ section.title }}</h2>
           <p v-if="section.copy" :class="bemm('band-lead')">{{ section.copy }}</p>
           <ul v-if="section.bullets?.length" :class="bemm('band-list')">
-            <li v-for="bullet in section.bullets" :key="bullet">{{ bullet }}</li>
+            <li v-for="bullet in section.bullets" :key="bullet">
+              <Icon :class="bemm('band-bullet')" name="ui/check-l" size="small" aria-hidden="true" />
+              <span>{{ bullet }}</span>
+            </li>
           </ul>
         </div>
-        <figure v-if="section.image" :class="bemm('band-media')">
+        <div v-if="section.visual" :class="bemm('band-visual')">
+          <IconGallery v-if="section.visual === 'icon-gallery'" />
+          <IconMatrix v-else-if="section.visual === 'icon-matrix'" />
+        </div>
+        <figure v-else-if="section.image" :class="bemm('band-media')">
           <AppShot :class="bemm('band-image')" :src="section.image" :alt="section.imageAlt ?? section.title" />
         </figure>
         <div v-else-if="data.character" :class="bemm('band-character')" aria-hidden="true">
@@ -96,7 +103,10 @@
           :to="app.to"
         >
           <img :class="bemm('family-icon')" :src="app.icon" :alt="`${app.name} app icon`" width="48" height="48" />
-          <span :class="bemm('family-name')">{{ app.name }}</span>
+          <span :class="bemm('family-name')">
+            {{ app.name }}
+            <Icon :class="bemm('family-arrow')" name="arrows/arrow-headed-right" size="small" aria-hidden="true" />
+          </span>
           <span :class="bemm('family-tagline')">{{ app.tagline }}</span>
         </RouterLink>
       </div>
@@ -106,10 +116,12 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { Button } from "@sil/ui";
+import { Button, Icon } from "@sil/ui";
 import { useBemm } from "bemm";
 import AppHero from "../AppHero";
 import AppShot from "../AppShot";
+import IconGallery from "../IconGallery";
+import IconMatrix from "../IconMatrix";
 import { RouterLink } from "vue-router";
 import { otherApps, appById } from "../../data/apps";
 import type { ProductPageData } from "./ProductPage.model";

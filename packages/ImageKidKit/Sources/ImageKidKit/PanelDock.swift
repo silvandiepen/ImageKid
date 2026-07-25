@@ -613,8 +613,9 @@ public struct MinimizedPanelChip: View {
 public enum PanelRailMetrics {
     public static let chip: CGFloat = 32
     public static let spacing: CGFloat = 6
-    public static let padding: CGFloat = 8
-    public static let railRadius: CGFloat = 16
+    // Tighter chrome around the chips — the rail read as too padded.
+    public static let padding: CGFloat = 5
+    public static let railRadius: CGFloat = 14
     public static var step: CGFloat { chip + spacing }
 }
 

@@ -182,8 +182,15 @@ public struct HomeScreen<Recents: View>: View {
             if !links.isEmpty {
                 HStack(spacing: 20) {
                     ForEach(links) { link in
+                        // `.link` is macOS-only; iOS consumers (Inka on iPad)
+                        // fall back to a plain button.
+                        #if os(macOS)
                         Button(link.title, action: link.action)
                             .buttonStyle(.link)
+                        #else
+                        Button(link.title, action: link.action)
+                            .buttonStyle(.plain)
+                        #endif
                     }
                 }
             }

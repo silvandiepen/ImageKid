@@ -281,8 +281,8 @@ struct ImageWorkspaceView: View {
 
             // Movable, minimizable dockable panels + their minimized icon rail.
             dockablePanelsLayer
-                .padding(.top, 15)
-                .padding(.leading, 15)
+                .padding(.top, 8)
+                .padding(.leading, 8)
         }
     }
 
@@ -2184,7 +2184,7 @@ private struct DockablePanelsLayer: View {
         // The rail runs down the left edge at Fekthor's metrics, so the two
         // apps present panel toggles identically. The panels themselves are
         // laid out to the right of it.
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 8) {
             // Same order as Fekthor's rail: colour wells on top, then the
             // actions, then the panel toggles.
             VStack(alignment: .leading, spacing: PanelRailMetrics.spacing) {

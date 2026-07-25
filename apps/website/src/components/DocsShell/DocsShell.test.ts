@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import DocsShell from "./DocsShell.vue";
 
 vi.mock("vue-router", async () => ({ RouterLink: RouterLinkStub, useRoute: () => ({ path: "/docs/workflows" }) }));
+vi.mock("@sil/ui", () => ({ Icon: { props: ["name", "size"], template: "<i :data-icon=\"name\" />" } }));
 describe("DocsShell", () => {
   it("renders the complete docs index", () => {
     const wrapper = mount(DocsShell);

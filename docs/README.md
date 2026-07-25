@@ -15,3 +15,8 @@ ImageKid is currently an offline native macOS image utility with basic video vie
 - [iOS feasibility](ios-feasibility.md) — whether upscaling and background removal can move to iOS, and the Core ML direction.
 - [Build](build.md) — native and website development commands.
 - [Website](website.md) — routes, content ownership, domains, and Cloudflare Pages deployment.
+
+Per-app deep docs:
+
+- [Fekthor](fekthor/EDITOR-PLAN.md) — the vector editor plan; also [Animations](fekthor/ANIMATIONS.md).
+- [Inka](inka/README.md) — the drawing & illustration app; the [brush engine](inka/BRUSH-ENGINE.md) and [architecture](inka/ARCHITECTURE.md).

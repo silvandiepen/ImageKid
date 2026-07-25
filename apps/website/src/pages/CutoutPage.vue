@@ -24,12 +24,12 @@ const data: ProductPageData = {
   featuresEyebrow: "How it works",
   featuresTitle: "Three steps. That is the whole app.",
   features: [
-    { title: "Drag in a batch", description: "Drop the files in. Each row shows a thumbnail, a status and a progress bar." },
-    { title: "Two levels of good", description: "Apple Vision is always there and instant. Best Quality downloads a model that copes with hair and other nightmares — still on your Mac." },
-    { title: "Real transparency", description: "PNGs with a proper alpha channel, so the cut-outs drop onto any background without a white halo." },
-    { title: "Your originals survive", description: "Results go to a sibling folder with collision-safe names. The files you dropped in are left alone." },
-    { title: "One at a time, on purpose", description: "Serial processing keeps memory and heat sane on a laptop. Cancel whenever; finished files stay finished." },
-    { title: "Downloads models once", description: "The big models live in a shared cache, so nothing in the family fetches the same one twice." }
+    { title: "Drag in a batch", icon: "ui/box-in", description: "Drop the files in. Each row shows a thumbnail, a status and a progress bar." },
+    { title: "Two levels of good", icon: "ui/chart-bars-squared", description: "Apple Vision is always there and instant. Best Quality downloads a model that copes with hair and other nightmares — still on your Mac." },
+    { title: "Real transparency", icon: "ui/rounded-square-grid", description: "PNGs with a proper alpha channel, so the cut-outs drop onto any background without a white halo." },
+    { title: "Your originals survive", icon: "ui/folder-check", description: "Results go to a sibling folder with collision-safe names. The files you dropped in are left alone." },
+    { title: "One at a time, on purpose", icon: "ui/list-numbered", description: "Serial processing keeps memory and heat sane on a laptop. Cancel whenever; finished files stay finished." },
+    { title: "Downloads models once", icon: "arrows/arrow-download", description: "The big models live in a shared cache, so nothing in the family fetches the same one twice." }
   ],
   sections: [
     {

@@ -38,7 +38,16 @@
             <span :class="bemm('app-tagline')">{{ app.tagline }}</span>
             <span :class="bemm('app-summary')">{{ app.summary }}</span>
           </div>
-          <span :class="bemm('app-meta')"><span>{{ app.platforms }}</span><span :class="bemm('app-status')">{{ app.status }}</span></span>
+          <span :class="bemm('app-meta')">
+            <span :class="bemm('app-platforms')">
+              <Icon name="media/laptop" size="small" aria-hidden="true" />
+              {{ app.platforms }}
+            </span>
+            <span :class="bemm('app-status')">
+              <Icon :name="app.statusGlyph" size="small" aria-hidden="true" />
+              {{ app.status }}
+            </span>
+          </span>
         </RouterLink>
       </div>
     </section>
@@ -55,7 +64,10 @@
         <h2 :class="bemm('heading')">ImageKid — the complete editor.</h2>
         <p :class="bemm('section-copy')">{{ imagekid.summary }} Remove backgrounds, enhance with quality grades, crop, annotate, and export — all on device.</p>
         <ul :class="bemm('showcase-list')">
-          <li v-for="point in imagekidPoints" :key="point">{{ point }}</li>
+          <li v-for="point in imagekidPoints" :key="point">
+            <Icon :class="bemm('showcase-bullet')" name="ui/check-l" size="small" aria-hidden="true" />
+            <span>{{ point }}</span>
+          </li>
         </ul>
         <Button to="/imagekid" variant="primary">Explore ImageKid</Button>
       </div>
@@ -70,7 +82,10 @@
         <h2 :class="bemm('heading')">Fekthor — vectors, built for icon sets.</h2>
         <p :class="bemm('section-copy')">Draw and trace real vectors, then keep a whole folder of icons in step — one colour change, two hundred icons updated. Plain SVG out.</p>
         <ul :class="bemm('showcase-list')">
-          <li v-for="point in fekthorPoints" :key="point">{{ point }}</li>
+          <li v-for="point in fekthorPoints" :key="point">
+            <Icon :class="bemm('showcase-bullet')" name="ui/check-l" size="small" aria-hidden="true" />
+            <span>{{ point }}</span>
+          </li>
         </ul>
         <Button to="/fekthor" variant="primary">Meet Fekthor</Button>
       </div>
@@ -99,7 +114,7 @@
 </template>
 
 <script setup lang="ts">
-import { Button } from "@sil/ui";
+import { Button, Icon } from "@sil/ui";
 import { useBemm } from "bemm";
 import { RouterLink } from "vue-router";
 import AppHero from "../components/AppHero";

@@ -54,6 +54,13 @@ h1 { max-width: 16ch; font-size: clamp(var(--font-size-xxxl), 7vw, calc(var(--fo
 h2 { max-width: 18ch; font-size: clamp(var(--font-size-xxl), 5vw, calc(var(--font-size-xxxxl) * 0.95)); line-height: 1.02; letter-spacing: -0.015em; font-weight: 800; }
 h3 { font-size: var(--font-size-xl); letter-spacing: -0.01em; font-weight: 700; }
 p, li { line-height: 1.6; }
+// @sil/ui 2.6.1's typography.scss bumps every `p:first-child` to 1.1em, which
+// hits classed paragraphs (eyebrows, captions, copy) that set their own size.
+// Scope it back to unclassed prose. Fixed upstream — drop this once the site
+// moves to a @sil/ui release that ships `p:not([class]):first-child`.
+// Both selectors outrank the upstream one, so cascade order does not matter.
+p[class]:first-child { font-size: inherit; }
+p:not([class]):first-child { font-size: 1.1em; }
 ul, ol { display: grid; gap: var(--space-s); padding-inline-start: var(--space-l); }
 pre { max-width: 100%; overflow-x: auto; margin: 0; padding: var(--space-l); border: var(--border-width) solid color-mix(in srgb, var(--color-foreground), transparent 88%); border-radius: var(--border-radius-l); background: color-mix(in srgb, var(--color-foreground), transparent 96%); }
 code, kbd { font-family: var(--font-family-mono); font-size: var(--font-size-s); }
@@ -64,7 +71,7 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
 }
 
 .app-shell {
-  &__main { min-width: 0; min-height: 70vh; padding-top: var(--space-xxl); }
+  &__main { min-width: 0; min-height: 70vh; padding-top: var(--spacing); }
 }
 
 .home-page {
@@ -196,6 +203,7 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
   &__disclaimer { max-width: 58ch; padding: var(--space-m); border-radius: var(--border-radius-l); background: color-mix(in srgb, var(--color-background), var(--color-foreground) 5%); color: color-mix(in srgb, var(--color-foreground), transparent 24%); font-size: var(--font-size-s); }
   &__boundary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-m); }
   &__boundary-item { min-width: 0; display: grid; align-content: start; gap: var(--space-s); padding: var(--space-l); border-radius: var(--border-radius-l); background: color-mix(in srgb, var(--color-background), var(--color-foreground) 4%); }
+  &__boundary-icon { margin-bottom: var(--space-xs); color: var(--color-primary); }
 }
 
 .support-page, .privacy-page, .terms-page, .not-found-page {
@@ -223,10 +231,12 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
   gap: var(--space-xl);
 
   &__sidebar { position: sticky; top: calc(var(--space-xxl) * 2); align-self: start; min-width: 0; display: grid; gap: var(--space-m); padding: var(--space-m); border-radius: var(--border-radius-l); background: color-mix(in srgb, var(--color-background), var(--color-foreground) 5%); }
-  &__index-link { padding: var(--space-s); font-weight: 700; text-decoration: none; }
+  &__index-link { display: flex; align-items: center; gap: var(--space-s); padding: var(--space-s); font-weight: 700; text-decoration: none; }
   &__nav { min-width: 0; display: grid; gap: var(--space-xs); }
-  &__link { min-width: 0; padding: var(--space-s); border-radius: var(--border-radius-s); color: color-mix(in srgb, var(--color-foreground), transparent 36%); text-decoration: none; }
+  &__link { min-width: 0; display: flex; align-items: center; gap: var(--space-s); padding: var(--space-s); border-radius: var(--border-radius-s); color: color-mix(in srgb, var(--color-foreground), transparent 36%); text-decoration: none; }
+  &__link .icon { flex: none; opacity: 0.72; }
   &__link--active { background: var(--color-background); color: var(--color-foreground); }
+  &__link--active .icon { color: var(--color-primary); opacity: 1; }
   &__content { min-width: 0; max-width: 760px; }
 }
 
@@ -247,7 +257,7 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
   &__index { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-m); }
   &__index-link { min-width: 0; display: grid; gap: var(--space-xs); padding: var(--space-l); border-radius: var(--border-radius-l); background: color-mix(in srgb, var(--color-background), var(--color-foreground) 4%); text-decoration: none; }
   &__index-link--primary { background: color-mix(in srgb, var(--color-foreground), transparent 90%); }
-  &__index-number { font-family: var(--font-family-mono); font-size: var(--font-size-xs); }
+  &__index-number { display: flex; align-items: center; gap: var(--space-xs); color: var(--color-primary); font-family: var(--font-family-mono); font-size: var(--font-size-xs); }
   &__index-description { color: color-mix(in srgb, var(--color-foreground), transparent 38%); }
 }
 
@@ -263,8 +273,10 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
   &__inner { width: min(1120px, 100%); margin: 0 auto; padding: var(--space-xl); display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-m) var(--space-xl); }
   &__brand { display: flex; align-items: center; gap: var(--space-s); margin-inline-end: auto; font-weight: 600; text-decoration: none; }
   &__links { display: flex; flex-wrap: wrap; gap: var(--space-s) var(--space-l); }
-  &__link { color: color-mix(in srgb, var(--color-foreground), transparent 34%); font-size: var(--font-size-s); text-decoration: none; }
+  &__link { display: inline-flex; align-items: center; gap: var(--space-xs); color: color-mix(in srgb, var(--color-foreground), transparent 34%); font-size: var(--font-size-s); text-decoration: none; }
+  &__link .icon { flex: none; opacity: 0.7; transition: opacity 0.15s ease; }
   &__link:hover { color: var(--color-foreground); }
+  &__link:hover .icon { opacity: 1; }
   &__note { flex-basis: 100%; color: color-mix(in srgb, var(--color-foreground), transparent 52%); font-size: var(--font-size-xs); }
 }
 
@@ -332,8 +344,9 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
 .home-page__app-tagline { color: color-mix(in srgb, var(--color-foreground), transparent 20%); font-weight: 600; }
 .home-page__app-summary { color: color-mix(in srgb, var(--color-foreground), transparent 38%); font-size: var(--font-size-s); }
 .home-page__app-meta { grid-area: meta; display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-xs) var(--space-m); margin-top: var(--space-xs); padding-top: var(--space-s); border-top: var(--border-width) solid color-mix(in srgb, var(--color-foreground), transparent 90%); color: color-mix(in srgb, var(--color-foreground), transparent 46%); font-size: var(--font-size-xs); }
+.home-page__app-platforms { display: inline-flex; align-items: center; gap: var(--space-xs); }
 .home-page__app-status { display: inline-flex; align-items: center; gap: var(--space-xs); color: var(--color-foreground); font-weight: 700; }
-.home-page__app-status::before { width: var(--space-s); aspect-ratio: 1; border-radius: 50%; background: var(--app-accent); content: ""; }
+.home-page__app-status .icon { color: var(--app-accent); }
 
 /* Home — flagship showcases */
 .home-page__showcase { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr); align-items: center; gap: clamp(var(--space-l), 4vw, var(--space-xxl)); padding: clamp(var(--space-l), 4vw, calc(var(--space-xxl) * 1.2)); border-radius: var(--radius-section); background: color-mix(in srgb, var(--app-color), var(--color-background) 86%); }
@@ -344,8 +357,8 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
 .home-page__showcase-brand { display: flex; align-items: center; gap: var(--space-s); }
 
 .home-page__showcase-list { list-style: none; padding: 0; display: grid; gap: var(--space-s); }
-.home-page__showcase-list li { position: relative; padding-inline-start: var(--space-l); color: color-mix(in srgb, var(--color-foreground), transparent 24%); }
-.home-page__showcase-list li::before { position: absolute; left: 0; top: 0.62em; width: var(--space-s); height: var(--space-xs); border-radius: var(--border-radius-xl); background: var(--app-accent); content: ""; }
+.home-page__showcase-list li { display: flex; align-items: flex-start; gap: var(--space-s); color: color-mix(in srgb, var(--color-foreground), transparent 24%); }
+.home-page__showcase-bullet { flex: none; margin-top: 0.28em; color: var(--app-accent); }
 .home-page__showcase-copy .button { justify-self: start; }
 .home-page__showcase-image { display: block; width: 100%; height: auto; border-radius: var(--border-radius-l); box-shadow: 0 var(--space-m) var(--space-xxl) color-mix(in srgb, var(--color-foreground), transparent 88%); }
 .home-page__showcase-panel { display: grid; place-items: center; aspect-ratio: 4 / 3; border-radius: var(--border-radius-l); background: color-mix(in srgb, var(--color-background), var(--color-foreground) 8%); }
@@ -383,7 +396,8 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
   &__features { display: grid; gap: var(--space-xl); padding-block: var(--space-xxl) var(--space-xl); }
   &__feature-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-m); }
   &__feature { min-width: 0; display: grid; align-content: start; gap: var(--space-s); padding: var(--space-l); border-radius: var(--border-radius-l); background: color-mix(in srgb, var(--color-background), var(--color-foreground) 4%); }
-  &__feature-marker { width: var(--space-xxl); height: var(--space-xs); border-radius: var(--border-radius-xl); background: var(--app-color); }
+  // The glyph carries the app accent, so the card needs no other colour.
+  &__feature-icon { margin-bottom: var(--space-xs); color: var(--app-accent); }
   &__feature-title { font-size: var(--font-size-l); }
   &__feature-copy { color: color-mix(in srgb, var(--color-foreground), transparent 32%); font-size: var(--font-size-s); }
 
@@ -409,7 +423,7 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
     .product-page__band-list li { color: var(--app-text-color); }
     .product-page__band-lead { opacity: 0.94; }
     .product-page__eyebrow { color: color-mix(in srgb, var(--app-text-color), transparent 32%); }
-    .product-page__band-list li::before { background: var(--app-text-color); }
+    .product-page__band-bullet { color: var(--app-text-color); }
   }
 
   &__band-inner { width: min(1180px, 100%); margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: var(--space-xl); }
@@ -448,8 +462,10 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
   &__band-title { max-width: 16ch; font-size: clamp(var(--font-size-xxl), 4.4vw, calc(var(--font-size-xxxxl) * 0.8)); line-height: 1.03; letter-spacing: -0.015em; font-weight: 800; }
   &__band-lead { max-width: 44ch; color: color-mix(in srgb, var(--color-foreground), transparent 10%); font-size: clamp(var(--font-size-l), 1.5vw, var(--font-size-xl)); line-height: 1.5; }
   &__band-list { list-style: none; padding: 0; display: grid; gap: var(--space-s); }
-  &__band-list li { position: relative; padding-inline-start: var(--space-l); font-size: var(--font-size-default); color: color-mix(in srgb, var(--color-foreground), transparent 12%); }
-  &__band-list li::before { position: absolute; left: 0; top: 0.62em; width: var(--space-s); height: var(--space-xs); border-radius: var(--border-radius-xl); background: var(--app-accent); content: ""; }
+  &__band-list li { display: flex; align-items: flex-start; gap: var(--space-s); font-size: var(--font-size-default); color: color-mix(in srgb, var(--color-foreground), transparent 12%); }
+  &__band-bullet { flex: none; margin-top: 0.28em; color: var(--app-accent); }
+  &__band-visual { min-width: 0; }
+  &__band--image-left &__band-visual { order: 1; }
   &__band-image { display: block; width: 100%; height: auto; border-radius: var(--border-radius-l); box-shadow: 0 var(--space-m) var(--space-xxl) color-mix(in srgb, var(--color-foreground), transparent 88%); }
   &__band-panel { display: grid; place-items: center; aspect-ratio: 4 / 3; border-radius: var(--border-radius-l); background: color-mix(in srgb, var(--color-background), var(--color-foreground) 6%); }
   &__band-panel img { border-radius: var(--border-radius-m); opacity: 0.92; }
@@ -459,8 +475,74 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
   &__family-card { min-width: 0; display: grid; gap: var(--space-xs); padding: var(--space-l); border-radius: var(--border-radius-l); background: color-mix(in srgb, var(--color-background), var(--color-foreground) 4%); border: var(--border-width) solid transparent; text-decoration: none; transition: border-color 0.15s ease; }
   &__family-card:hover { border-color: color-mix(in srgb, var(--color-foreground), transparent 70%); }
   &__family-icon { width: var(--space-xl); height: var(--space-xl); }
-  &__family-name { font-weight: 600; font-size: var(--font-size-l); }
+  &__family-name { display: flex; align-items: center; gap: var(--space-xs); font-weight: 600; font-size: var(--font-size-l); }
+  &__family-arrow { flex: none; color: var(--app-accent); opacity: 0; translate: calc(var(--space-s) * -1) 0; transition: opacity 0.15s ease, translate 0.15s ease; }
+  &__family-card:hover &__family-arrow, &__family-card:focus-visible &__family-arrow { opacity: 1; translate: 0 0; }
   &__family-tagline { color: color-mix(in srgb, var(--color-foreground), transparent 38%); font-size: var(--font-size-s); }
+}
+
+// Live open-icon illustrations on the Fekthor page. Both sit inside product
+// bands, including the solid-colour tones, so the panel supplies its own
+// background rather than inheriting the band's.
+.icon-gallery {
+  display: grid;
+  gap: var(--space-s);
+
+  &__panel { display: grid; gap: var(--space-m); padding: var(--space-l); border-radius: var(--border-radius-l); background: var(--color-background); color: var(--color-foreground); box-shadow: 0 var(--space-m) var(--space-xxl) color-mix(in srgb, var(--color-dark), transparent 88%); }
+  &__header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-s); font-family: var(--font-family-mono); font-size: var(--font-size-xs); }
+  &__folder { display: inline-flex; align-items: center; gap: var(--space-xs); font-weight: 700; }
+  &__count { color: color-mix(in srgb, var(--color-foreground), transparent 46%); }
+  &__categories { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+  &__category { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid color-mix(in srgb, var(--color-foreground), transparent 86%); border-radius: var(--border-radius-xl); background: transparent; color: color-mix(in srgb, var(--color-foreground), transparent 34%); font: inherit; font-size: var(--font-size-xs); line-height: 1; cursor: pointer; transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease; }
+  &__category:hover { border-color: color-mix(in srgb, var(--color-foreground), transparent 60%); color: var(--color-foreground); }
+  &__category--active { border-color: transparent; background: var(--app-accent, var(--color-primary)); color: var(--color-background); }
+  // auto-fill rather than a fixed count: the file names need room, and a
+  // filtered category should still fill the row it lands on.
+  &__grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: var(--space-s); }
+  &__cell { min-width: 0; display: grid; justify-items: center; gap: var(--space-xs); padding: var(--space-s) var(--space-xs); border-radius: var(--border-radius-m); background: color-mix(in srgb, var(--color-foreground), transparent 96%); transition: background 0.15s ease, translate 0.15s ease; animation: icon-gallery-cell-in 0.32s ease both; animation-delay: calc(var(--cell-index) * 24ms); }
+  &__cell:hover { background: color-mix(in srgb, var(--color-foreground), transparent 90%); translate: 0 calc(var(--space-xs) * -1); }
+  &__name { max-width: 100%; overflow: hidden; color: color-mix(in srgb, var(--color-foreground), transparent 46%); font-family: var(--font-family-mono); font-size: calc(var(--font-size-xs) * 0.85); line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+  &__caption { font-size: var(--font-size-xs); opacity: 0.72; }
+}
+
+@keyframes icon-gallery-cell-in {
+  from { opacity: 0; scale: 0.86; }
+  to { opacity: 1; scale: 1; }
+}
+
+.icon-matrix {
+  display: grid;
+  gap: var(--space-m);
+  padding: var(--space-l);
+  border-radius: var(--border-radius-l);
+  background: var(--color-background);
+  color: var(--color-foreground);
+  box-shadow: 0 var(--space-m) var(--space-xxl) color-mix(in srgb, var(--color-dark), transparent 88%);
+
+  &__grid { display: grid; grid-template-columns: auto repeat(var(--matrix-columns), minmax(0, 1fr)); gap: var(--space-xs); align-items: center; }
+  &__corner { display: grid; place-items: center; }
+  &__corner-label { color: color-mix(in srgb, var(--color-foreground), transparent 62%); font-family: var(--font-family-mono); font-size: calc(var(--font-size-xs) * 0.85); letter-spacing: 0.08em; text-transform: uppercase; }
+  // Containers and partials are marked apart by their rule — solid for the
+  // shape that holds the slot, dashed for the one that drops into it.
+  &__head { display: grid; justify-items: center; gap: var(--space-xs); padding: var(--space-s) var(--space-xs); border-radius: var(--border-radius-m); color: color-mix(in srgb, var(--color-foreground), transparent 40%); transition: color 0.25s ease, background 0.25s ease, border-color 0.25s ease; }
+  &__head--container { border-inline-start: calc(var(--border-width) * 2) solid transparent; }
+  &__head--partial { border-block-end: calc(var(--border-width) * 2) dashed transparent; }
+  &__head--active { background: color-mix(in srgb, var(--app-accent, var(--color-primary)), transparent 90%); border-color: var(--app-accent, var(--color-primary)); color: var(--app-accent, var(--color-primary)); }
+  &__label { font-family: var(--font-family-mono); font-size: calc(var(--font-size-xs) * 0.85); line-height: 1.2; }
+  &__cell { display: grid; place-items: center; aspect-ratio: 1; border-radius: var(--border-radius-m); background: color-mix(in srgb, var(--color-foreground), transparent 96%); color: color-mix(in srgb, var(--color-foreground), transparent 34%); transition: background 0.15s ease, color 0.15s ease, scale 0.15s ease; }
+  &__cell--active { background: var(--app-accent, var(--color-primary)); color: var(--color-background); scale: 1.08; }
+  &__legend { display: flex; flex-wrap: wrap; gap: var(--space-xs) var(--space-m); color: color-mix(in srgb, var(--color-foreground), transparent 40%); font-size: var(--font-size-xs); }
+  &__legend-item { display: inline-flex; align-items: center; gap: var(--space-xs); }
+  &__legend-item::before { width: var(--space-s); height: var(--space-s); border-radius: var(--border-radius-s); content: ""; }
+  &__legend-item--container::before { background: color-mix(in srgb, var(--app-accent, var(--color-primary)), transparent 55%); }
+  &__legend-item--partial::before { border: var(--border-width) dashed var(--app-accent, var(--color-primary)); }
+  &__legend-item--composed::before { background: var(--app-accent, var(--color-primary)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-gallery__cell { animation: none; }
+  .icon-gallery__cell, .icon-matrix__cell, .icon-matrix__head, .product-page__family-arrow { transition: none; }
+  .product-page__family-arrow { opacity: 1; translate: 0 0; }
 }
 
 @media (max-width: 900px) {
@@ -482,7 +564,6 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
 @media (max-width: 640px) {
   h1 { font-size: var(--font-size-xxl); }
   h2 { font-size: var(--font-size-xl); }
-  .app-shell__main { padding-top: var(--space-xl); }
   .pill-header__toggle, .pill-header__action--icon-only { min-width: 44px; width: 44px; min-height: 44px; height: 44px; }
   .home-page, .features-page, .support-page, .privacy-page, .terms-page, .not-found-page, .docs-shell { padding: var(--space-l) var(--space-m); }
   .home-page { gap: var(--space-xl); }
@@ -491,6 +572,7 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
   .home-page__actions .button { width: 100%; min-height: 44px; }
   .home-page__steps, .home-page__capability-list, .home-page__feature-links, .features-page__boundary-grid, .docs-index-page__index, .docs-index-page__boundary { grid-template-columns: 1fr; }
   .home-page__app-grid, .product-page__feature-grid, .product-page__family-grid { grid-template-columns: 1fr; }
+  .icon-gallery__panel, .icon-matrix { padding: var(--space-m); }
   .home-page__showcase, .product-page { padding: var(--space-l) var(--space-m); }
   .home-page__showcase { gap: var(--space-l); }
   .product-page__hero { padding-block: var(--space-s) var(--space-l); }

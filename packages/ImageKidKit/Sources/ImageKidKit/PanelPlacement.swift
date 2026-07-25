@@ -22,9 +22,11 @@ public enum PanelPlacement {
     /// FloatingToolPanel's header strip (28pt icon + 13pt vertical padding
     /// each side) — the drag handle that must never leave the dock.
     public static let headerHeight: CGFloat = 54
-    /// Default dock inset and inter-panel gap of the docked columns.
-    public static let margin: CGFloat = 16
-    public static let gap: CGFloat = 16
+    /// Default dock inset (how far a docked panel sits from the frame edge) and
+    /// the inter-panel gap of the docked columns. A tighter inset keeps panels
+    /// close to the window edge.
+    public static let margin: CGFloat = 8
+    public static let gap: CGFloat = 12
 
     // MARK: - Sides
 

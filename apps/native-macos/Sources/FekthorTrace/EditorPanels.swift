@@ -122,18 +122,20 @@ enum EditorPanel: String, CaseIterable, Identifiable {
     /// sizes fall back to fixed offsets so panels never dock off-screen.
     func defaultPosition(in size: CGSize) -> CGSize {
         guard size.width >= 600 else { return fallbackPosition }
+        // Tight 8pt inset from the window edge (matches the shared
+        // PanelPlacement.margin), so panels hug the frame.
         if let index = Self.rightColumn.firstIndex(of: self) {
             return CGSize(
-                width: size.width - Self.panelWidth - 16,
+                width: size.width - Self.panelWidth - 8,
                 height: Self.stackedY(Self.rightColumn, upTo: index))
         }
         let index = Self.leftColumn.firstIndex(of: self) ?? 0
-        return CGSize(width: 16, height: Self.stackedY(Self.leftColumn, upTo: index))
+        return CGSize(width: 8, height: Self.stackedY(Self.leftColumn, upTo: index))
     }
 
-    /// 16pt top inset, then each preceding panel's estimated height + gap.
+    /// 8pt top inset, then each preceding panel's estimated height + gap.
     private static func stackedY(_ column: [EditorPanel], upTo index: Int) -> CGFloat {
-        column.prefix(index).reduce(16) { $0 + $1.estimatedHeight + 16 }
+        column.prefix(index).reduce(8) { $0 + $1.estimatedHeight + 12 }
     }
 
     /// Pre-docking constants, kept as the degenerate-size fallback.
@@ -636,7 +638,7 @@ struct EditorPanelsLayer: View {
         // how many rail chips fit) — they observe layout, never the session,
         // so the no-session-rebuild discipline above still holds.
         GeometryReader { outer in
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: 8) {
                 // Above the palettes so the rail's hover tips never hide
                 // behind a left-docked palette.
                 panelRail(in: outer.size.height).zIndex(1)
@@ -649,7 +651,7 @@ struct EditorPanelsLayer: View {
                 }
             }
         }
-        .padding(12)
+        .padding(8)
     }
 
     @ViewBuilder

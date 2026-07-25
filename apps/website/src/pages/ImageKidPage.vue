@@ -27,12 +27,12 @@ const data: ProductPageData = {
   featuresEyebrow: "In the box",
   featuresTitle: "A full editor, not a one-trick app.",
   features: [
-    { title: "Remove backgrounds", description: "One tap and the subject is cut out. There is a fast built-in model, and a better one you can download for hair and other nightmares." },
-    { title: "Enhance & upscale", description: "Quick, High or Max. Same size, 2× or 4×. You pick how good it needs to be; the app picks the model." },
-    { title: "Crop & resize", description: "Exact pixels, locked ratios, drag handles. Crops stay reversible until you tell them not to be." },
-    { title: "Rotate & flip", description: "Straighten, spin, mirror. Re-rendered clean every time, not nudged pixel by pixel." },
-    { title: "Draw, text & colour", description: "Shapes, arrows, freehand, text. Pick colours straight off the image and keep them in a swatch list." },
-    { title: "Private by default", description: "Everything local runs local. No account, no analytics, no tracking. Magic is the one exception, and only if you set it up." }
+    { title: "Remove backgrounds", icon: "ui/pathfinder-minus-front", description: "One tap and the subject is cut out. There is a fast built-in model, and a better one you can download for hair and other nightmares." },
+    { title: "Enhance & upscale", icon: "arrows/arrow-headed-out-center", description: "Quick, High or Max. Same size, 2× or 4×. You pick how good it needs to be; the app picks the model." },
+    { title: "Crop & resize", icon: "ui/pathfinder-crop", description: "Exact pixels, locked ratios, drag handles. Crops stay reversible until you tell them not to be." },
+    { title: "Rotate & flip", icon: "arrows/arrow-headed-rotate-top-right", description: "Straighten, spin, mirror. Re-rendered clean every time, not nudged pixel by pixel." },
+    { title: "Draw, text & colour", icon: "ui/paint-brush", description: "Shapes, arrows, freehand, text. Pick colours straight off the image and keep them in a swatch list." },
+    { title: "Private by default", icon: "misc/shield-check", description: "Everything local runs local. No account, no analytics, no tracking. Magic is the one exception, and only if you set it up." }
   ],
   sections: [
     {

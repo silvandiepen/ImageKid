@@ -6,12 +6,21 @@
         <span :class="bemm('brand-name')">ImageKid</span>
       </RouterLink>
       <nav :class="bemm('links')" aria-label="Apps">
-        <RouterLink v-for="app in apps" :key="app.id" :class="bemm('link')" :to="app.to">{{ app.name }}</RouterLink>
+        <RouterLink v-for="app in apps" :key="app.id" :class="bemm('link')" :to="app.to">
+          <Icon :name="app.glyph" size="small" aria-hidden="true" />
+          {{ app.name }}
+        </RouterLink>
       </nav>
       <nav :class="bemm('links')" aria-label="Footer">
         <template v-for="link in links" :key="link.to">
-          <a v-if="link.external" :class="bemm('link')" :href="link.to">{{ link.label }}</a>
-          <RouterLink v-else :class="bemm('link')" :to="link.to">{{ link.label }}</RouterLink>
+          <a v-if="link.external" :class="bemm('link')" :href="link.to">
+            <Icon v-if="link.icon" :name="link.icon" size="small" aria-hidden="true" />
+            {{ link.label }}
+          </a>
+          <RouterLink v-else :class="bemm('link')" :to="link.to">
+            <Icon v-if="link.icon" :name="link.icon" size="small" aria-hidden="true" />
+            {{ link.label }}
+          </RouterLink>
         </template>
       </nav>
       <p :class="bemm('note')">Native, local-first apps for Mac. Processing runs on your device; Magic uses your own AI provider.</p>
@@ -20,6 +29,7 @@
 </template>
 
 <script setup lang="ts">
+import { Icon } from "@sil/ui";
 import { useBemm } from "bemm";
 import { RouterLink } from "vue-router";
 import ImageKidMark from "../ImageKidMark";
@@ -28,9 +38,9 @@ import type { FooterLink } from "./SiteFooter.model";
 
 const bemm = useBemm("site-footer", { includeBaseClass: true });
 const links: FooterLink[] = [
-  { label: "Docs", to: "/docs" },
-  { label: "Support", to: "/support" },
-  { label: "Privacy", to: "/privacy" },
-  { label: "Terms", to: "/terms" }
+  { label: "Docs", to: "/docs", icon: "ui/book" },
+  { label: "Support", to: "/support", icon: "ui/talk" },
+  { label: "Privacy", to: "/privacy", icon: "misc/shield" },
+  { label: "Terms", to: "/terms", icon: "ui/file-text" }
 ];
 </script>

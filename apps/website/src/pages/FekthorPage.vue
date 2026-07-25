@@ -26,12 +26,12 @@ const data: ProductPageData = {
   featuresEyebrow: "The basics, done properly",
   featuresTitle: "Everything you expect. Then the part nobody else does.",
   features: [
-    { title: "Draw and edit", description: "Anchors, handles, break and merge, boolean operations, layers, gradients, transforms, undo. The fundamentals, native and quick." },
-    { title: "Trace anything", description: "Drop in a logo, a screenshot, a scan. You get real editable paths — strokes with width where the original has strokes, not a dead outline around every dark pixel." },
-    { title: "Snap to everything", description: "Grid, points, bounds, other shapes' anchors. Icon work lives on a grid, so the grid is not an afterthought." },
-    { title: "Plain SVG out", description: "No wrapper format, no lock-in. Files stay readable SVG that diffs cleanly and drops straight into a web project." },
-    { title: "Workspaces", description: "A folder of icons becomes a project. Categories are subfolders, the gallery lays itself out, everything is searchable." },
-    { title: "Stays on your Mac", description: "Fekthor ships without a network entitlement. It could not phone home if it wanted to." }
+    { title: "Draw and edit", icon: "ui/pointer-pen", description: "Anchors, handles, break and merge, boolean operations, layers, gradients, transforms, undo. The fundamentals, native and quick." },
+    { title: "Trace anything", icon: "ui/vector-curve", description: "Drop in a logo, a screenshot, a scan. You get real editable paths — strokes with width where the original has strokes, not a dead outline around every dark pixel." },
+    { title: "Snap to everything", icon: "ui/grid", description: "Grid, points, bounds, other shapes' anchors. Icon work lives on a grid, so the grid is not an afterthought." },
+    { title: "Plain SVG out", icon: "ui/code-brackets", description: "No wrapper format, no lock-in. Files stay readable SVG that diffs cleanly and drops straight into a web project." },
+    { title: "Workspaces", icon: "ui/folder", description: "A folder of icons becomes a project. Categories are subfolders, the gallery lays itself out, everything is searchable." },
+    { title: "Stays on your Mac", icon: "misc/shield-check", description: "Fekthor ships without a network entitlement. It could not phone home if it wanted to." }
   ],
   sections: [
     {
@@ -61,6 +61,7 @@ const data: ProductPageData = {
         "Searchable, renameable, auto-arranged",
         "The workfile never touches your SVG"
       ],
+      visual: "icon-gallery",
       imageSide: "left",
       tone: 2
     },
@@ -91,6 +92,7 @@ const data: ProductPageData = {
         "Preview the composed set before committing",
         "Export the whole matrix in one pass"
       ],
+      visual: "icon-matrix",
       imageSide: "left",
       tone: 2
     },

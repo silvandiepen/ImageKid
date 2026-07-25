@@ -18,7 +18,10 @@
           :class="bemm('index-link', index === 0 ? 'primary' : '')"
           :to="item.to"
         >
-          <span :class="bemm('index-number')">0{{ index + 1 }}</span>
+          <span :class="bemm('index-number')">
+            <Icon :name="item.icon" size="small" aria-hidden="true" />
+            0{{ index + 1 }}
+          </span>
           <strong :class="bemm('index-title')">{{ item.label }}</strong>
           <span :class="bemm('index-description')">{{ item.description }}</span>
         </RouterLink>
@@ -28,7 +31,7 @@
 </template>
 
 <script setup lang="ts">
-import { Button } from "@sil/ui";
+import { Button, Icon } from "@sil/ui";
 import { useBemm } from "bemm";
 import { RouterLink } from "vue-router";
 import DocsShell from "../components/DocsShell";
