@@ -91,10 +91,12 @@ macOS **brush editor** exposes every parameter with a live preview and
 ImageKidKit and ImageKidCore; like every app here it never imports another app.
 Inka is a working drawing app on **both macOS and iPad** — hybrid vector-stroke
 layers (rebuilt from the document each change), a layers panel, undo/redo, `.inka`
-document save/open, and canvas zoom/pan/fit, all on the shared ImageKidKit floating
-panel dock; the iPad adds Procreate-style touch gestures (two-finger pan,
-pinch-zoom, two-/three-finger tap undo/redo). Not yet launch-ready: no
-selections/transform, no canvas rotate, no website/brand/store. See `docs/inka/` —
+document save/open, a free canvas transform (pan/zoom/**rotate**/fit), colour tools
+(palette, recents, eyedropper) and a move-tool marquee selection — all on the
+shared ImageKidKit floating panel dock; the iPad adds Procreate-style touch
+gestures (two-finger pan, pinch-zoom, two-finger rotate, two-/three-finger tap
+undo/redo). Not yet launch-ready: no selection scale/rotate, no wet/smudge brushes
+or layered export, no website/brand/store. See `docs/inka/` —
 [README](inka/README.md), [BRUSH-ENGINE](inka/BRUSH-ENGINE.md),
 [ARCHITECTURE](inka/ARCHITECTURE.md), [PLAN](inka/PLAN.md).
 
