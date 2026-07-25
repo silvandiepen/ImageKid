@@ -94,6 +94,9 @@ final class InkaCanvasRenderer: NSObject, MTKViewDelegate {
     func rebuild(from document: InkaDocument) {
         compositor.stamp([], into: committed, clear: true)
         for layer in document.layers where layer.isVisible {
+            // Image layers (imported / raster) composite as a full-canvas quad.
+            if case .imported(let png) = layer.content { drawImageLayer(layer.id, png); continue }
+            if case .raster(let png) = layer.content { drawImageLayer(layer.id, png); continue }
             guard case .strokes(let strokes) = layer.content else { continue }
             let op = max(0, min(1, layer.opacity))
             // Paint strokes batch together; an eraser (destination-out) flushes
@@ -318,6 +321,27 @@ final class InkaCanvasRenderer: NSObject, MTKViewDelegate {
         let bl = viewPoint(fromCanvas: CGPoint(x: 0, y: canvasSize.height), in: view)
         let br = viewPoint(fromCanvas: CGPoint(x: canvasSize.width, y: canvasSize.height), in: view)
         return FullscreenBlitter.Quad(tl: clip(tl), tr: clip(tr), bl: clip(bl), br: clip(br))
+    }
+
+    // MARK: - Image layers
+
+    private lazy var textureLoader = MTKTextureLoader(device: device)
+    private var imageCache: [UUID: (png: PNGImage, texture: MTLTexture)] = [:]
+
+    /// Composite an image layer into committed, decoding + caching its texture.
+    private func drawImageLayer(_ id: UUID, _ png: PNGImage) {
+        let tex: MTLTexture
+        if let cached = imageCache[id], cached.png == png {
+            tex = cached.texture
+        } else {
+            guard let loaded = try? textureLoader.newTexture(
+                data: png.data,
+                options: [.SRGB: false, .textureUsage: NSNumber(value: MTLTextureUsage.shaderRead.rawValue)])
+            else { return }
+            imageCache[id] = (png, loaded)
+            tex = loaded
+        }
+        compositor.draw(image: tex, into: committed)
     }
 
     private lazy var blitter = FullscreenBlitter(device: device)

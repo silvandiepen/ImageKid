@@ -17,6 +17,10 @@ public final class BrushCompositor {
     private let pipeline: MTLRenderPipelineState
     /// Destination-out pipeline for the eraser: dst · (1 − srcA).
     private let erasePipeline: MTLRenderPipelineState
+    /// Fullscreen textured-quad pipeline for compositing image layers, and its
+    /// sampler. Optional: image layers are a nice-to-have, not core.
+    private let imagePipeline: MTLRenderPipelineState?
+    private let imageSampler: MTLSamplerState?
 
     public enum SetupError: Error {
         case noDevice
@@ -77,6 +81,73 @@ public final class BrushCompositor {
         }
         pipeline = try makePipeline(erase: false)
         erasePipeline = try makePipeline(erase: true)
+
+        // Optional image-layer pipeline (fullscreen textured quad, premultiplied
+        // over). Failure just disables image-layer preview on the GPU canvas.
+        let (imgP, imgS) = Self.makeImagePipeline(device: device)
+        imagePipeline = imgP
+        imageSampler = imgS
+    }
+
+    private static func makeImagePipeline(
+        device: MTLDevice
+    ) -> (MTLRenderPipelineState?, MTLSamplerState?) {
+        let src = """
+            #include <metal_stdlib>
+            using namespace metal;
+            struct VOut { float4 position [[position]]; float2 uv; };
+            vertex VOut img_vertex(uint vid [[vertex_id]]) {
+                float2 c = float2((vid << 1) & 2, vid & 2) * 0.5;   // 0,0 1,0 0,1 1,1
+                VOut o;
+                o.position = float4(c.x * 2 - 1, 1 - c.y * 2, 0, 1);  // clip, y flipped
+                o.uv = c;   // texture row 0 at top
+                return o;
+            }
+            fragment float4 img_fragment(
+                VOut in [[stage_in]], texture2d<float> tex [[texture(0)]],
+                sampler s [[sampler(0)]]) {
+                float4 c = tex.sample(s, in.uv);
+                return float4(c.rgb * c.a, c.a);   // premultiply for "over"
+            }
+            """
+        guard let lib = try? device.makeLibrary(source: src, options: nil),
+            let v = lib.makeFunction(name: "img_vertex"),
+            let f = lib.makeFunction(name: "img_fragment")
+        else { return (nil, nil) }
+        let desc = MTLRenderPipelineDescriptor()
+        desc.vertexFunction = v
+        desc.fragmentFunction = f
+        let color = desc.colorAttachments[0]!
+        color.pixelFormat = .rgba8Unorm
+        color.isBlendingEnabled = true
+        color.rgbBlendOperation = .add
+        color.alphaBlendOperation = .add
+        color.sourceRGBBlendFactor = .one
+        color.sourceAlphaBlendFactor = .one
+        color.destinationRGBBlendFactor = .oneMinusSourceAlpha
+        color.destinationAlphaBlendFactor = .oneMinusSourceAlpha
+        let sd = MTLSamplerDescriptor()
+        sd.minFilter = .linear
+        sd.magFilter = .linear
+        return (try? device.makeRenderPipelineState(descriptor: desc), device.makeSamplerState(descriptor: sd))
+    }
+
+    /// Composite an image `texture` over `target` (rgba8), stretched to fill —
+    /// image layers are normalised to the canvas size before they reach here.
+    public func draw(image texture: MTLTexture, into target: MTLTexture) {
+        guard let imagePipeline, let imageSampler, let cmd = queue.makeCommandBuffer() else { return }
+        let pass = MTLRenderPassDescriptor()
+        pass.colorAttachments[0].texture = target
+        pass.colorAttachments[0].loadAction = .load
+        pass.colorAttachments[0].storeAction = .store
+        guard let encoder = cmd.makeRenderCommandEncoder(descriptor: pass) else { return }
+        encoder.setRenderPipelineState(imagePipeline)
+        encoder.setFragmentTexture(texture, index: 0)
+        encoder.setFragmentSamplerState(imageSampler, index: 0)
+        encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+        encoder.endEncoding()
+        cmd.commit()
+        cmd.waitUntilCompleted()
     }
 
     /// Stamp `dabs` into `target`. `clear` wipes the target to transparent

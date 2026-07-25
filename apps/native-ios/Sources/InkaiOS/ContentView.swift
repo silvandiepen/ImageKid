@@ -1,4 +1,5 @@
 import BrushKit
+import ImageIO
 import ImageKidKit
 import InkaKit
 import SwiftUI
@@ -108,6 +109,21 @@ struct ContentView: View {
         .onChange(of: model.brushExportRequested) { _, now in
             if now { saveBrushData = model.brushData() ?? Data() }
         }
+        // Import an image as a layer
+        .fileImporter(
+            isPresented: $model.imageImportRequested, allowedContentTypes: [.image]
+        ) { result in
+            if case .success(let url) = result { importImage(url) }
+        }
+    }
+
+    private func importImage(_ url: URL) {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+            let cg = CGImageSourceCreateImageAtIndex(src, 0, nil)
+        else { return }
+        model.importImage(cg)
     }
 
     private var toolbar: some View {
@@ -151,6 +167,7 @@ struct ContentView: View {
             }
             Button { model.clearActiveLayer() } label: { Image(systemName: "trash") }
             Divider().frame(height: 22)
+            Button { model.imageImportRequested = true } label: { Image(systemName: "photo.badge.plus") }
             Button { showOpen = true } label: { Image(systemName: "folder") }
             Button { saveInkaData = model.inkaData() ?? Data(); showSave = true } label: {
                 Image(systemName: "square.and.arrow.down")

@@ -106,6 +106,51 @@ final class InkaDocumentTests: XCTestCase {
             alpha(of: image, x: 175, y: 60), 0, accuracy: 0.05, "erased where the eraser passed")
     }
 
+    func testImportedImageIsUprightThroughExport() throws {
+        // Source: top rows red, bottom rows blue (row 0 = top).
+        let src = try XCTUnwrap(halfImage())
+        let png = try XCTUnwrap(InkaImageFit.fitToCanvasPNG(src, width: 64, height: 64))
+        var doc = InkaDocument.blank(width: 64, height: 64)
+        doc.layers = [Layer(name: "img", content: .imported(png))]
+        let flat = try XCTUnwrap(InkaRasterizer.flatten(doc))
+        let top = rgb(of: flat, x: 32, y: 4)
+        let bottom = rgb(of: flat, x: 32, y: 59)
+        XCTAssertGreaterThan(top.r, 0.6, "top stays red (upright)")
+        XCTAssertGreaterThan(bottom.b, 0.6, "bottom stays blue (upright)")
+    }
+
+    /// 64×64 with the top half red, bottom half blue, built from raw bytes so
+    /// row 0 is unambiguously the top.
+    private func halfImage() -> CGImage? {
+        let n = 64
+        var bytes = [UInt8](repeating: 0, count: n * n * 4)
+        for y in 0..<n {
+            for x in 0..<n {
+                let i = (y * n + x) * 4
+                if y < n / 2 {
+                    bytes[i] = 255; bytes[i + 3] = 255  // red
+                } else {
+                    bytes[i + 2] = 255; bytes[i + 3] = 255  // blue
+                }
+            }
+        }
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+            let provider = CGDataProvider(data: Data(bytes) as CFData)
+        else { return nil }
+        return CGImage(
+            width: n, height: n, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: n * 4,
+            space: space, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+    }
+
+    private func rgb(of image: CGImage, x: Int, y: Int) -> (r: Double, g: Double, b: Double) {
+        guard let data = image.dataProvider?.data, let ptr = CFDataGetBytePtr(data) else {
+            return (0, 0, 0)
+        }
+        let i = y * image.bytesPerRow + x * 4
+        return (Double(ptr[i]) / 255, Double(ptr[i + 1]) / 255, Double(ptr[i + 2]) / 255)
+    }
+
     // MARK: helpers
 
     private func alpha(of image: CGImage, x: Int, y: Int) -> Double {

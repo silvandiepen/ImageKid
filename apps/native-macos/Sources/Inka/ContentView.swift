@@ -221,6 +221,8 @@ struct ContentView: View {
 
             Divider().frame(height: 20)
 
+            Button { model.importImageFromPanel() } label: { Image(systemName: "photo.badge.plus") }
+                .help("Import an image as a layer")
             Button { model.openDocument() } label: { Image(systemName: "folder") }
                 .keyboardShortcut("o", modifiers: .command).help("Open .inka")
             Button { model.saveDocument() } label: { Image(systemName: "square.and.arrow.down") }

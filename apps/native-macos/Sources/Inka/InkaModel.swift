@@ -334,6 +334,32 @@ final class InkaModel: ObservableObject {
         if recentColors.count > 12 { recentColors.removeLast() }
     }
 
+    // MARK: - Import image as a layer
+
+    /// Import an image (via an open panel) as a new `.imported` layer, aspect-fit
+    /// and centred into a canvas-sized PNG so it shows identically on the GPU
+    /// canvas and in export.
+    func importImageFromPanel() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.png, .jpeg, .tiff, .heic, .image]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url,
+            let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+            let cg = CGImageSourceCreateImageAtIndex(src, 0, nil)
+        else { return }
+        importImage(cg)
+    }
+
+    func importImage(_ cg: CGImage) {
+        guard let png = InkaImageFit.fitToCanvasPNG(cg, width: document.width, height: document.height)
+        else { return }
+        snapshot()
+        let layer = Layer(name: "Image \(document.layers.count + 1)", content: .imported(png))
+        document.layers.insert(layer, at: min(activeIndex + 1, document.layers.count))
+        activeLayerID = layer.id
+        rebuild()
+    }
+
     // MARK: - Selection & transform (move tool)
 
     /// Grab radius / rotate-handle offset in canvas units (constant on screen).

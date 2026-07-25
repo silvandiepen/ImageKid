@@ -41,6 +41,7 @@ final class InkaModel: ObservableObject {
     /// only attach to a view, so the panels flip these flags).
     @Published var brushImportRequested = false
     @Published var brushExportRequested = false
+    @Published var imageImportRequested = false
 
     /// The active canvas tool (paint, erase, sample a colour, or move).
     @Published var tool: InkaTool = .draw {
@@ -222,6 +223,17 @@ final class InkaModel: ObservableObject {
         historyToken += 1
         renderer?.resize(to: document.size)
         renderer?.fit()
+        rebuild()
+    }
+
+    /// Import a CGImage as a new `.imported` layer (aspect-fit to the canvas).
+    func importImage(_ cg: CGImage) {
+        guard let png = InkaImageFit.fitToCanvasPNG(cg, width: document.width, height: document.height)
+        else { return }
+        snapshot()
+        let layer = Layer(name: "Image \(document.layers.count + 1)", content: .imported(png))
+        document.layers.insert(layer, at: min(activeIndex + 1, document.layers.count))
+        activeLayerID = layer.id
         rebuild()
     }
 
