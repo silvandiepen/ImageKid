@@ -53,7 +53,9 @@ extension PanelDockModel where ID == InkaPanel {
             gridStep: InkaPanel.gridStep,
             minSize: CGSize(width: 260, height: 140),
             maxSize: CGSize(width: 360, height: 900),
-            initiallyPresented: [.brushes, .brush, .colours, .layers],
+            // Colours opens on demand from the rail — four tall panels don't
+            // fit one laptop-height column, and colour is also on the toolbar.
+            initiallyPresented: [.brushes, .brush, .layers],
             defaultsKey: "inka.paneldock")
     }
 }

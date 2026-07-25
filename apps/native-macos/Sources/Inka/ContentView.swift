@@ -159,14 +159,17 @@ struct ContentView: View {
     /// right-hand tool column). The model stores a right-side anchor, so it
     /// sticks across resizes and relaunches and yields to any user drag after.
     private func rightAlignDefaults(in size: CGSize) {
-        let key = "inka.paneldock.rightDefault.v1"
+        // v3: pack the three default panels; Colours parks at the top of the
+        // column so it lands cleanly when opened from the rail.
+        let key = "inka.paneldock.rightDefault.v3"
         guard size.width > 0, !UserDefaults.standard.bool(forKey: key) else { return }
         let x = size.width - InkaPanel.panelWidth - PanelPlacement.margin
         var y: CGFloat = 8
-        for panel in [InkaPanel.brushes, .brush, .colours, .layers] {
+        for panel in [InkaPanel.brushes, .brush, .layers] {
             dock.model.setPosition(panel, to: CGSize(width: x, height: y), in: size)
             y += dock.model.size(panel).height + PanelPlacement.gap
         }
+        dock.model.setPosition(.colours, to: CGSize(width: x, height: 8), in: size)
         UserDefaults.standard.set(true, forKey: key)
     }
 
