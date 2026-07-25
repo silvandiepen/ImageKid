@@ -12,6 +12,7 @@ const data: ProductPageData = {
   id: meta.id,
   name: meta.name,
   icon: meta.icon,
+  character: "/media/character/inka.png",
   eyebrow: "Drawing & illustration for Mac and iPad",
   tagline: "Drawing, with a serious brush engine.",
   lead:

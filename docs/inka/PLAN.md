@@ -99,9 +99,10 @@ re-rasterization both rely on it. No `Math.random`.
   draws, two-finger pan, pinch-zoom, two-finger rotate, two-finger tap undo,
   three-finger tap redo. **Website**: an Inka product page (`/inka`) and docs page
   (`/docs/inka`) in the family style, wired into the app registry, nav and docs
-  index, with an accent colour and a placeholder brand mark (`inka.svg`). Still
-  open: the final brand icon (drop `inka.png` into `media/brand/`), marketing
-  imagery for the page, and the release-boundary / store entry.
+  index, with an accent colour, the **Inka mascot** (cut out to a transparent
+  character render for the hero) and its **app icon** (the mascot in the family's
+  rounded-squircle). Still open: marketing imagery for the section bands, the
+  native AppIcon iconsets, and the release-boundary / store entry.
 - **P7 (opt-in) ImageKid adoption** — route ImageKid's freehand through
   `BrushKit`/`BrushRender`, retiring `MaskPainter.paintStroke` / the iOS
   `Brush.swift` presets.

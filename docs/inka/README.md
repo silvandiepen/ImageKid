@@ -65,8 +65,8 @@ still-PLANNED items below as done.
   rotate, two-finger tap undoes, three-finger tap redoes.
 - **Website** — DONE (baseline). An Inka product page (`/inka`) and docs page
   (`/docs/inka`) in the family style, in the app registry / nav / docs index, with
-  an accent colour and a placeholder brand mark. Final brand icon + marketing
-  imagery still to drop in.
+  an accent colour, the Inka mascot (cut-out character render) and its app icon.
+  Section marketing imagery + the native AppIcon iconsets still to drop in.
 - **P5–P6 remaining** — PLANNED. See [PLAN.md](PLAN.md). Not required for a usable
   app, still open before a polished launch: wet/smudge/blur brushes, brush groups,
   custom-texture import, per-layer blend modes + masks, PSD export, colour harmony,
