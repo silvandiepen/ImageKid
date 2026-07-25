@@ -112,15 +112,21 @@ ImageKid and Fekthor use — nothing bespoke:
   eyedropper + palette/recents) and **Layers** (add/delete/reorder, per-layer
   visibility + opacity, active-layer select). They dock to the right by default in
   Inka, on both macOS and iPad (Colours opens on demand from the rail).
-- Canvas tools (both surfaces): **draw**, **eyedropper** (samples the committed
-  texture), and **move** (marquee-select strokes on the active layer and translate
-  them — delete on both; arrow-key nudge / escape on macOS). The move tool edits
-  the vector strokes in place, so it stays non-destructive and undoable.
-- The canvas is a **free transform** — pan, zoom and rotate about its centre. The
-  renderer keeps `zoom`/`offset`/`rotation`; `viewPoint`/`canvasPoint` are exact
-  inverses, and `FullscreenBlitter` draws the paper + textures from four rotated
-  clip-space corners. macOS uses scroll-pan / pinch-zoom / trackpad-rotate; iPad
-  uses two-finger pan / pinch / rotate, recognised simultaneously. Fit resets all.
+- Canvas tools (both surfaces): **draw**, **eraser** (destination-out via the
+  shared compositor/rasterizer, using the current tip), **eyedropper** (samples the
+  committed texture), and **move** (marquee-select strokes on the active layer,
+  then move / scale / rotate via handles — delete on both; arrow-key nudge / escape
+  on macOS). The move tool and eraser edit the vector strokes/record, so they stay
+  non-destructive and undoable.
+- **Image layers**: any image imports as a canvas-fit `.imported` layer
+  (`InkaImageFit`), composited live by `BrushCompositor.draw(image:into:)` and on
+  export. **Export** is flattened PNG or one PNG per visible layer.
+- The canvas is a **free transform** — pan, zoom, rotate, and H/V flip about its
+  centre. The renderer keeps `zoom`/`offset`/`rotation`/`flipX`/`flipY`;
+  `viewPoint`/`canvasPoint` are exact inverses, and `FullscreenBlitter` draws the
+  paper + textures from four transformed clip-space corners. macOS uses scroll-pan
+  / pinch-zoom / trackpad-rotate; iPad uses two-finger pan / pinch / rotate,
+  recognised simultaneously. Fit resets all.
 
 ## App state
 

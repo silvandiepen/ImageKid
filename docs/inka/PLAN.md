@@ -73,9 +73,9 @@ re-rasterization both rely on it. No `Math.random`.
   the document is the source of truth; a **Layers panel** (ImageKidKit floating
   panel) with add / delete / reorder, per-layer visibility + opacity, and
   active-layer selection; strokes land on the active stroke layer (a new stroke
-  layer is spun up if the active one can't take strokes). Raster + imported layers
-  round-trip in `InkaDocument` and rasterize on export, but the app only *creates*
-  stroke layers so far. Per-layer masks/blend modes beyond opacity are P5.
+  layer is spun up if the active one can't take strokes). Imported image layers
+  are created via "import image" and composite live + on export. Per-layer
+  masks/blend modes beyond opacity are P5.
 - **P4 Illustration workflow** — DONE (core, both surfaces): **undo/redo** (⌘Z /
   ⌘⇧Z; two-/three-finger tap on iPad; 40-deep history), **`.inka` save/open** + New
   with a size, clear-layer, PNG export via the exact CPU rasterizer. **Free canvas
@@ -84,18 +84,21 @@ re-rasterization both rely on it. No `Math.random`.
   maps through the exact inverse so tools stay correct when rotated. **Colour**: a
   Colours panel (working well, document palette + session recents) and an
   **eyedropper** sampling the committed canvas. **Selection**: a **move tool** —
-  marquee-select strokes and drag them (non-destructive), delete, plus arrow-key
-  nudge (⇧ = ×10) / escape on macOS. Still open: selection scale/rotate, canvas
-  flip, colour harmony, reference layer.
-- **P5 Brush breadth + export** — wet/smudge/blur, brush groups, custom brush
-  import, perf passes; layered export.
-- **P6 Polish & launch** — iPad workflow **DONE**: the iPad app has full macOS
-  parity (hybrid document, layers, undo/redo, `.inka` save/open, free canvas
-  transform, colour + move-selection) on the ImageKidKit floating panel dock, plus
-  Procreate-style gestures — Pencil/finger draws, two-finger pan, pinch-zoom,
-  two-finger rotate, two-finger tap undo, three-finger tap redo. Still open:
-  **website Inka page + brand assets** (deferred to avoid broken image refs),
-  release-boundary entry.
+  marquee-select strokes, then **move / scale / rotate** via handles
+  (non-destructive), delete, plus arrow-key nudge (⇧ = ×10) / escape on macOS.
+  **Canvas flip** (H/V view mirror). **Eraser** (destination-out in the shared
+  compositor + rasterizer). **Import image** as a canvas-fit `.imported` layer
+  (shown live and on export). Still open: colour harmony, reference layer.
+- **P5 Brush breadth + export** — layered export **DONE** (flattened + per-layer
+  PNG, both surfaces). Still open: wet/smudge/blur brushes, brush groups,
+  custom-texture import, per-layer blend modes + masks, PSD, perf passes.
+- **P6 Polish & launch** — iPad workflow **DONE**: full macOS parity (document,
+  layers, undo/redo, `.inka` save/open, free canvas transform + flip, colour,
+  eraser, selection move/scale/rotate, image import, layered export) on the
+  ImageKidKit floating panel dock, plus Procreate-style gestures — Pencil/finger
+  draws, two-finger pan, pinch-zoom, two-finger rotate, two-finger tap undo,
+  three-finger tap redo. Still open: **website Inka page + brand assets** (deferred
+  to avoid broken image refs), release-boundary entry.
 - **P7 (opt-in) ImageKid adoption** — route ImageKid's freehand through
   `BrushKit`/`BrushRender`, retiring `MaskPainter.paintStroke` / the iOS
   `Brush.swift` presets.

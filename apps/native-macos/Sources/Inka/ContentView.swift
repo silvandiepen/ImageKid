@@ -187,6 +187,11 @@ struct ContentView: View {
             Divider().frame(height: 20)
 
             ColorPicker("", selection: $model.color, supportsOpacity: false).labelsHidden()
+            Button { model.tool = model.tool == .eraser ? .draw : .eraser } label: {
+                Image(systemName: "eraser")
+            }
+            .tint(model.tool == .eraser ? .accentColor : nil)
+            .help("Eraser")
             Button { model.tool = model.tool == .eyedropper ? .draw : .eyedropper } label: {
                 Image(systemName: "eyedropper")
             }
@@ -210,17 +215,32 @@ struct ContentView: View {
             Spacer()
 
             Button { model.renderer?.fit(); model.requestRedraw?(); nudge() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
-                .keyboardShortcut("0", modifiers: .command).help("Fit")
+                .keyboardShortcut("0", modifiers: .command).help("Fit & reset view")
+            Menu {
+                Button("Flip Horizontal") { model.renderer?.flipX.toggle(); model.requestRedraw?() }
+                Button("Flip Vertical") { model.renderer?.flipY.toggle(); model.requestRedraw?() }
+            } label: {
+                Image(systemName: "arrow.left.arrow.right")
+            }
+            .menuIndicator(.hidden).frame(width: 34).help("Flip the canvas view")
             Button { model.clearActiveLayer() } label: { Image(systemName: "trash") }
                 .help("Clear layer")
 
             Divider().frame(height: 20)
 
+            Button { model.importImageFromPanel() } label: { Image(systemName: "photo.badge.plus") }
+                .help("Import an image as a layer")
             Button { model.openDocument() } label: { Image(systemName: "folder") }
                 .keyboardShortcut("o", modifiers: .command).help("Open .inka")
             Button { model.saveDocument() } label: { Image(systemName: "square.and.arrow.down") }
                 .keyboardShortcut("s", modifiers: .command).help("Save .inka")
-            Button { model.exportPNG() } label: { Label("Export", systemImage: "square.and.arrow.up") }
+            Menu {
+                Button("Export PNG…") { model.exportPNG() }
+                Button("Export Layers…") { model.exportLayers() }
+            } label: {
+                Label("Export", systemImage: "square.and.arrow.up")
+            }
+            .frame(width: 96)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -256,12 +276,28 @@ struct InkaSelectionOverlay: View {
                 p.closeSubpath()
                 return p
             }
+            func handleRect(_ c: CGPoint) -> Path {
+                Path(CGRect(x: c.x - 4, y: c.y - 4, width: 8, height: 8))
+            }
             if let b = model.selectionBounds, !model.selectedStrokeIDs.isEmpty {
                 let pth = path(b)
                 ctx.fill(pth, with: .color(.accentColor.opacity(0.08)))
                 ctx.stroke(
                     pth, with: .color(.accentColor),
                     style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
+                // Corner scale handles.
+                let corners = r.viewCorners(ofCanvasRect: b, in: viewSize)
+                for c in corners { ctx.fill(handleRect(c), with: .color(.accentColor)) }
+                // Rotate handle above the top edge.
+                if let rc = model.rotateHandleCanvasPoint {
+                    let rv = r.viewPoint(fromCanvas: rc, in: viewSize)
+                    let topMid = CGPoint(x: (corners[0].x + corners[1].x) / 2, y: (corners[0].y + corners[1].y) / 2)
+                    var line = Path()
+                    line.move(to: topMid)
+                    line.addLine(to: rv)
+                    ctx.stroke(line, with: .color(.accentColor), lineWidth: 1)
+                    ctx.fill(Path(ellipseIn: CGRect(x: rv.x - 5, y: rv.y - 5, width: 10, height: 10)), with: .color(.accentColor))
+                }
             }
             if let m = model.marquee {
                 ctx.stroke(

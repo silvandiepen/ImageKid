@@ -126,7 +126,7 @@ final class InputMTKView: MTKView, UIGestureRecognizerDelegate {
         drawingTouch = candidate
         activeGesture = model?.tool ?? .draw
         switch activeGesture {
-        case .draw: model?.renderer?.beginStroke(at: sample(candidate))
+        case .draw, .eraser: model?.renderer?.beginStroke(at: sample(candidate))
         case .eyedropper: model?.pickColor(at: sample(candidate).position)
         case .move: model?.selectionBegin(at: sample(candidate).position)
         }
@@ -135,7 +135,7 @@ final class InputMTKView: MTKView, UIGestureRecognizerDelegate {
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = drawingTouch, touches.contains(touch) else { return }
         switch activeGesture {
-        case .draw:
+        case .draw, .eraser:
             // Feed every coalesced sample so fast Pencil strokes stay smooth.
             for coalesced in event?.coalescedTouches(for: touch) ?? [touch] {
                 model?.renderer?.extendStroke(to: sample(coalesced))
@@ -148,7 +148,7 @@ final class InputMTKView: MTKView, UIGestureRecognizerDelegate {
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = drawingTouch, touches.contains(touch) else { return }
         switch activeGesture {
-        case .draw: model?.renderer?.endStroke()
+        case .draw, .eraser: model?.renderer?.endStroke()
         case .eyedropper: break
         case .move: model?.selectionEnd()
         }
@@ -164,7 +164,7 @@ final class InputMTKView: MTKView, UIGestureRecognizerDelegate {
     private func abandonActiveGesture() {
         guard drawingTouch != nil else { return }
         switch activeGesture {
-        case .draw: model?.renderer?.cancelStroke()
+        case .draw, .eraser: model?.renderer?.cancelStroke()
         case .move: model?.selectionEnd()
         case .eyedropper: break
         }

@@ -69,7 +69,8 @@ struct InkaCanvasView: NSViewRepresentable {
             case .move:
                 gesture = .move
                 model.selectionBegin(at: s.position)
-            case .draw:
+            case .draw, .eraser:
+                // The renderer's eraseMode (set from the tool) decides paint vs erase.
                 gesture = .draw
                 model.renderer?.beginStroke(at: s)
             }

@@ -1,4 +1,5 @@
 import BrushKit
+import ImageIO
 import ImageKidKit
 import InkaKit
 import SwiftUI
@@ -15,6 +16,7 @@ struct ContentView: View {
     @StateObject private var dock = PanelDockController(PanelDockModel<InkaPanel>.makeDefault())
     @State private var hasCanvas = false
     @State private var shareImage: UIImage?
+    @State private var shareURLs: URLShareItem?
     @State private var showOpen = false
     @State private var showSave = false
     // Encoded blobs captured at present-time so the exporters don't re-encode
@@ -84,6 +86,7 @@ struct ContentView: View {
         ) { item in
             ShareSheet(items: [item.image])
         }
+        .sheet(item: $shareURLs) { item in ShareSheet(items: item.urls) }
         // .inka open / save
         .fileImporter(isPresented: $showOpen, allowedContentTypes: [inkaType, .data]) { result in
             if case .success(let url) = result { openInka(url) }
@@ -108,6 +111,21 @@ struct ContentView: View {
         .onChange(of: model.brushExportRequested) { _, now in
             if now { saveBrushData = model.brushData() ?? Data() }
         }
+        // Import an image as a layer
+        .fileImporter(
+            isPresented: $model.imageImportRequested, allowedContentTypes: [.image]
+        ) { result in
+            if case .success(let url) = result { importImage(url) }
+        }
+    }
+
+    private func importImage(_ url: URL) {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+            let cg = CGImageSourceCreateImageAtIndex(src, 0, nil)
+        else { return }
+        model.importImage(cg)
     }
 
     private var toolbar: some View {
@@ -122,6 +140,10 @@ struct ContentView: View {
             Divider().frame(height: 22)
 
             ColorPicker("", selection: $model.color, supportsOpacity: false).labelsHidden()
+            Button { model.tool = model.tool == .eraser ? .draw : .eraser } label: {
+                Image(systemName: "eraser")
+            }
+            .tint(model.tool == .eraser ? .accentColor : nil)
             Button { model.tool = model.tool == .eyedropper ? .draw : .eyedropper } label: {
                 Image(systemName: "eyedropper")
             }
@@ -145,13 +167,26 @@ struct ContentView: View {
             Button { model.renderer?.fit() } label: {
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
             }
+            Menu {
+                Button("Flip Horizontal") { model.renderer?.flipX.toggle() }
+                Button("Flip Vertical") { model.renderer?.flipY.toggle() }
+            } label: {
+                Image(systemName: "arrow.left.arrow.right")
+            }
             Button { model.clearActiveLayer() } label: { Image(systemName: "trash") }
             Divider().frame(height: 22)
+            Button { model.imageImportRequested = true } label: { Image(systemName: "photo.badge.plus") }
             Button { showOpen = true } label: { Image(systemName: "folder") }
             Button { saveInkaData = model.inkaData() ?? Data(); showSave = true } label: {
                 Image(systemName: "square.and.arrow.down")
             }
-            Button { shareImage = model.exportImage() } label: {
+            Menu {
+                Button("Share PNG") { shareImage = model.exportImage() }
+                Button("Share Layers") {
+                    let urls = model.exportLayerFileURLs()
+                    if !urls.isEmpty { shareURLs = URLShareItem(urls: urls) }
+                }
+            } label: {
                 Image(systemName: "square.and.arrow.up")
             }
         }
@@ -287,12 +322,26 @@ struct InkaSelectionOverlay: View {
                 p.closeSubpath()
                 return p
             }
+            func handleRect(_ c: CGPoint) -> Path {
+                Path(CGRect(x: c.x - 6, y: c.y - 6, width: 12, height: 12))
+            }
             if let b = model.selectionBounds, !model.selectedStrokeIDs.isEmpty {
                 let pth = path(b)
                 ctx.fill(pth, with: .color(.accentColor.opacity(0.08)))
                 ctx.stroke(
                     pth, with: .color(.accentColor),
                     style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
+                let corners = r.viewCorners(ofCanvasRect: b, in: viewSize)
+                for c in corners { ctx.fill(handleRect(c), with: .color(.accentColor)) }
+                if let rc = model.rotateHandleCanvasPoint {
+                    let rv = r.viewPoint(fromCanvas: rc, in: viewSize)
+                    let topMid = CGPoint(x: (corners[0].x + corners[1].x) / 2, y: (corners[0].y + corners[1].y) / 2)
+                    var line = Path()
+                    line.move(to: topMid)
+                    line.addLine(to: rv)
+                    ctx.stroke(line, with: .color(.accentColor), lineWidth: 1)
+                    ctx.fill(Path(ellipseIn: CGRect(x: rv.x - 7, y: rv.y - 7, width: 14, height: 14)), with: .color(.accentColor))
+                }
             }
             if let m = model.marquee {
                 ctx.stroke(
@@ -321,6 +370,11 @@ private struct ShareItem: Identifiable {
     let id = UUID()
     let image: UIImage
     init(_ image: UIImage) { self.image = image }
+}
+
+private struct URLShareItem: Identifiable {
+    let id = UUID()
+    let urls: [URL]
 }
 
 private struct ShareSheet: UIViewControllerRepresentable {

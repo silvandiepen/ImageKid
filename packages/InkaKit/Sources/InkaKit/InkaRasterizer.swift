@@ -35,18 +35,69 @@ public enum InkaRasterizer {
         return ctx.makeImage()
     }
 
+    /// One PNG per visible layer, named `NN-<layer>` (index-prefixed so names
+    /// stay unique and ordered). For "export layers".
+    public static func layerPNGs(_ document: InkaDocument) -> [(name: String, data: Data)] {
+        var out: [(String, Data)] = []
+        for (i, layer) in document.layers.enumerated() where layer.isVisible {
+            guard let cg = render(layer: layer, in: document),
+                let data = InkaImageFit.pngData(cg)
+            else { continue }
+            let safe = layer.name.replacingOccurrences(of: "/", with: "-")
+                .replacingOccurrences(of: ":", with: "-")
+            out.append((String(format: "%02d-%@", i + 1, safe), data))
+        }
+        return out
+    }
+
+    /// The flattened document as PNG data.
+    public static func flattenedPNG(_ document: InkaDocument) -> Data? {
+        guard let cg = flatten(document) else { return nil }
+        return InkaImageFit.pngData(cg)
+    }
+
     /// Render a single layer to an image at the document's size (the raster
     /// cache a `.strokes` layer would keep). Public so the app can re-render one
     /// layer after an edit without flattening the whole stack.
     public static func render(layer: Layer, in document: InkaDocument) -> CGImage? {
         switch layer.content {
         case .strokes(let strokes):
-            var dabs: [Dab] = []
+            // Composite strokes in order so eraser strokes (destination-out)
+            // remove the paint beneath them. Consecutive paint strokes batch
+            // into one render; an eraser flushes the batch, then erases.
+            let w = document.width
+            let h = document.height
+            guard w > 0, h > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
+                let ctx = CGContext(
+                    data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                    space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return nil }
+            let rect = CGRect(x: 0, y: 0, width: w, height: h)
+
+            var batch: [Dab] = []
+            func flush() {
+                guard !batch.isEmpty,
+                    let img = ReferenceRenderer.render(dabs: batch, size: document.size)
+                else { batch = []; return }
+                ctx.setBlendMode(.normal)
+                ctx.draw(img, in: rect)
+                batch = []
+            }
             for stroke in strokes {
                 guard let brush = document.brush(id: stroke.brushID) else { continue }
-                dabs.append(contentsOf: stroke.dabs(using: brush))
+                let dabs = stroke.dabs(using: brush)
+                if stroke.erase {
+                    flush()
+                    guard let img = ReferenceRenderer.render(dabs: dabs, size: document.size)
+                    else { continue }
+                    ctx.setBlendMode(.destinationOut)
+                    ctx.draw(img, in: rect)
+                } else {
+                    batch.append(contentsOf: dabs)
+                }
             }
-            return ReferenceRenderer.render(dabs: dabs, size: document.size)
+            flush()
+            return ctx.makeImage()
         case .raster(let png), .imported(let png):
             return decodePNG(png)
         }

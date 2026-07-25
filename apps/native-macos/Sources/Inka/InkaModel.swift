@@ -14,8 +14,14 @@ import UniformTypeIdentifiers
 /// What a canvas drag does.
 enum InkaTool: Equatable {
     case draw
+    case eraser
     case eyedropper
     case move
+}
+
+/// The move tool's in-flight gesture.
+enum SelectionTransform {
+    case none, marquee, move, scale, rotate
 }
 
 @MainActor
@@ -30,8 +36,13 @@ final class InkaModel: ObservableObject {
     @Published var documentURL: URL?
     /// Bumped so undo/redo menu items refresh.
     @Published private(set) var historyToken = 0
-    /// The active canvas tool (paint, sample a colour, or move a selection).
-    @Published var tool: InkaTool = .draw { didSet { if tool != .move { clearSelection() } } }
+    /// The active canvas tool (paint, erase, sample a colour, or move).
+    @Published var tool: InkaTool = .draw {
+        didSet {
+            if tool != .move { clearSelection() }
+            renderer?.eraseMode = (tool == .eraser)
+        }
+    }
     /// Recently used colours (most-recent first), in-memory for the session.
     @Published private(set) var recentColors: [String] = []
 
@@ -41,8 +52,13 @@ final class InkaModel: ObservableObject {
     @Published private(set) var selectionBounds: CGRect?
     @Published private(set) var marquee: CGRect?
     private var marqueeStart: CGPoint?
-    private var moveLast: CGPoint?
-    private var movingSelection = false
+    // A transform gesture in flight: what it does, the pivot, the grab point, and
+    // the selected strokes' original sample positions (so it rewrites from the
+    // originals each step — no drift).
+    private var transformKind: SelectionTransform = .none
+    private var transformCenter: CGPoint = .zero
+    private var transformStart: CGPoint = .zero
+    private var transformOriginals: [UUID: [CGPoint]] = [:]
 
     let renderer: InkaCanvasRenderer?
 
@@ -266,6 +282,23 @@ final class InkaModel: ObservableObject {
         CGImageDestinationFinalize(dest)
     }
 
+    /// Export the flattened PNG plus one PNG per visible layer into a folder.
+    func exportLayers() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.prompt = "Export Here"
+        panel.message = "Choose a folder for the flattened image and per-layer PNGs."
+        guard panel.runModal() == .OK, let dir = panel.url else { return }
+        let base = documentURL?.deletingPathExtension().lastPathComponent ?? "Inka"
+        if let flat = InkaRasterizer.flattenedPNG(document) {
+            try? flat.write(to: dir.appendingPathComponent("\(base)-flattened.png"))
+        }
+        for layer in InkaRasterizer.layerPNGs(document) {
+            try? layer.data.write(to: dir.appendingPathComponent("\(base)-\(layer.name).png"))
+        }
+    }
+
     func clearActiveLayer() {
         guard document.layers.indices.contains(activeIndex) else { return }
         snapshot()
@@ -318,46 +351,146 @@ final class InkaModel: ObservableObject {
         if recentColors.count > 12 { recentColors.removeLast() }
     }
 
-    // MARK: - Selection & move (move tool)
+    // MARK: - Import image as a layer
 
-    /// A canvas-space drag started: either grab the existing selection to move
-    /// it, or begin a fresh marquee.
+    /// Import an image (via an open panel) as a new `.imported` layer, aspect-fit
+    /// and centred into a canvas-sized PNG so it shows identically on the GPU
+    /// canvas and in export.
+    func importImageFromPanel() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.png, .jpeg, .tiff, .heic, .image]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url,
+            let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+            let cg = CGImageSourceCreateImageAtIndex(src, 0, nil)
+        else { return }
+        importImage(cg)
+    }
+
+    func importImage(_ cg: CGImage) {
+        guard let png = InkaImageFit.fitToCanvasPNG(cg, width: document.width, height: document.height)
+        else { return }
+        snapshot()
+        let layer = Layer(name: "Image \(document.layers.count + 1)", content: .imported(png))
+        document.layers.insert(layer, at: min(activeIndex + 1, document.layers.count))
+        activeLayerID = layer.id
+        rebuild()
+    }
+
+    // MARK: - Selection & transform (move tool)
+
+    /// Grab radius / rotate-handle offset in canvas units (constant on screen).
+    private var canvasScale: CGFloat {
+        let s = renderer?.scale(in: renderer?.viewSize ?? .zero) ?? 1
+        return s > 0 ? s : 1
+    }
+    private var grabRadiusCanvas: CGFloat { 13 / canvasScale }
+    private var rotateHandleOffsetCanvas: CGFloat { 32 / canvasScale }
+
+    /// The rotate handle's canvas point (above the selection's top edge), for the
+    /// overlay and hit-testing. Nil when there is no selection.
+    var rotateHandleCanvasPoint: CGPoint? {
+        guard let b = selectionBounds else { return nil }
+        return CGPoint(x: b.midX, y: b.minY - rotateHandleOffsetCanvas)
+    }
+
+    /// A canvas-space drag started: grab a handle (move / scale / rotate) on the
+    /// current selection, or begin a fresh marquee.
     func selectionBegin(at p: CGPoint) {
-        if !selectedStrokeIDs.isEmpty, let b = selectionBounds, b.contains(p) {
-            movingSelection = true
-            moveLast = p
-            snapshot()  // one undo step covers the whole move
-        } else {
-            movingSelection = false
-            marqueeStart = p
-            marquee = CGRect(origin: p, size: .zero)
-            selectedStrokeIDs = []
-            selectionBounds = nil
-        }
+        guard !selectedStrokeIDs.isEmpty, let b = selectionBounds else { startMarquee(p); return }
+        let kind = handle(at: p, bounds: b)
+        if kind == .marquee { startMarquee(p); return }
+        transformKind = kind
+        transformStart = p
+        transformCenter = CGPoint(x: b.midX, y: b.midY)
+        captureOriginals()
+        snapshot()  // one undo step for the whole transform
+    }
+
+    private func startMarquee(_ p: CGPoint) {
+        transformKind = .marquee
+        marqueeStart = p
+        marquee = CGRect(origin: p, size: .zero)
+        selectedStrokeIDs = []
+        selectionBounds = nil
+    }
+
+    private func handle(at p: CGPoint, bounds b: CGRect) -> SelectionTransform {
+        let g = grabRadiusCanvas
+        if let rh = rotateHandleCanvasPoint, hypot(p.x - rh.x, p.y - rh.y) <= g { return .rotate }
+        let corners = [
+            CGPoint(x: b.minX, y: b.minY), CGPoint(x: b.maxX, y: b.minY),
+            CGPoint(x: b.maxX, y: b.maxY), CGPoint(x: b.minX, y: b.maxY),
+        ]
+        if corners.contains(where: { hypot($0.x - p.x, $0.y - p.y) <= g }) { return .scale }
+        if b.insetBy(dx: -g / 2, dy: -g / 2).contains(p) { return .move }
+        return .marquee
     }
 
     func selectionUpdate(to p: CGPoint) {
-        if movingSelection {
-            guard let last = moveLast else { return }
-            translateSelection(dx: p.x - last.x, dy: p.y - last.y)
-            moveLast = p
-        } else if let start = marqueeStart {
+        let c = transformCenter
+        switch transformKind {
+        case .marquee:
+            guard let start = marqueeStart else { return }
             marquee = CGRect(
                 x: min(start.x, p.x), y: min(start.y, p.y),
                 width: abs(p.x - start.x), height: abs(p.y - start.y))
+        case .move:
+            let dx = p.x - transformStart.x, dy = p.y - transformStart.y
+            applyFromOriginals { CGPoint(x: $0.x + dx, y: $0.y + dy) }
+        case .scale:
+            let d0 = max(1e-3, hypot(transformStart.x - c.x, transformStart.y - c.y))
+            let f = max(0.05, min(20, hypot(p.x - c.x, p.y - c.y) / d0))
+            applyFromOriginals { CGPoint(x: c.x + ($0.x - c.x) * f, y: c.y + ($0.y - c.y) * f) }
+        case .rotate:
+            let a = atan2(p.y - c.y, p.x - c.x) - atan2(transformStart.y - c.y, transformStart.x - c.x)
+            let ca = cos(a), sa = sin(a)
+            applyFromOriginals {
+                let dx = $0.x - c.x, dy = $0.y - c.y
+                return CGPoint(x: c.x + dx * ca - dy * sa, y: c.y + dx * sa + dy * ca)
+            }
+        case .none:
+            break
         }
     }
 
     func selectionEnd() {
-        if movingSelection {
-            movingSelection = false
-            moveLast = nil
-            recomputeSelectionBounds()
-        } else if let rect = marquee {
+        if transformKind == .marquee, let rect = marquee {
             selectStrokes(in: rect)
             marquee = nil
             marqueeStart = nil
+        } else {
+            recomputeSelectionBounds()
         }
+        transformKind = .none
+        transformOriginals = [:]
+    }
+
+    /// Capture the selected strokes' sample positions so a transform rewrites
+    /// from the originals each step (no compounding drift).
+    private func captureOriginals() {
+        transformOriginals = [:]
+        guard document.layers.indices.contains(activeIndex),
+            case .strokes(let strokes) = document.layers[activeIndex].content
+        else { return }
+        for st in strokes where selectedStrokeIDs.contains(st.id) {
+            transformOriginals[st.id] = st.input.samples.map(\.position)
+        }
+    }
+
+    private func applyFromOriginals(_ f: (CGPoint) -> CGPoint) {
+        guard document.layers.indices.contains(activeIndex),
+            case .strokes(var strokes) = document.layers[activeIndex].content
+        else { return }
+        for k in strokes.indices where selectedStrokeIDs.contains(strokes[k].id) {
+            guard let orig = transformOriginals[strokes[k].id] else { continue }
+            for i in strokes[k].input.samples.indices where i < orig.count {
+                strokes[k].input.samples[i].position = f(orig[i])
+            }
+        }
+        document.layers[activeIndex].content = .strokes(strokes)
+        recomputeSelectionBounds()
+        rebuild()
     }
 
     /// Nudge the selection by whole canvas pixels (arrow keys).
@@ -384,7 +517,8 @@ final class InkaModel: ObservableObject {
         selectionBounds = nil
         marquee = nil
         marqueeStart = nil
-        movingSelection = false
+        transformKind = .none
+        transformOriginals = [:]
     }
 
     private func translateSelection(dx: CGFloat, dy: CGFloat) {
