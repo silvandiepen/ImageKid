@@ -138,6 +138,28 @@ final class InkaCanvasRenderer: NSObject, MTKViewDelegate {
     /// The committed canvas as a CGImage (for export / hand-off to the model).
     func committedImage() -> CGImage? { BrushCompositor.cgImage(from: committed) }
 
+    /// Read one committed pixel (canvas space, top-left origin) as `RGBA`. The
+    /// committed texture is `.shared`, so this is a direct CPU read. Returns nil
+    /// if the point is outside the canvas.
+    func sampleColor(at p: CGPoint) -> RGBA? {
+        let x = Int(p.x.rounded(.down))
+        let y = Int(p.y.rounded(.down))
+        guard x >= 0, y >= 0, x < committed.width, y < committed.height else { return nil }
+        var px = [UInt8](repeating: 0, count: 4)
+        committed.getBytes(
+            &px, bytesPerRow: 4,
+            from: MTLRegionMake2D(x, y, 1, 1), mipmapLevel: 0)
+        // rgba8Unorm, premultiplied — un-premultiply so the eyedropper reports
+        // the drawn colour, not the paper-blended one.
+        let a = Double(px[3]) / 255
+        guard a > 0 else { return RGBA(r: 0, g: 0, b: 0, a: 0) }
+        return RGBA(
+            r: min(1, Double(px[0]) / 255 / a),
+            g: min(1, Double(px[1]) / 255 / a),
+            b: min(1, Double(px[2]) / 255 / a),
+            a: a)
+    }
+
     // MARK: - Canvas transform (points)
 
     /// Points-per-canvas-pixel at the current zoom (fit × zoom).

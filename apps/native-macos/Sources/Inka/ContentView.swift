@@ -104,6 +104,17 @@ struct ContentView: View {
                             onDragChanged: { dock.dragChanged(.brush, translation: $0, in: size) },
                             onDragEnded: { _ in dock.dragEnded(.brush, in: size) })
                     }
+                    if dock.model.isExpanded(.colours) {
+                        InkaColoursPanel(
+                            model: model, offset: dock.offsetBinding(.colours, in: size),
+                            size: dock.model.sizeBinding(.colours),
+                            onMinimize: { dock.model.minimize(.colours) },
+                            stackEdges: dock.model.stackEdges(of: .colours),
+                            dockEdges: dock.model.dockEdges(of: .colours, in: size),
+                            isStackFollower: dock.model.isStackFollower(.colours),
+                            onDragChanged: { dock.dragChanged(.colours, translation: $0, in: size) },
+                            onDragEnded: { _ in dock.dragEnded(.colours, in: size) })
+                    }
                     if dock.model.isExpanded(.layers) {
                         InkaLayersPanel(
                             model: model, offset: dock.offsetBinding(.layers, in: size),
@@ -145,7 +156,7 @@ struct ContentView: View {
         guard size.width > 0, !UserDefaults.standard.bool(forKey: key) else { return }
         let x = size.width - InkaPanel.panelWidth - PanelPlacement.margin
         var y: CGFloat = 8
-        for panel in [InkaPanel.brushes, .brush, .layers] {
+        for panel in [InkaPanel.brushes, .brush, .colours, .layers] {
             dock.model.setPosition(panel, to: CGSize(width: x, height: y), in: size)
             y += dock.model.size(panel).height + PanelPlacement.gap
         }
@@ -166,6 +177,11 @@ struct ContentView: View {
             Divider().frame(height: 20)
 
             ColorPicker("", selection: $model.color, supportsOpacity: false).labelsHidden()
+            Button { model.tool = model.tool == .eyedropper ? .draw : .eyedropper } label: {
+                Image(systemName: "eyedropper")
+            }
+            .tint(model.tool == .eyedropper ? .accentColor : nil)
+            .help("Eyedropper — pick a colour off the canvas")
             HStack(spacing: 6) {
                 Image(systemName: "circle.fill").font(.system(size: 8))
                 Slider(value: sizeBinding, in: 1...200).frame(width: 120)

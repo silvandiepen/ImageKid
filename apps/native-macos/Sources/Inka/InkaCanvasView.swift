@@ -56,9 +56,31 @@ struct InkaCanvasView: NSViewRepresentable {
                 position: canvas, pressure: pressure, timestamp: event.timestamp)
         }
 
-        func begin(_ e: NSEvent, in v: NSView) { model.renderer?.beginStroke(at: sample(for: e, in: v)) }
-        func drag(_ e: NSEvent, in v: NSView) { model.renderer?.extendStroke(to: sample(for: e, in: v)) }
-        func end(_ e: NSEvent, in v: NSView) { model.renderer?.endStroke() }
+        /// True while the current gesture is an eyedropper pick (not a stroke).
+        private var picking = false
+
+        func begin(_ e: NSEvent, in v: NSView) {
+            let s = sample(for: e, in: v)
+            if model.tool == .eyedropper {
+                picking = true
+                model.pickColor(at: s.position)
+                return
+            }
+            picking = false
+            model.renderer?.beginStroke(at: s)
+        }
+        func drag(_ e: NSEvent, in v: NSView) {
+            if picking {
+                // Scrub to keep sampling under the cursor until release.
+                model.pickColor(at: sample(for: e, in: v).position)
+                return
+            }
+            model.renderer?.extendStroke(to: sample(for: e, in: v))
+        }
+        func end(_ e: NSEvent, in v: NSView) {
+            if picking { picking = false; return }
+            model.renderer?.endStroke()
+        }
 
         func pan(by delta: CGSize) {
             model.renderer?.offset.width += delta.width

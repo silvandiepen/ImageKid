@@ -11,6 +11,12 @@ import UniformTypeIdentifiers
 /// recorded onto the active layer (the non-destructive vector half of the
 /// hybrid); the renderer's committed texture is rebuilt from the document after
 /// every change, which is what makes undo, layer visibility and opacity work.
+/// What a canvas drag does.
+enum InkaTool: Equatable {
+    case draw
+    case eyedropper
+}
+
 @MainActor
 final class InkaModel: ObservableObject {
     @Published var document: InkaDocument
@@ -23,6 +29,10 @@ final class InkaModel: ObservableObject {
     @Published var documentURL: URL?
     /// Bumped so undo/redo menu items refresh.
     @Published private(set) var historyToken = 0
+    /// The active canvas tool (paint, or sample a colour off the canvas).
+    @Published var tool: InkaTool = .draw
+    /// Recently used colours (most-recent first), in-memory for the session.
+    @Published private(set) var recentColors: [String] = []
 
     let renderer: InkaCanvasRenderer?
 
@@ -71,6 +81,7 @@ final class InkaModel: ObservableObject {
 
     private func record(_ stroke: BrushStroke) {
         snapshot()
+        pushRecent(stroke.color.hex)
         let i = strokeTargetIndex()
         if case .strokes(var strokes) = document.layers[i].content {
             strokes.append(stroke)
@@ -252,6 +263,49 @@ final class InkaModel: ObservableObject {
             document.layers[activeIndex].content = .strokes([])
         }
         rebuild()
+    }
+
+    // MARK: - Colour & palette
+
+    /// Set the working colour from an engine `RGBA` (eyedropper / swatch) and
+    /// record it in the recents.
+    func setColor(_ rgba: RGBA) {
+        color = rgba.color
+        pushRecent(rgba.hex)
+    }
+
+    /// Sample the committed canvas at a canvas point and adopt that colour.
+    /// Returns false if the point missed the canvas or read transparent.
+    @discardableResult
+    func pickColor(at canvasPoint: CGPoint) -> Bool {
+        guard let rgba = renderer?.sampleColor(at: canvasPoint), rgba.a > 0.01 else { return false }
+        setColor(RGBA(r: rgba.r, g: rgba.g, b: rgba.b))
+        tool = .draw  // one-shot, like most editors
+        return true
+    }
+
+    func addCurrentSwatch() {
+        let hex = currentColorRGBA.hex
+        guard !document.palette.contains(hex) else { return }
+        snapshot()
+        document.palette.append(hex)
+    }
+
+    func removeSwatch(_ hex: String) {
+        guard let i = document.palette.firstIndex(of: hex) else { return }
+        snapshot()
+        document.palette.remove(at: i)
+    }
+
+    func selectSwatch(_ hex: String) {
+        guard let rgba = RGBA(hex: hex) else { return }
+        setColor(rgba)
+    }
+
+    private func pushRecent(_ hex: String) {
+        recentColors.removeAll { $0 == hex }
+        recentColors.insert(hex, at: 0)
+        if recentColors.count > 12 { recentColors.removeLast() }
     }
 
     // MARK: - .inkbrush import / export
