@@ -246,17 +246,26 @@ struct InkaSelectionOverlay: View {
     var body: some View {
         Canvas { ctx, _ in
             guard let r = model.renderer else { return }
+            // Selection / marquee rects are axis-aligned in canvas space, so on a
+            // rotated canvas they draw as rotated quads through the four corners.
+            func path(_ rect: CGRect) -> Path {
+                let c = r.viewCorners(ofCanvasRect: rect, in: viewSize)
+                var p = Path()
+                p.move(to: c[0])
+                p.addLine(to: c[1]); p.addLine(to: c[2]); p.addLine(to: c[3])
+                p.closeSubpath()
+                return p
+            }
             if let b = model.selectionBounds, !model.selectedStrokeIDs.isEmpty {
-                let rect = r.viewRect(fromCanvas: b, in: viewSize)
+                let pth = path(b)
+                ctx.fill(pth, with: .color(.accentColor.opacity(0.08)))
                 ctx.stroke(
-                    Path(rect), with: .color(.accentColor),
+                    pth, with: .color(.accentColor),
                     style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
-                ctx.fill(Path(rect), with: .color(.accentColor.opacity(0.08)))
             }
             if let m = model.marquee {
-                let rect = r.viewRect(fromCanvas: m, in: viewSize)
                 ctx.stroke(
-                    Path(rect), with: .color(.white.opacity(0.9)),
+                    path(m), with: .color(.white.opacity(0.9)),
                     style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
             }
         }

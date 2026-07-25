@@ -49,6 +49,8 @@ final class InputMTKView: MTKView, UIGestureRecognizerDelegate {
     private var pinchStartZoom: CGFloat = 1
     /// Offset captured at the start of a two-finger pan.
     private var panStartOffset: CGSize = .zero
+    /// Rotation captured at the start of a two-finger rotate.
+    private var rotateStart: CGFloat = 0
 
     func installGestures() {
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch))
@@ -60,6 +62,10 @@ final class InputMTKView: MTKView, UIGestureRecognizerDelegate {
         pan.maximumNumberOfTouches = 2
         pan.delegate = self
         addGestureRecognizer(pan)
+
+        let rotate = UIRotationGestureRecognizer(target: self, action: #selector(handleRotate))
+        rotate.delegate = self
+        addGestureRecognizer(rotate)
 
         let undoTap = UITapGestureRecognizer(target: self, action: #selector(handleUndoTap))
         undoTap.numberOfTouchesRequired = 2
@@ -166,6 +172,19 @@ final class InputMTKView: MTKView, UIGestureRecognizerDelegate {
         case .changed:
             let t = g.translation(in: self)
             r.offset = CGSize(width: panStartOffset.width + t.x, height: panStartOffset.height + t.y)
+        default:
+            break
+        }
+    }
+
+    @objc private func handleRotate(_ g: UIRotationGestureRecognizer) {
+        guard let r = model?.renderer else { return }
+        switch g.state {
+        case .began:
+            rotateStart = r.rotation
+            if drawingTouch != nil { r.cancelStroke(); drawingTouch = nil }
+        case .changed:
+            r.rotation = rotateStart + g.rotation
         default:
             break
         }

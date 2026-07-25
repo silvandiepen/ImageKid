@@ -29,9 +29,11 @@ final class InkaCanvasRenderer: NSObject, MTKViewDelegate {
     var brush: Brush = BrushLibrary.inkPen
     var color: RGBA = RGBA(r: 0.1, g: 0.12, b: 0.16)
 
-    /// View transform (points): fit is zoom 1; `zoom`/`offset` pan and scale.
+    /// View transform (points): fit is zoom 1; `zoom` scales, `offset` pans,
+    /// `rotation` (radians) spins the canvas about its centre.
     var zoom: CGFloat = 1
     var offset: CGSize = .zero
+    var rotation: CGFloat = 0
     /// The MTKView's point size, set by the view each layout — drives the fit.
     var viewSize: CGSize = .zero
 
@@ -160,7 +162,7 @@ final class InkaCanvasRenderer: NSObject, MTKViewDelegate {
             a: a)
     }
 
-    // MARK: - Canvas transform (points)
+    // MARK: - Canvas transform (points) — pan + zoom + rotate about the centre
 
     /// Points-per-canvas-pixel at the current zoom (fit × zoom).
     func scale(in view: CGSize) -> CGFloat {
@@ -171,43 +173,50 @@ final class InkaCanvasRenderer: NSObject, MTKViewDelegate {
         return fit * zoom
     }
 
-    /// The canvas's on-screen rect in view points.
-    func canvasRect(in view: CGSize) -> CGRect {
+    /// The canvas centre on screen (view points): view centre + pan.
+    private func screenCenter(in view: CGSize) -> CGPoint {
+        CGPoint(x: view.width / 2 + offset.width, y: view.height / 2 + offset.height)
+    }
+
+    /// Canvas point (top-left origin) → view point (top-left origin).
+    func viewPoint(fromCanvas p: CGPoint, in view: CGSize) -> CGPoint {
         let s = scale(in: view)
-        let w = canvasSize.width * s
-        let h = canvasSize.height * s
-        let x = (view.width - w) / 2 + offset.width
-        let y = (view.height - h) / 2 + offset.height
-        return CGRect(x: x, y: y, width: w, height: h)
+        let c = screenCenter(in: view)
+        // Centre-relative, scaled, rotated, then placed at the screen centre.
+        let lx = (p.x - canvasSize.width / 2) * s
+        let ly = (p.y - canvasSize.height / 2) * s
+        let cosT = cos(rotation), sinT = sin(rotation)
+        return CGPoint(x: c.x + lx * cosT - ly * sinT, y: c.y + lx * sinT + ly * cosT)
     }
 
     /// View point (top-left origin) → canvas pixel (top-left origin).
     func canvasPoint(from viewPoint: CGPoint, in view: CGSize) -> CGPoint {
-        let rect = canvasRect(in: view)
         let s = scale(in: view)
         guard s > 0 else { return .zero }
-        return CGPoint(x: (viewPoint.x - rect.minX) / s, y: (viewPoint.y - rect.minY) / s)
+        let c = screenCenter(in: view)
+        let dx = viewPoint.x - c.x, dy = viewPoint.y - c.y
+        // Un-rotate, then un-scale, then un-centre.
+        let cosT = cos(rotation), sinT = sin(rotation)
+        let lx = dx * cosT + dy * sinT
+        let ly = -dx * sinT + dy * cosT
+        return CGPoint(x: lx / s + canvasSize.width / 2, y: ly / s + canvasSize.height / 2)
     }
 
-    /// Canvas point (top-left) → view point (top-left) — the inverse of
-    /// `canvasPoint(from:in:)`, for drawing selection overlays.
-    func viewPoint(fromCanvas p: CGPoint, in view: CGSize) -> CGPoint {
-        let rect = canvasRect(in: view)
-        let s = scale(in: view)
-        return CGPoint(x: rect.minX + p.x * s, y: rect.minY + p.y * s)
+    /// The four canvas corners as view points (top-left origin), for overlays.
+    func viewCorners(ofCanvasRect r: CGRect, in view: CGSize) -> [CGPoint] {
+        [
+            viewPoint(fromCanvas: CGPoint(x: r.minX, y: r.minY), in: view),
+            viewPoint(fromCanvas: CGPoint(x: r.maxX, y: r.minY), in: view),
+            viewPoint(fromCanvas: CGPoint(x: r.maxX, y: r.maxY), in: view),
+            viewPoint(fromCanvas: CGPoint(x: r.minX, y: r.maxY), in: view),
+        ]
     }
 
-    /// Canvas rect → view rect (for the marquee / selection outline).
-    func viewRect(fromCanvas r: CGRect, in view: CGSize) -> CGRect {
-        let s = scale(in: view)
-        let o = viewPoint(fromCanvas: r.origin, in: view)
-        return CGRect(x: o.x, y: o.y, width: r.width * s, height: r.height * s)
-    }
-
-    /// Fit the canvas to the view (reset zoom/pan).
+    /// Fit the canvas to the view (reset zoom / pan / rotation).
     func fit() {
         zoom = 1
         offset = .zero
+        rotation = 0
     }
 
     // MARK: - MTKViewDelegate
@@ -225,25 +234,28 @@ final class InkaCanvasRenderer: NSObject, MTKViewDelegate {
         guard let encoder = cmd.makeRenderCommandEncoder(descriptor: pass) else { return }
 
         let vp = viewSize == .zero ? view.bounds.size : viewSize
-        let rect = canvasRect(in: vp)
-        let ndc = clipRect(rect, in: vp)
+        let quad = canvasQuad(in: vp)
         // Paper (white), then the document, then the live stroke.
-        blitter.fill(encoder: encoder, rect: ndc, color: SIMD4(1, 1, 1, 1))
-        blitter.draw(encoder: encoder, textures: [committed, live], rect: ndc)
+        blitter.fill(encoder: encoder, quad: quad, color: SIMD4(1, 1, 1, 1))
+        blitter.draw(encoder: encoder, textures: [committed, live], quad: quad)
         encoder.endEncoding()
         cmd.present(drawable)
         cmd.commit()
     }
 
-    /// A view-point rect (top-left origin) → clip-space `Rect` (bottom-left, −1…1).
-    private func clipRect(_ r: CGRect, in view: CGSize) -> FullscreenBlitter.Rect {
-        guard view.width > 0, view.height > 0 else { return .init(x: -1, y: -1, w: 2, h: 2) }
-        let x = Float(r.minX / view.width * 2 - 1)
-        // Flip Y: view top-left → clip bottom-left.
-        let yTop = Float(1 - r.minY / view.height * 2)
-        let h = Float(r.height / view.height * 2)
-        return FullscreenBlitter.Rect(
-            x: x, y: yTop - h, w: Float(r.width / view.width * 2), h: h)
+    /// The canvas's four corners in clip space (−1…1), rotated with the canvas.
+    private func canvasQuad(in view: CGSize) -> FullscreenBlitter.Quad {
+        func clip(_ p: CGPoint) -> SIMD2<Float> {
+            guard view.width > 0, view.height > 0 else { return SIMD2(0, 0) }
+            return SIMD2(
+                Float(p.x / view.width * 2 - 1),
+                Float(1 - p.y / view.height * 2))  // view top-left → clip bottom-left
+        }
+        let tl = viewPoint(fromCanvas: CGPoint(x: 0, y: 0), in: view)
+        let tr = viewPoint(fromCanvas: CGPoint(x: canvasSize.width, y: 0), in: view)
+        let bl = viewPoint(fromCanvas: CGPoint(x: 0, y: canvasSize.height), in: view)
+        let br = viewPoint(fromCanvas: CGPoint(x: canvasSize.width, y: canvasSize.height), in: view)
+        return FullscreenBlitter.Quad(tl: clip(tl), tr: clip(tr), bl: clip(bl), br: clip(br))
     }
 
     private lazy var blitter = FullscreenBlitter(device: device)
