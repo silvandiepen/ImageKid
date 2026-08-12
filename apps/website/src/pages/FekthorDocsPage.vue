@@ -12,7 +12,7 @@
       <p :class="bemm('lede')">A vector editor built around icon sets, with image tracing built in. Fekthor is local-first: it ships without a network entitlement, so nothing it does can reach the internet.</p>
 
       <figure :class="bemm('figure')">
-        <img :class="bemm('shot')" src="/media/fekthor/home.jpg" alt="Fekthor's home screen with New File, New Workspace and Open File." loading="lazy" />
+        <img :class="bemm('shot')" src="/media/fekthor/home.jpg" alt="Fekthor's home screen with New File, New Workspace and Open File." width="2000" height="1378" loading="lazy" decoding="async" />
         <figcaption :class="bemm('caption')">Three ways in: a single file, a workspace, or an existing SVG.</figcaption>
       </figure>
 

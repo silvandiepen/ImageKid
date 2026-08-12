@@ -18,6 +18,8 @@
         const theme = mode === "auto" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : mode;
         document.documentElement.dataset.colorMode = mode;
         document.documentElement.dataset.theme = theme;
+        const meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.content = theme === "dark" ? "#151820" : "#f8f8f6";
       })();
     </script>
     <title>ImageKid — Local image tools for Mac</title>

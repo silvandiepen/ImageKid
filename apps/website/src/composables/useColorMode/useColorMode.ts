@@ -29,9 +29,19 @@ const prefersDark = ref(globalThis.matchMedia?.("(prefers-color-scheme: dark)").
 
 const theme = computed<ResolvedTheme>(() => mode.value === "auto" ? (prefersDark.value ? "dark" : "light") : mode.value);
 
+// Mobile browsers paint their own chrome from this, so it has to follow the
+// resolved theme rather than sit on the light ground it was authored against.
+const themeColors: Record<ResolvedTheme, string> = { light: "#f8f8f6", dark: "#151820" };
+
+function applyThemeColor(): void {
+  const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+  if (meta) meta.content = themeColors[theme.value];
+}
+
 function apply(): void {
   document.documentElement.dataset.colorMode = mode.value;
   document.documentElement.dataset.theme = theme.value;
+  applyThemeColor();
 }
 
 function setMode(value: ColorMode): void {

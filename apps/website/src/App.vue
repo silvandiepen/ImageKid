@@ -36,6 +36,7 @@ const navItems: PillHeaderNavItem[] = [
   { label: "Apps", to: "/#apps" },
   { label: "ImageKid", to: "/imagekid" },
   { label: "Fekthor", to: "/fekthor" },
+  { label: "Inka", to: "/inka" },
   { label: "Docs", to: "/docs" },
   { label: "Support", to: "/support" }
 ];
