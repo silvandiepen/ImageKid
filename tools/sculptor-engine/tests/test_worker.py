@@ -25,7 +25,12 @@ from sculptor_engine.engines.base import (
     OutOfMemory,
     ReconstructionEngine,
 )
-from sculptor_engine.protocol import GenerateOptions, GenerateRequest, Stage
+from sculptor_engine.protocol import (
+    AnalyseRequest,
+    GenerateOptions,
+    GenerateRequest,
+    Stage,
+)
 from sculptor_engine.worker import Emitter, Worker
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -238,6 +243,81 @@ class TestCancellation:
         worker.run(make_request(source_image, tmp_path / "w2"))
 
         assert len(emitter.of_type("result")) == 1
+
+
+class TestAnalysis:
+    """Rating a source image without reconstructing it.
+
+    The point is that a user learns a flag or a cropped subject is a poor
+    candidate on import, rather than after waiting out a generation.
+    """
+
+    def test_rates_a_clean_cutout_as_good(self, source_image, tmp_path):
+        emitter = RecordingEmitter()
+        Worker(BoxEngine(), emitter).analyse(
+            AnalyseRequest(requestId="a1", sourcePath=str(source_image))
+        )
+
+        messages = emitter.of_type("analysis")
+        assert len(messages) == 1
+        assert messages[0]["requestId"] == "a1"
+        assert messages[0]["suitability"] == "good"
+        assert messages[0]["hadMask"] is True
+        assert messages[0]["notes"] == []
+
+    def test_rates_an_image_without_a_subject_as_poor(self, tmp_path):
+        # A flag: opaque everywhere, nothing to isolate. This is the case the
+        # badge exists for, since it cannot reconstruct usefully.
+        flat = tmp_path / "flag.png"
+        Image.new("RGBA", (400, 400), (180, 30, 40, 255)).save(flat)
+
+        emitter = RecordingEmitter()
+        Worker(BoxEngine(), emitter).analyse(
+            AnalyseRequest(requestId="a2", sourcePath=str(flat))
+        )
+
+        message = emitter.of_type("analysis")[0]
+        assert message["suitability"] == "poor"
+        assert message["hadMask"] is False
+        assert message["notes"], "a poor rating must explain itself"
+
+    def test_flags_a_subject_touching_the_frame_edge(self, tmp_path):
+        cropped = tmp_path / "cropped.png"
+        image = Image.new("RGBA", (400, 400), (0, 0, 0, 0))
+        image.paste(Image.new("RGBA", (200, 200), (10, 200, 90, 255)), (0, 100))
+        image.save(cropped)
+
+        emitter = RecordingEmitter()
+        Worker(BoxEngine(), emitter).analyse(
+            AnalyseRequest(requestId="a3", sourcePath=str(cropped))
+        )
+
+        message = emitter.of_type("analysis")[0]
+        assert message["touchesEdge"] is True
+        assert message["suitability"] != "good"
+
+    def test_reports_a_corrupt_image_rather_than_a_rating(self, tmp_path):
+        broken = tmp_path / "broken.png"
+        broken.write_bytes(b"not an image")
+
+        emitter = RecordingEmitter()
+        Worker(BoxEngine(), emitter).analyse(
+            AnalyseRequest(requestId="a4", sourcePath=str(broken))
+        )
+
+        assert emitter.of_type("analysis") == []
+        assert emitter.of_type("error")[0]["code"] == "corruptImage"
+
+    def test_analysis_never_runs_the_engine(self, source_image):
+        # It must stay cheap; touching the engine would make it slow and could
+        # fail with modelNotInstalled for what is only a rating.
+        engine = BoxEngine(raises=AssertionError("engine must not be used"))
+        emitter = RecordingEmitter()
+        Worker(engine, emitter).analyse(
+            AnalyseRequest(requestId="a5", sourcePath=str(source_image))
+        )
+        assert engine.received is None
+        assert emitter.of_type("analysis")
 
 
 class TestServeProtocolHygiene:

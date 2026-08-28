@@ -59,6 +59,9 @@ public actor SculptorWorker {
     /// Continuations for the job currently running, keyed by job id.
     private var activeJobs: [String: AsyncThrowingStream<SculptorEvent, Error>.Continuation] = [:]
 
+    /// Waiters for in-flight analyse requests, keyed by request id.
+    private var analyses: [String: CheckedContinuation<AnalysisMessage, Error>] = [:]
+
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
@@ -197,13 +200,23 @@ public actor SculptorWorker {
             continuation.yield(.finished(result))
             continuation.finish()
 
+        case .analysis(let analysis):
+            analyses.removeValue(forKey: analysis.requestId)?.resume(returning: analysis)
+
         case .failure(let failure):
             let error = SculptorWorkerError.reported(
                 failure.code, failure.message, recoverable: failure.recoverable
             )
-            // A malformed-request error carries no job id; fail everything
-            // rather than leave a job hanging forever.
+            // Errors from an analyse carry no job id, and neither does a
+            // malformed request. Fail any waiting analysis first, then jobs,
+            // rather than leaving either hanging forever.
             guard let jobId = failure.jobId else {
+                if !analyses.isEmpty {
+                    let waiting = analyses
+                    analyses.removeAll()
+                    for (_, continuation) in waiting { continuation.resume(throwing: error) }
+                    return
+                }
                 failAllJobs(with: error)
                 return
             }
@@ -226,6 +239,10 @@ public actor SculptorWorker {
         let jobs = activeJobs
         activeJobs.removeAll()
         for (_, continuation) in jobs { continuation.finish(throwing: error) }
+
+        let waiting = analyses
+        analyses.removeAll()
+        for (_, continuation) in waiting { continuation.resume(throwing: error) }
     }
 
     /// Stops the worker. Safe to call more than once.
@@ -265,6 +282,24 @@ public actor SculptorWorker {
         continuation: AsyncThrowingStream<SculptorEvent, Error>.Continuation
     ) {
         activeJobs[jobId] = continuation
+    }
+
+    /// Rates a source image without reconstructing it.
+    ///
+    /// Answered on the worker's reader thread, so it returns promptly even
+    /// while a generation is running.
+    public func analyse(_ request: AnalyseRequest) async throws -> AnalysisMessage {
+        let ready = try await start()
+        // Analysis is engine-free, so an uninstalled model must not block it —
+        // knowing an image is a poor candidate is most useful *before* the
+        // user has gone and downloaded gigabytes of weights.
+        _ = ready
+
+        let data = try encoder.encode(request)
+        return try await withCheckedThrowingContinuation { continuation in
+            analyses[request.requestId] = continuation
+            writeLine(data)
+        }
     }
 
     /// Asks the worker to stop a job. Cancellation lands at the next stage

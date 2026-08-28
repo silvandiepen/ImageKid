@@ -38,6 +38,7 @@ from .engines import (
     create_engine,
 )
 from .protocol import (
+    AnalyseRequest,
     CancelRequest,
     ErrorCode,
     GenerateOptions,
@@ -46,6 +47,7 @@ from .protocol import (
     ResultArtifacts,
     ShutdownRequest,
     Stage,
+    analysis_message,
     decode_request,
     error_message,
     progress_message,
@@ -240,11 +242,58 @@ class Worker:
         log(f"{job_id}: {code.value}: {message}")
         self._emit.send(error_message(job_id, code, message))
 
+    # -- analysis -----------------------------------------------------------
+
+    def analyse(self, request: AnalyseRequest) -> None:
+        """Rate a source image without reconstructing it.
+
+        Runs on the reader thread rather than the job queue: it never touches
+        the engine and takes milliseconds, so it must not wait behind a
+        generation the user is still watching.
+        """
+
+        try:
+            image = imageprep.load_source(request.sourcePath)
+            mask = imageprep.resolve_mask(image, request.maskPath)
+            box = imageprep.subject_box(image, mask)
+            verdict, notes, coverage, touches_edge = imageprep.assess(image, mask, box)
+        except imageprep.UnsupportedImage as exc:
+            self._emit.send(
+                error_message(None, ErrorCode.UNSUPPORTED_IMAGE, str(exc))
+            )
+            return
+        except (imageprep.CorruptImage, imageprep.NoForegroundFound) as exc:
+            code = (
+                ErrorCode.CORRUPT_IMAGE
+                if isinstance(exc, imageprep.CorruptImage)
+                else ErrorCode.NO_FOREGROUND_FOUND
+            )
+            self._emit.send(error_message(None, code, str(exc)))
+            return
+        except Exception as exc:
+            log(f"analyse {request.requestId}: {type(exc).__name__}: {exc}")
+            self._emit.send(
+                error_message(None, ErrorCode.INTERNAL_ERROR, str(exc))
+            )
+            return
+
+        self._emit.send(
+            analysis_message(
+                request.requestId,
+                verdict.value,
+                notes,
+                mask is not None,
+                coverage,
+                touches_edge,
+            )
+        )
+
 
 def _reader(
     stream: TextIO,
     jobs: "queue.Queue[GenerateRequest | ShutdownRequest]",
     on_cancel: Callable[[str], None],
+    on_analyse: Callable[[AnalyseRequest], None],
     emitter: Emitter,
 ) -> None:
     """Read requests off stdin.
@@ -267,6 +316,10 @@ def _reader(
                 continue
             if isinstance(request, CancelRequest):
                 on_cancel(request.jobId)
+            elif isinstance(request, AnalyseRequest):
+                # Cheap and engine-free, so it is answered here rather than
+                # queued behind a generation in progress.
+                on_analyse(request)
             else:
                 jobs.put(request)
                 if isinstance(request, ShutdownRequest):
@@ -303,7 +356,7 @@ def serve(engine_name: str = DEFAULT_ENGINE, **engine_kwargs) -> int:
     jobs: "queue.Queue[GenerateRequest | ShutdownRequest]" = queue.Queue()
     reader = threading.Thread(
         target=_reader,
-        args=(sys.stdin, jobs, worker.cancel, emitter),
+        args=(sys.stdin, jobs, worker.cancel, worker.analyse, emitter),
         daemon=True,
         name="sculptor-reader",
     )

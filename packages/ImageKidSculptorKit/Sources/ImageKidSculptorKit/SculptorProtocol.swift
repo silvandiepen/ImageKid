@@ -192,6 +192,49 @@ public struct ResultMessage: Codable, Equatable, Sendable {
     public let durationSeconds: Double
 }
 
+/// How well a source image suits single-image reconstruction.
+public enum Suitability: String, Codable, Sendable {
+    case good
+    case okay
+    case poor
+
+    public var title: String {
+        switch self {
+        case .good: "Good candidate"
+        case .okay: "Okay candidate"
+        case .poor: "Poor candidate"
+        }
+    }
+}
+
+/// Asks the worker to rate an image without reconstructing it.
+public struct AnalyseRequest: Codable, Equatable, Sendable {
+    public let type = "analyse"
+    public let requestId: String
+    public let sourcePath: String
+    public let maskPath: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case type, requestId, sourcePath, maskPath
+    }
+
+    public init(requestId: String, sourcePath: String, maskPath: String? = nil) {
+        self.requestId = requestId
+        self.sourcePath = sourcePath
+        self.maskPath = maskPath
+    }
+}
+
+public struct AnalysisMessage: Codable, Equatable, Sendable {
+    public let requestId: String
+    public let suitability: Suitability
+    /// Plain-language reasons behind a non-`good` rating.
+    public let notes: [String]
+    public let hadMask: Bool
+    public let subjectCoverage: Double
+    public let touchesEdge: Bool
+}
+
 public struct ErrorMessage: Codable, Equatable, Sendable {
     public let jobId: String?
     public let code: SculptorErrorCode
@@ -205,6 +248,7 @@ public enum WorkerMessage: Sendable {
     case ready(ReadyMessage)
     case progress(ProgressMessage)
     case result(ResultMessage)
+    case analysis(AnalysisMessage)
     case failure(ErrorMessage)
 
     private struct Envelope: Decodable {
@@ -222,6 +266,7 @@ public enum WorkerMessage: Sendable {
         case "ready": return .ready(try decoder.decode(ReadyMessage.self, from: data))
         case "progress": return .progress(try decoder.decode(ProgressMessage.self, from: data))
         case "result": return .result(try decoder.decode(ResultMessage.self, from: data))
+        case "analysis": return .analysis(try decoder.decode(AnalysisMessage.self, from: data))
         case "error": return .failure(try decoder.decode(ErrorMessage.self, from: data))
         default: return nil
         }

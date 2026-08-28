@@ -157,6 +157,21 @@ class GenerateRequest:
 
 
 @dataclass(frozen=True)
+class AnalyseRequest:
+    """Rate a source image without reconstructing it.
+
+    Cheap — decode, mask, bounding box — so the app can show a suitability
+    badge the moment an image is imported, rather than after the user has
+    waited out a generation to discover the subject was never usable.
+    """
+
+    requestId: str
+    sourcePath: str
+    maskPath: str | None = None
+    cropPadding: float = 0.08
+
+
+@dataclass(frozen=True)
 class CancelRequest:
     jobId: str
 
@@ -170,7 +185,7 @@ class ShutdownRequest:
 # protocol/prep/mesh layers are kept importable on stock macOS Python (3.9) so
 # the suite runs without provisioning a newer interpreter. The SPAR3D backend
 # itself needs 3.11+; see the README.
-Request = Union[GenerateRequest, CancelRequest, ShutdownRequest]
+Request = Union[GenerateRequest, AnalyseRequest, CancelRequest, ShutdownRequest]
 
 
 def decode_request(line: str) -> Request:
@@ -201,6 +216,22 @@ def decode_request(line: str) -> Request:
             workspace=raw["workspace"],
             maskPath=mask,
             options=GenerateOptions.from_dict(raw.get("options")),
+        )
+    if kind == "analyse":
+        for key in ("requestId", "sourcePath"):
+            if not isinstance(raw.get(key), str) or not raw[key]:
+                raise ProtocolError(f"analyse requires a non-empty string '{key}'")
+        mask = raw.get("maskPath")
+        if mask is not None and not isinstance(mask, str):
+            raise ProtocolError("maskPath must be a string when present")
+        padding = raw.get("cropPadding", 0.08)
+        if not isinstance(padding, (int, float)):
+            raise ProtocolError("cropPadding must be a number")
+        return AnalyseRequest(
+            requestId=raw["requestId"],
+            sourcePath=raw["sourcePath"],
+            maskPath=mask,
+            cropPadding=float(padding),
         )
     if kind == "cancel":
         if not isinstance(raw.get("jobId"), str) or not raw["jobId"]:
@@ -275,6 +306,27 @@ def progress_message(job_id: str, stage: Stage, stage_fraction: float = 0.0) -> 
 
 def result_message(job_id: str, artifacts: ResultArtifacts) -> dict:
     return {"type": "result", "jobId": job_id, **asdict(artifacts)}
+
+
+def analysis_message(
+    request_id: str,
+    suitability: str,
+    notes: tuple,
+    had_mask: bool,
+    subject_coverage: float,
+    touches_edge: bool,
+) -> dict:
+    """How well a source image suits single-image reconstruction."""
+
+    return {
+        "type": "analysis",
+        "requestId": request_id,
+        "suitability": suitability,
+        "notes": list(notes),
+        "hadMask": had_mask,
+        "subjectCoverage": round(subject_coverage, 4),
+        "touchesEdge": touches_edge,
+    }
 
 
 def error_message(job_id: str | None, code: ErrorCode, message: str) -> dict:

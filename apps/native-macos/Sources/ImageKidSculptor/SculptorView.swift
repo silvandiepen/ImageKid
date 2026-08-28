@@ -80,12 +80,52 @@ struct SculptorView: View {
     private var readyState: some View {
         VStack(spacing: 16) {
             sourcePreview
+            suitabilityBadge
             viewpointPicker
             if !model.isModelInstalled {
                 modelInstallNotice
             }
         }
         .padding(32)
+    }
+
+    /// How well this image suits single-image reconstruction.
+    ///
+    /// Advisory only — it never blocks Generate. Some subjects simply cannot
+    /// work (a flag is a 2D graphic with no object to reconstruct), and saying
+    /// so up front is kinder than a ten-second wait for a slab.
+    @ViewBuilder
+    private var suitabilityBadge: some View {
+        if let analysis = model.session.analysis {
+            VStack(spacing: 4) {
+                Label(analysis.suitability.title, systemImage: badgeIcon(analysis.suitability))
+                    .font(.callout)
+                    .foregroundStyle(badgeColour(analysis.suitability))
+                ForEach(analysis.notes, id: \.self) { note in
+                    Text(note)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+            }
+            .frame(maxWidth: 460)
+        }
+    }
+
+    private func badgeIcon(_ suitability: Suitability) -> String {
+        switch suitability {
+        case .good: "checkmark.circle"
+        case .okay: "exclamationmark.circle"
+        case .poor: "xmark.circle"
+        }
+    }
+
+    private func badgeColour(_ suitability: Suitability) -> Color {
+        switch suitability {
+        case .good: .green
+        case .okay: .orange
+        case .poor: .red
+        }
     }
 
     /// The source camera's height is the one thing that cannot be recovered

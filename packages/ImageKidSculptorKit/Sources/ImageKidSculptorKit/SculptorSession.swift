@@ -26,12 +26,17 @@ public final class SculptorSession: ObservableObject {
     /// The imported image. Never modified, never overwritten.
     @Published public private(set) var sourceURL: URL?
     @Published public private(set) var engineDetail: String?
+    /// Rating of the imported image, once the worker has answered. `nil` while
+    /// it is still being analysed, or if analysis failed — a missing rating
+    /// must never block generating.
+    @Published public private(set) var analysis: AnalysisMessage?
 
     private let worker: SculptorWorker
     private let workspaceRoot: URL
     private var currentJobId: String?
     private var jobTask: Task<Void, Never>?
     private var lastOptions: SculptorOptions?
+    private var analysisTask: Task<Void, Never>?
 
     public init(worker: SculptorWorker, workspaceRoot: URL? = nil) {
         self.worker = worker
@@ -44,11 +49,27 @@ public final class SculptorSession: ObservableObject {
     public func open(_ url: URL) {
         cancel()
         sourceURL = url
+        analysis = nil
         phase = .ready
+
+        // Rate the image straight away, so a subject that cannot reconstruct
+        // well — a flag, a cropped object — says so before the user waits out
+        // a generation to find out.
+        analysisTask?.cancel()
+        analysisTask = Task { [worker] in
+            let rating = try? await worker.analyse(
+                AnalyseRequest(requestId: UUID().uuidString, sourcePath: url.path)
+            )
+            guard !Task.isCancelled, self.sourceURL == url else { return }
+            self.analysis = rating
+        }
     }
 
     public func reset() {
         cancel()
+        analysisTask?.cancel()
+        analysisTask = nil
+        analysis = nil
         sourceURL = nil
         phase = .empty
     }

@@ -144,6 +144,42 @@ final class SculptorWorkerIntegrationTests: XCTestCase {
         XCTAssertEqual(finished.originConvention, "bottomCentre")
     }
 
+    func testAnalysisRatesAnImageWithoutReconstructingIt() async throws {
+        let worker = SculptorWorker(launch: try requireWorker())
+        defer { Task { await worker.shutdown() } }
+
+        let source = try makeSourceImage()
+        let started = Date()
+        let analysis = try await worker.analyse(
+            AnalyseRequest(requestId: UUID().uuidString, sourcePath: source.path)
+        )
+
+        // A clean cutout on transparency is the good case.
+        XCTAssertEqual(analysis.suitability, .good)
+        XCTAssertTrue(analysis.hadMask)
+        XCTAssertGreaterThan(analysis.subjectCoverage, 0)
+
+        // The whole point is that it is cheap enough to run on import, so it
+        // must not have loaded weights or reconstructed anything.
+        XCTAssertLessThan(
+            Date().timeIntervalSince(started), 5,
+            "analysis should be near-instant; it must not touch the engine"
+        )
+    }
+
+    func testAnalysisWorksEvenWhenTheModelIsNotInstalled() async throws {
+        // Knowing an image is a poor candidate is most useful *before* the
+        // user downloads gigabytes of weights.
+        let worker = SculptorWorker(launch: try requireWorker())
+        defer { Task { await worker.shutdown() } }
+
+        let source = try makeSourceImage()
+        let analysis = try await worker.analyse(
+            AnalyseRequest(requestId: UUID().uuidString, sourcePath: source.path)
+        )
+        XCTAssertFalse(analysis.suitability.title.isEmpty)
+    }
+
     func testAMissingSourceImageIsReportedAsARecoverableError() async throws {
         let worker = SculptorWorker(launch: try requireWorker())
         defer { Task { await worker.shutdown() } }
