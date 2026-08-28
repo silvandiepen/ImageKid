@@ -102,12 +102,7 @@ class TripoSREngine(ReconstructionEngine):
     def unavailable_reason(self) -> str | None:
         if not self._installation.is_installed:
             return self._installation.describe_missing()
-        source = triposr_source_path()
-        if not (source / "tsr" / "system.py").is_file():
-            return (
-                f"TripoSR source is not present at {source}. "
-                "Run scripts/install_triposr.sh."
-            )
+
         import importlib.util
 
         for module in ("torch", "omegaconf", "einops", "torchmcubes"):
@@ -115,6 +110,18 @@ class TripoSREngine(ReconstructionEngine):
                 return (
                     f"{module} is not installed in the worker environment. "
                     "Install requirements-triposr.txt."
+                )
+
+        # ``tsr`` may already be importable — a bundled runtime installs it
+        # properly rather than keeping a checkout. Only fall back to looking for
+        # the vendored source when it is not.
+        if importlib.util.find_spec("tsr") is None:
+            source = triposr_source_path()
+            if not (source / "tsr" / "system.py").is_file():
+                return (
+                    f"The TripoSR runtime is not available. Looked for an "
+                    f"importable 'tsr' package and for source at {source}. "
+                    "Run scripts/install_triposr.sh."
                 )
         return None
 
@@ -139,15 +146,19 @@ class TripoSREngine(ReconstructionEngine):
         if reason is not None:
             raise EngineUnavailable(reason)
 
+        # Only extend the path when ``tsr`` is not already importable; a bundled
+        # runtime has it installed and needs no checkout on sys.path.
+        import importlib.util
+
         source = str(triposr_source_path())
-        if source not in sys.path:
+        if importlib.util.find_spec("tsr") is None and source not in sys.path:
             sys.path.insert(0, source)
 
         try:
             from tsr.system import TSR
         except ImportError as exc:
             raise EngineUnavailable(
-                f"could not import the TripoSR runtime from {source}: {exc}"
+                f"could not import the TripoSR runtime (checked {source}): {exc}"
             ) from exc
 
         self._device = self._select_device()

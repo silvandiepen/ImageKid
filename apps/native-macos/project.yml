@@ -140,19 +140,22 @@ targets:
       - path: Sources/ImageKid/Resources/Assets.xcassets
     dependencies:
       - package: ImageKidSculptorKit
-    # Deliberately NOT sandboxed yet, unlike the other companions.
+    # Sandboxed, like the other companions. A sandboxed process may only
+    # execute binaries inside its own bundle, so this depends on the Python
+    # runtime being packaged into Contents/Resources/sculptor-engine by
+    # tools/sculptor-engine/scripts/bundle_runtime.sh. A build without that step
+    # will start and then report that no engine was found.
     #
-    # Sculptor reconstructs in a separate worker process, and a sandboxed app
-    # may only execute binaries inside its own bundle. Until the Python runtime
-    # and the worker are packaged into Contents/Resources/sculptor-engine, the
-    # app has to launch a developer-provided interpreter, which the sandbox
-    # forbids. Restore the companion entitlements together with that packaging
-    # work; see docs/sculptor.md and tools/sculptor-engine/README.md.
+    # Two entitlements beyond the companion set, both load-bearing:
+    # network.client for the model download, and disable-library-validation so
+    # the hardened runtime will load PyTorch's unsigned native extensions.
     entitlements:
       path: Sources/ImageKidSculptor/ImageKidSculptor.entitlements
       properties:
-        com.apple.security.app-sandbox: false
+        com.apple.security.app-sandbox: true
         com.apple.security.files.user-selected.read-write: true
+        com.apple.security.network.client: true
+        com.apple.security.cs.disable-library-validation: true
         com.apple.security.application-groups:
           - group.com.hakobs.imagekid
     # A hand-written plist, like the main ImageKid target: CFBundleDocumentTypes

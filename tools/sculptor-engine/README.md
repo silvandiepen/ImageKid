@@ -322,10 +322,10 @@ still want more.
 
 ## Still open
 
-1. Package the Python runtime into the app bundle with
-   `scripts/bundle_runtime.sh`, then re-enable the sandbox. Weigh it first: the
-   bundle grows by roughly 2.5 GB and every native binary inside needs signing,
-   so a Core ML port of the engine may be the better answer.
+1. Sign and notarise a release. `scripts/bundle_runtime.sh` packages the
+   runtime and the app is sandboxed, but every `.so` and `.dylib` inside the
+   runtime still needs signing before notarisation will pass — the script
+   prints the command.
 2. Mirror the weights to R2 (`scripts/upload_weights_to_r2.sh`) for a faster
    install. Not blocking — the app already falls back to upstream.
 3. Replace the protocol's stage weights with the measured timings above; they

@@ -66,6 +66,43 @@ final class WorkerLaunchConfigurationTests: XCTestCase {
         XCTAssertEqual(configuration.environment?["PYTHONPATH"], directory.path)
         // Buffered output would make progress arrive in bursts at the end.
         XCTAssertEqual(configuration.environment?["PYTHONUNBUFFERED"], "1")
+        // The worker must be told where the weights are: under the sandbox its
+        // own idea of home is the app container, so anything it derived itself
+        // would point at a path that does not exist.
+        XCTAssertEqual(
+            configuration.environment?["SCULPTOR_MODELS_DIR"],
+            SculptorModel.modelsDirectory.path
+        )
+    }
+
+    func testTheBundledRuntimeIsAlsoToldWhereTheModelsAre() throws {
+        let bundleRoot = directory.appendingPathComponent("Fake.bundle", isDirectory: true)
+        let runtimeBin = bundleRoot
+            .appendingPathComponent("sculptor-engine", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: runtimeBin, withIntermediateDirectories: true
+        )
+        let bundledPython = runtimeBin.appendingPathComponent("python3")
+        try "#!/bin/sh\nexit 0\n".write(to: bundledPython, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: bundledPython.path
+        )
+        let bundle = try XCTUnwrap(Bundle(url: bundleRoot) ?? Bundle(path: bundleRoot.path))
+
+        let configuration = try XCTUnwrap(
+            WorkerLaunchConfiguration.resolve(
+                bundle: bundle,
+                defaults: emptyDefaults,
+                environment: [:],
+                searchRoots: []
+            )
+        )
+        XCTAssertEqual(
+            configuration.environment?["SCULPTOR_MODELS_DIR"],
+            SculptorModel.modelsDirectory.path,
+            "the sandboxed release path needs this most of all"
+        )
     }
 
     func testFallsBackToUserDefaults() throws {

@@ -12,7 +12,12 @@ torch>=2.4
 torchvision>=0.19
 omegaconf>=2.3
 einops>=0.7
-transformers>=4.35
+# Upper bound is load-bearing. transformers 5.x renamed the attention
+# projections inside the DINOv2 image tokenizer, so TripoSR's published
+# checkpoint no longer matches and loading dies with "Missing key(s) in
+# state_dict: image_tokenizer.model.layers.0.attention.q_proj.weight".
+# Verified working on 4.57.
+transformers>=4.35,<5
 huggingface-hub
 safetensors
 

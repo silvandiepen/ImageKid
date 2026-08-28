@@ -8,11 +8,13 @@ import Foundation
 ///    `Contents/Resources/sculptor-engine/`. This is the only strategy that
 ///    works under the App Sandbox, because a sandboxed process may only execute
 ///    binaries inside its own bundle. It is what a release must use.
-/// 2. **Developer-provided** — an interpreter chosen with `SCULPTOR_WORKER_PYTHON`
-///    or in Settings, pointed at a checkout of `tools/sculptor-engine`. This is
-///    how the app is run during development, before the runtime is packaged.
+/// 2. **Developer-provided** — an interpreter chosen with `SCULPTOR_WORKER_PYTHON`,
+///    in Settings, or discovered by walking up to a `tools/sculptor-engine`
+///    checkout. This is how the app runs from Xcode, where nothing is packaged.
 ///
-/// The split is why the Sculptor target is not sandboxed yet; see `project.yml`.
+/// A release must use the first: the target is sandboxed, and a sandboxed
+/// process may only execute binaries inside its own bundle. Build one with
+/// `tools/sculptor-engine/scripts/bundle_runtime.sh`.
 public struct WorkerLaunchConfiguration: Equatable, Sendable {
     public let executable: URL
     public let arguments: [String]
@@ -77,7 +79,10 @@ public struct WorkerLaunchConfiguration: Equatable, Sendable {
         return WorkerLaunchConfiguration(
             executable: python,
             arguments: ["-m", "sculptor_engine", "--serve"],
-            environment: ["PYTHONPATH": root.path]
+            environment: [
+                "PYTHONPATH": root.path,
+                "SCULPTOR_MODELS_DIR": SculptorModel.modelsDirectory.path
+            ]
         )
     }
 
@@ -118,6 +123,10 @@ public struct WorkerLaunchConfiguration: Equatable, Sendable {
         // Unbuffered, so progress lines arrive as they happen rather than in a
         // burst when the pipe flushes.
         childEnvironment["PYTHONUNBUFFERED"] = "1"
+        // Tell the worker where the weights are rather than letting it guess.
+        // Under the sandbox its idea of home is the app container, so the
+        // App Group path it would derive itself does not exist.
+        childEnvironment["SCULPTOR_MODELS_DIR"] = SculptorModel.modelsDirectory.path
         return WorkerLaunchConfiguration(
             executable: URL(fileURLWithPath: python),
             arguments: ["-m", "sculptor_engine", "--serve"],

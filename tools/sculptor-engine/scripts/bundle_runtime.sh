@@ -52,8 +52,31 @@ tar -xzf "$staging/python.tar.gz" -C "$staging/runtime" --strip-components=1
 runtime_python="$staging/runtime/bin/python3"
 "$runtime_python" -m pip install --upgrade pip >/dev/null
 
+# torchmcubes is a CMake extension that calls find_package(Torch) while
+# building, so PyTorch has to already be importable *and* build isolation has to
+# be off. Installing the requirements in one pass fails with
+# "Could not find a package configuration file provided by Torch".
+torchmcubes_url="$(grep -E '^git\+.*torchmcubes' "$here/requirements-triposr.txt" || true)"
+
 echo "Installing worker dependencies (this pulls PyTorch; expect gigabytes)…"
-"$runtime_python" -m pip install -r "$here/requirements-triposr.txt"
+# Not named requirements.txt: the file begins with `-r requirements.txt`, and a
+# copy under that name would include itself.
+staged="$staging/worker-requirements.txt"
+grep -vE '^git\+.*torchmcubes' "$here/requirements-triposr.txt" > "$staged"
+# That `-r` is relative to the original file's directory, which the copy is not
+# in any more; point it at the real one.
+sed -i '' "s|^-r requirements.txt|-r $here/requirements.txt|" "$staged"
+"$runtime_python" -m pip install -r "$staged"
+
+if [ -n "$torchmcubes_url" ]; then
+  # Without build isolation pip will not fetch the build backend either, so it
+  # has to be present in the environment first.
+  echo "Installing the build backend torchmcubes needs…"
+  "$runtime_python" -m pip install scikit-build-core cmake ninja pybind11
+
+  echo "Building torchmcubes against the installed PyTorch…"
+  "$runtime_python" -m pip install --no-build-isolation "$torchmcubes_url"
+fi
 
 echo "Copying the worker…"
 cp -R "$here/sculptor_engine" "$staging/runtime/"
