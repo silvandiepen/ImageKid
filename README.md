@@ -72,7 +72,7 @@ The repository is a development foundation. A successful Swift package build is 
 
 ## Documentation
 
-Start with the [documentation index](docs/README.md), [product definition](docs/product.md), [implementation status](docs/implementation.md), [requirements](docs/requirements.md), and [architecture](docs/architecture.md).
+Start with the [documentation index](docs/README.md), [product definition](docs/product.md), [implementation status](docs/implementation.md), [requirements](docs/requirements.md), and [architecture](docs/architecture.md). Planned companion-product documentation includes [ImageKid Sculptor](docs/sculptor.md), the local single-image-to-3D workflow.
 
 ## Licence
 
