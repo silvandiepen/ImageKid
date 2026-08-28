@@ -242,17 +242,20 @@ swift test
 
 ## Measured on the corpus
 
-Ten Tiko Media landmark assets (1024×1024 stylised dioramas, nine with clean
-alpha), Apple M3 / 24 GB / macOS 26.5, MPS:
+Apple M3 / 24 GB / macOS 26.5, MPS, 256 marching cubes unless noted.
 
-| Marching cubes | Inference (median) | Triangles | Peak RSS |
+| Corpus | Result | Inference (median) | Peak RSS |
 | --- | --- | --- | --- |
-| 256 | 9.0 s (8.2–14.5) | 108k–258k | 3.5 GB |
-| 384 | 30.6 s (28.2–50.2) | 245k–594k | 3.5 GB |
+| 10 landmarks | 10/10 | 9.0 s (8.2–14.5) | 3.5 GB |
+| 10 landmarks, 384 cubes | 10/10 | 30.6 s (28.2–50.2) | 3.5 GB |
+| 19 across all six folders | 19/19 | 9.8 s (8.8–14.6) | 3.5 GB |
 
-10/10 succeeded at both settings. 3.5 GB peak is well under the 10.5 GB the
-SPAR3D documentation quotes, so the CPU-fallback advice for machines below 32 GB
-does not apply to this engine.
+Nothing failed at any setting. 3.5 GB peak is well under the 10.5 GB the SPAR3D
+documentation quotes, so the CPU-fallback advice for machines below 32 GB does
+not apply to this engine.
+
+Raising marching cubes from 256 to 384 triples time and triangle count for a
+modest gain: the triplane resolution, not the isosurface, is the limit.
 
 Reproduce with:
 
@@ -264,6 +267,24 @@ python scripts/run_corpus.py <folder-of-images> --output out/corpus --render
 `scripts/render_views.py`, a dependency-free numpy rasteriser that needs no GL
 context. Rotating behind the model is the only way to judge inferred hidden
 geometry, and a triangle count cannot prove it.
+
+### By subject
+
+The catalogue is not one kind of image. Surveying media.tikoapps.org: 1,100
+items across landmarks (405), animals (263), people (222), places (132),
+geography (77) and flags (1). Sampled across all six:
+
+| Subject | Verdict |
+| --- | --- |
+| Animals | **Best case.** Chunky quadrupeds and birds reconstruct cleanly: the yak has horns, a shaggy coat and four legs; the swan a curved neck and feathered wings; the penguin flippers and feet. |
+| People | **Good.** Standing figures come out upright and recognisable, hats, faces and clothing included. Thin held props survive better than expected — the gondolier keeps his oar and the mahout his staff. |
+| Landmarks / places | **Good with the right viewpoint.** Legible massing and facades. The steep isometric dioramas need the overhead setting; a monolith like Zuma Rock is upright at eye level. |
+| Geography | **Weak but arguably right.** Islands and lakes come out as low flat lenses, which is what those subjects are. |
+| Flags | **Does not work, and cannot.** A flag is a 2D graphic with no object to reconstruct; the result is a slab. Preparation already rates these `poor`, since they have no alpha and no isolable subject. |
+
+The single biggest failure mode is the wrong viewpoint, not the subject. Long
+thin limbs are the second: the gibbon is correct but soft where the yak is
+crisp.
 
 ### Quality, honestly
 
@@ -280,12 +301,15 @@ corpus — which is why the app asks about the source viewpoint.
 The remaining limits are real. The back face is always the softest side, since
 nothing constrains it. Very intricate subjects still blur: `white-temple`'s
 filigree spires merge into a mass. Fine architectural relief reads as texture on
-a solid rather than as separate massing. Raising marching cubes from 256 to 384
-triples time and triangles for a modest gain, because the triplane resolution —
-not the isosurface — is the limit.
+a solid rather than as separate massing. Long thin limbs soften — the gibbon is
+correct but mushy where the yak is crisp.
 
-For the Tiko catalogue this is solidly good enough for maps, globes, game props
-and background assets. A foreground hero asset would still want more.
+Across the catalogue, animals and people are the *strongest* subjects, not the
+weakest as the landmark-only spike had implied: a chunky quadruped or a standing
+figure is much closer to what the model does well than a filigreed temple is.
+Good enough for maps, globes, game props and background assets, and for animals
+and characters closer than that. A hero asset with visible fine detail would
+still want more.
 
 ## Still open
 

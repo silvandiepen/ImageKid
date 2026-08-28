@@ -277,19 +277,30 @@ receives is unchanged by the viewer's limitations.
 
 ### Measured
 
-Ten Tiko Media landmark assets, Apple M3 / 24 GB / macOS 26.5, MPS: 10/10
-succeeded, median 9.0 s per generation at 256³ marching cubes, **3.5 GB peak
-memory**. That is far below the 10.5 GB the SPAR3D documentation quotes, so the
-upstream advice to fall back to CPU below 32 GB does not apply here. Raising
-marching cubes to 384³ triples time and triangles for a modest gain, because the
-triplane — not the isosurface — is the resolution limit.
+Apple M3 / 24 GB / macOS 26.5, MPS, 256³ marching cubes. Ten landmarks: 10/10,
+median 9.0 s. Nineteen assets spanning all six catalogue folders: **19/19,
+median 9.8 s, 3.5 GB peak memory**. That is far below the 10.5 GB the SPAR3D
+documentation quotes, so the upstream advice to fall back to CPU below 32 GB
+does not apply here. Raising marching cubes to 384³ triples time and triangles
+for a modest gain, because the triplane — not the isosurface — is the limit.
 
-With the correct viewpoint set, quality is good: `wat-pho` reconstructs as a
-legible Thai temple with a tiered roof and a colonnade, `peace-palace` as an
-upright building with a clock tower on its base. The back face is always the
-softest side, very intricate subjects still blur, and fine relief reads as
-texture on a solid rather than separate massing. Solidly usable for maps,
-globes, game props and background assets; short of a foreground hero asset.
+Quality by subject, with the right viewpoint:
+
+- **Animals** are the strongest case, not the weakest as a landmark-only sample
+  had implied. The yak has horns, a shaggy coat and four legs; the swan a curved
+  neck and feathered wings; the penguin flippers and feet.
+- **People** come out upright and recognisable, with hats, faces and clothing,
+  and thin held props survive — the gondolier keeps his oar.
+- **Landmarks and places** give legible massing and facades.
+- **Geography** — islands, lakes — comes out as low flat lenses, which is
+  roughly what those subjects are.
+- **Flags do not work and cannot.** A flag is a 2D graphic with no object to
+  reconstruct. Preparation already rates them `poor`.
+
+The back face is always the softest side, very intricate subjects blur, and long
+thin limbs soften. Solidly usable for maps, globes, game props and background
+assets, and closer than that for animals and characters; short of a hero asset
+with visible fine detail.
 
 The stage weights in the protocol are still derived from stage ordering rather
 than these timings, so the progress bar is uneven. That remains open.
