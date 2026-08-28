@@ -59,3 +59,13 @@ This supersedes the D-009 position that AI upscaling was removed from the code a
 ## D-014 — Core ML as the cross-platform inference direction
 
 The downloaded-runtime mechanism in D-013 is macOS-specific and cannot move to iOS: iOS has no subprocesses, App Store review prohibits downloading executable code, there is no system Python, and there is no Vulkan. The intended direction is to convert the same models (Real-ESRGAN, ISNet) to Core ML and run inference in-process on both platforms, delivering weights as data rather than as an executable runtime. Adopting Core ML on macOS as well would let both apps share one engine and retire the binary download, Vulkan dependency, and Python runtime. See `ios-feasibility.md`.
+
+## D-015 — Slicer is a separate focused canvas companion
+
+ImageKid Slicer is a planned separate macOS companion target, not a mode or permanent tool surface inside the main ImageKid window. Its complete first-release workflow is: open one composite image, manually define rectangular slices directly on the image, then Save to a folder to create one source-resolution file per slice.
+
+Unlike ImageKid Upscale and ImageKid Cutout, Slicer must not inherit the batch queue simply to make all companion apps look identical. The operation requires direct spatial input, so the correct interface is one media-first canvas with lightweight rectangle overlays and native Open/Save commands.
+
+Slicer follows the existing suite decisions: native Apple frameworks first, source files immutable, no implicit cloud or account dependency, and geometry independent of window pixels. Slice rectangles are stored relative to the orientation-correct source image and resolved to integer source-image pixel bounds during export.
+
+The first release deliberately excludes automatic object/grid/whitespace detection, AI slice suggestions, multiple source images, persistent project files, polygon slicing, editing/annotation tools, and an export-settings screen. These may only be considered later if they improve the focused workflow without changing the product into a general editor. See `slicer.md`.
