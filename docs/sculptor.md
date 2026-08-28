@@ -2,7 +2,17 @@
 
 ## Status
 
-**Planned product. No Sculptor implementation exists yet.**
+**Working locally. Not packaged, not signed, not released.**
+
+The reconstruction worker (`tools/sculptor-engine`), the shared Swift types
+(`packages/ImageKidSculptorKit`) and the macOS app
+(`apps/native-macos/Sources/ImageKidSculptor`) all exist and run end to end:
+import an image, generate locally, rotate the result, export GLB.
+
+What is *not* done: the Python runtime is not packaged into the app bundle, so
+the Sculptor target cannot be sandboxed yet and the app depends on a
+developer-provided interpreter. Reconstruction quality is usable but not crisp.
+See "Phase 0 findings" below and `tools/sculptor-engine/README.md`.
 
 ImageKid Sculptor is a focused macOS companion app that turns one image containing one clear object into a complete, inspectable 3D model on the user's Mac.
 
@@ -198,6 +208,81 @@ Therefore the release implementation must not casually assume that weights can s
 6. record the chosen model version/checksum in release documentation.
 
 This is a distribution concern, not a reason to use a hosted API. Once the engine and model are installed, generation remains local.
+
+## Phase 0 findings
+
+The spike is done. Three things in the plan above changed as a result; the rest
+held.
+
+### The V1 engine is TripoSR, not SPAR3D
+
+SPAR3D's weights are gated on Hugging Face behind an account and an acceptance
+of the Stability AI Community License, whose revenue threshold pulls a
+commercial release into separate enterprise terms. That makes it unverifiable in
+CI and awkward to ship.
+
+TripoSR does the same job — single image to a complete mesh with predicted
+hidden geometry — under **MIT**, ungated. It is now the default. `spar3d.py`
+still exists behind the same engine boundary for anyone who accepts the terms,
+but it has never been executed, because its weights cannot be fetched without
+credentials.
+
+This is exactly the substitution the engine boundary was designed to absorb: no
+change to the worker, the protocol, or the app.
+
+### Orientation has to be corrected, and the user has to say how
+
+Single-image reconstruction happens in the *input camera's* frame. Every
+isometric Tiko Media asset therefore comes out tilted back by roughly the
+camera's elevation. The plan's "orient the object consistently" cannot be
+satisfied by declaring `+Y` up.
+
+Two approaches were tried. Recovering the upright axis from geometry — taking
+the object's largest flat surface as its base — **does not work reliably**: the
+largest planar region on a real reconstruction is often the smooth back face the
+engine invents, not the base. It corrected the Madrid palace and laid
+`peace-palace` and `wat-pho` on their sides. It survives as an opt-in flag,
+default off.
+
+What does work is a pitch correction matched to the source camera. **-60°**
+turns `wat-pho` from a tilted slab into a legible tiered temple with columns,
+and stands `peace-palace` up on its base.
+
+No single constant is right, even inside one catalogue: `westminster-abbey` is a
+much flatter elevation than the isometric dioramas, and -60 over-rotates it into
+a forward lean. So the app asks — a three-way **Seen from** control (eye level,
+slightly above, isometric, mapping to 0 / -30 / -60), remembered between
+launches and re-applied on Regenerate.
+
+That is a fact about the source image rather than an engine detail, so it does
+not conflict with the rule against exposing engine internals — and it is the
+single most visible defect when wrong, which earns it a place in the UI.
+
+### The preview needs its own file
+
+Apple's Model I/O, which backs SceneKit's asset loading, does not read GLB. As
+the plan anticipated, the worker writes a preview adapter — the same geometry as
+binary PLY with vertex colour — alongside the canonical GLB. The export the user
+receives is unchanged by the viewer's limitations.
+
+### Measured
+
+Ten Tiko Media landmark assets, Apple M3 / 24 GB / macOS 26.5, MPS: 10/10
+succeeded, median 9.0 s per generation at 256³ marching cubes, **3.5 GB peak
+memory**. That is far below the 10.5 GB the SPAR3D documentation quotes, so the
+upstream advice to fall back to CPU below 32 GB does not apply here. Raising
+marching cubes to 384³ triples time and triangles for a modest gain, because the
+triplane — not the isosurface — is the resolution limit.
+
+With the correct viewpoint set, quality is good: `wat-pho` reconstructs as a
+legible Thai temple with a tiered roof and a colonnade, `peace-palace` as an
+upright building with a clock tower on its base. The back face is always the
+softest side, very intricate subjects still blur, and fine relief reads as
+texture on a solid rather than separate massing. Solidly usable for maps,
+globes, game props and background assets; short of a foreground hero asset.
+
+The stage weights in the protocol are still derived from stage ordering rather
+than these timings, so the progress bar is uneven. That remains open.
 
 ## Local-only architecture
 
