@@ -120,17 +120,18 @@ final class SculptorProtocolTests: XCTestCase {
         XCTAssertNil(options["device"])
     }
 
-    func testViewpointsMapToTheMeasuredPitchCorrections() {
-        // -60 is what stood the Tiko Media isometric renders upright across the
-        // corpus; eye level must stay a no-op for an ordinary photo.
+    func testViewpointsCarryCameraElevationOnly() {
+        // These are elevations, not total corrections: the engine's own
+        // Z-up-to-Y-up convention is fixed inside the engine. Eye level must
+        // therefore be a no-op, and the isometric Tiko renders measured ~30.
         XCTAssertEqual(SourceViewpoint.eyeLevel.pitchCorrection, 0)
-        XCTAssertEqual(SourceViewpoint.overhead.pitchCorrection, -60)
-        XCTAssertEqual(SourceViewpoint.raised.pitchCorrection, -30)
+        XCTAssertEqual(SourceViewpoint.raised.pitchCorrection, 15)
+        XCTAssertEqual(SourceViewpoint.overhead.pitchCorrection, 30)
     }
 
     func testViewpointCorrectionsIncreaseWithCameraHeight() {
         let corrections = SourceViewpoint.allCases.map(\.pitchCorrection)
-        XCTAssertEqual(corrections, corrections.sorted(by: >))
+        XCTAssertEqual(corrections, corrections.sorted())
         for viewpoint in SourceViewpoint.allCases {
             XCTAssertFalse(viewpoint.title.isEmpty)
             XCTAssertFalse(viewpoint.detail.isEmpty)
@@ -151,7 +152,7 @@ final class SculptorProtocolTests: XCTestCase {
             JSONSerialization.jsonObject(with: data) as? [String: Any]
         )
         let options = try XCTUnwrap(object["options"] as? [String: Any])
-        XCTAssertEqual(options["pitchCorrection"] as? Double, -60)
+        XCTAssertEqual(options["pitchCorrection"] as? Double, 30)
     }
 
     func testStageTitlesDescribeTheWaitNotTheEngine() {

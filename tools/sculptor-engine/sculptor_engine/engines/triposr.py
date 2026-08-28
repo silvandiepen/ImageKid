@@ -39,6 +39,20 @@ from .base import (
 #: channel. This is its expected input convention, not a stylistic choice.
 BACKGROUND_GREY = 0.5
 
+#: TripoSR does not emit a Y-up mesh: the subject's vertical axis comes out
+#: along Z, so an eye-level animal arrives lying on its back. This rotation
+#: converts the engine's frame to the +Y up the rest of the pipeline assumes.
+#:
+#: Measured, not guessed — sweeping pitch over reconstructions of the Tiko yak
+#: and pelican stands both upright at exactly -90 degrees. It also reconciles
+#: the landmarks: those needed -60 overall, which is this -90 plus the roughly
+#: +30 degrees of elevation an isometric camera adds.
+#:
+#: This belongs to the engine, not to the worker: it is a fact about TripoSR's
+#: output, and a different engine will have its own convention. What the worker
+#: applies on top is the *camera* angle, which is a fact about the image.
+UP_AXIS_CORRECTION_DEGREES = -90.0
+
 
 def triposr_source_path() -> Path:
     """Where the vendored TripoSR source lives.
@@ -253,8 +267,31 @@ class TripoSREngine(ReconstructionEngine):
                 "separated from its background"
             )
 
+        _to_y_up(mesh)
         progress(1.0)
         return mesh
+
+
+def _to_y_up(mesh) -> None:
+    """Rotate TripoSR's output into the +Y-up frame, in place.
+
+    See :data:`UP_AXIS_CORRECTION_DEGREES`.
+    """
+
+    import math
+
+    import numpy as np
+
+    angle = math.radians(UP_AXIS_CORRECTION_DEGREES)
+    transform = np.eye(4)
+    transform[:3, :3] = np.array(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, math.cos(angle), -math.sin(angle)],
+            [0.0, math.sin(angle), math.cos(angle)],
+        ]
+    )
+    mesh.apply_transform(transform)
 
 
 def _is_out_of_memory(exc: BaseException) -> bool:

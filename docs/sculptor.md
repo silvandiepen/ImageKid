@@ -244,19 +244,29 @@ engine invents, not the base. It corrected the Madrid palace and laid
 `peace-palace` and `wat-pho` on their sides. It survives as an opt-in flag,
 default off.
 
-What does work is a pitch correction matched to the source camera. **-60°**
-turns `wat-pho` from a tilted slab into a legible tiered temple with columns,
-and stands `peace-palace` up on its base.
+What works is two separate rotations, which were initially conflated:
 
-No single constant is right, even inside one catalogue: `westminster-abbey` is a
-much flatter elevation than the isometric dioramas, and -60 over-rotates it into
-a forward lean. So the app asks — a three-way **Seen from** control (eye level,
-slightly above, isometric, mapping to 0 / -30 / -60), remembered between
-launches and re-applied on Regenerate.
+**The engine's own convention.** TripoSR does not emit a Y-up mesh at all — the
+subject's vertical axis comes out along Z, so an eye-level animal reconstructs
+lying on its back. This was missed while the corpus was only landmarks, because
+a wide diorama slab hides it. It surfaced immediately on animals: the yak, the
+pelican and the gibbon all came out on their sides. A fixed **-90°** correction
+inside the engine fixes every subject at once, and the yak becomes a properly
+recognisable four-legged yak with horns and a shaggy coat.
 
-That is a fact about the source image rather than an engine detail, so it does
-not conflict with the rule against exposing engine internals — and it is the
-single most visible defect when wrong, which earns it a place in the UI.
+**The camera's elevation**, on top of that, is a fact about the image: 0 for an
+eye-level photo, about +30 for the isometric landmark renders.
+
+The two compose exactly — -90 + 30 is the -60 first measured on landmarks — and
+that arithmetic is what confirmed the split rather than a coincidence.
+
+Because the camera height cannot be recovered from the image, the app asks: a
+three-way **Seen from** control, remembered between launches and re-applied on
+Regenerate. It defaults to eye level, since of 1,100 catalogue items 405
+landmarks are isometric while 263 animals and 222 people are not, and an
+imported photo is eye level too. That is a fact about the source image rather
+than an engine detail, so it does not conflict with the rule against exposing
+engine internals.
 
 ### The preview needs its own file
 

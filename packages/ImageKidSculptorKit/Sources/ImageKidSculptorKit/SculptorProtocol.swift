@@ -46,14 +46,19 @@ public struct SculptorOptions: Codable, Equatable, Sendable {
     }
 }
 
-/// Where the source image was seen from.
+/// How high the camera was when the source image was made.
 ///
 /// Reconstruction happens in the input camera's frame, so an image shot or
-/// rendered from above produces a model tilted back by that elevation. This is
-/// the one thing about the source the app cannot infer reliably, and getting it
-/// wrong lays the object on its side, so it is worth asking.
+/// rendered from above produces a model tilted back by that elevation. The
+/// camera's height cannot be recovered from the image, and getting it wrong is
+/// the most visible defect in the output, so the app asks.
 ///
-/// Measured across the Tiko Media catalogue: those isometric renders need -60°.
+/// These are camera elevations only. The engine's own output convention — for
+/// TripoSR, a mesh whose vertical axis is Z rather than Y — is corrected inside
+/// the engine, because it belongs to the engine and not to the image.
+///
+/// Measured on the Tiko Media corpus: eye-level animals and people are upright
+/// with no elevation, and the isometric landmark renders need about +30.
 public enum SourceViewpoint: String, CaseIterable, Identifiable, Sendable {
     case eyeLevel
     case raised
@@ -71,17 +76,18 @@ public enum SourceViewpoint: String, CaseIterable, Identifiable, Sendable {
 
     public var detail: String {
         switch self {
-        case .eyeLevel: "A photo taken level with the object."
+        case .eyeLevel: "A photo or render level with the subject."
         case .raised: "Looking down a little, as most product shots do."
         case .overhead: "A steep three-quarter view, like a game or map asset."
         }
     }
 
+    /// Degrees of pitch the worker applies to undo this elevation.
     public var pitchCorrection: Double {
         switch self {
         case .eyeLevel: 0
-        case .raised: -30
-        case .overhead: -60
+        case .raised: 15
+        case .overhead: 30
         }
     }
 }

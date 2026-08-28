@@ -181,21 +181,29 @@ half-written asset. The source image is opened read-only and never modified.
 Up `+Y`, origin at bottom-centre, normalised to a one-unit longest edge with
 `appliedScale` reported so the engine's original dimensions stay recoverable.
 
-**Orientation is corrected, not assumed.** Single-image reconstruction happens in
-the input camera's frame, so a subject rendered from above — every isometric
-Tiko Media asset — comes out tilted back by the camera's elevation.
+**Orientation is corrected, not assumed**, by two separate rotations that were
+easy to confuse and are kept apart deliberately.
 
-The fix is `pitchCorrection`, in degrees. **-60°** stands up the steep isometric
-dioramas that make up most of the Tiko catalogue; 0 is right for an eye-level
-photo.
+*The engine's convention.* TripoSR does not emit a Y-up mesh — the subject's
+vertical axis comes out along Z, so an eye-level animal arrives lying on its
+back. `engines/triposr.py` rotates its own output by **-90°** before returning
+it. This is a fact about TripoSR, so it lives in the engine; another engine will
+have its own convention and the rest of the pipeline should not care.
 
-There is no single correct constant, even within one catalogue. `wat-pho` and
-`peace-palace` are steep three-quarter views and need -60; `westminster-abbey`
-is a much flatter elevation and -60 over-rotates it into a forward lean. That is
-why this is a user-facing control — a three-way **Seen from** choice mapping to
-0 / -30 / -60 — rather than a hardcoded value. The camera's height cannot be
-recovered from the image, and getting it wrong is the single most visible defect
-in the output.
+*The camera's elevation.* On top of that, reconstruction happens in the input
+camera's frame, so a subject rendered from above is tilted back by however high
+the camera was. That is `pitchCorrection`, and it is a fact about the *image*:
+**0** for an eye-level photo, about **+30** for the isometric landmark renders.
+
+The two compose exactly: -90 + 30 = the -60 that was first measured on the
+landmarks before the engine convention was understood, which is what confirmed
+the split. `tests/test_triposr.py` pins that composition.
+
+The camera height cannot be recovered from the image and getting it wrong is the
+most visible defect in the output, so the app asks — a three-way **Seen from**
+control. It defaults to eye level: of 1,100 catalogue items, 405 landmarks are
+isometric but 263 animals and 222 people are eye level, as is any photo a user
+imports.
 
 `alignGround` attempts the same thing from geometry alone, by taking the
 object's largest flat surface as its base. It is **off by default and not

@@ -17,10 +17,14 @@ final class SculptorAppModel: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        // Most of this product's source images are isometric catalogue assets,
-        // so that is the more useful default than eye level.
+        // Eye level, because it is the safe wrong answer. Surveying the Tiko
+        // Media catalogue: 405 landmarks are isometric dioramas, but 263
+        // animals and 222 people are eye-level three-quarter views, and an
+        // imported photo is eye level too. Applying -60 to an eye-level subject
+        // actively topples it, while leaving an isometric one uncorrected is
+        // the same tilt the engine already produced.
         self.viewpoint = defaults.string(forKey: Self.viewpointKey)
-            .flatMap(SourceViewpoint.init(rawValue:)) ?? .overhead
+            .flatMap(SourceViewpoint.init(rawValue:)) ?? .eyeLevel
 
         if let launch = WorkerLaunchConfiguration.resolve() {
             session = SculptorSession(worker: SculptorWorker(launch: launch))
