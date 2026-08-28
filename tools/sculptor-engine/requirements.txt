@@ -1,0 +1,12 @@
+# Core worker dependencies: protocol, input preparation, mesh normalisation and
+# GLB export. Deliberately light so the engine boundary can be exercised and
+# tested without installing PyTorch.
+pillow>=10.2
+numpy>=1.26
+trimesh>=4.4
+# GLB/GLTF export and texture packing for trimesh.
+pygltflib>=1.16
+# trimesh needs a graph engine for connected-component analysis, which the
+# stray-fragment removal in meshnorm depends on. Without it trimesh raises
+# "no graph engines available!" at runtime rather than at import.
+scipy>=1.11
