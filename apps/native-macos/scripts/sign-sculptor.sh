@@ -14,6 +14,18 @@
 # List available identities with:
 #   security find-identity -v -p codesigning
 #
+# Ad-hoc works for running locally. Signing with a real certificate does not,
+# on its own: the app needs an embedded provisioning profile that grants its
+# App Group, and the worker needs one granting `com.apple.security.inherit`.
+# Without them the entitlements are rejected and the worker is killed with
+# SIGTRAP the moment the app spawns it — the app itself still launches, so the
+# symptom is "nothing happens when I press Generate" rather than a crash.
+#
+# That means registering com.hakobs.imagekid.sculptor on the developer portal
+# with the App Group capability, and building with automatic signing so Xcode
+# embeds the profile. Verified: Apple Distribution signing alone produces a
+# valid signature and a worker that will not start.
+#
 # Notarising is deliberately not done here. It uploads the app to Apple under
 # your account, which is a decision for a person, not a build script:
 #

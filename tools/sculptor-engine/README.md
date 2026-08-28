@@ -322,10 +322,15 @@ still want more.
 
 ## Still open
 
-1. Sign and notarise a release. `scripts/bundle_runtime.sh` packages the
-   runtime and the app is sandboxed, but every `.so` and `.dylib` inside the
-   runtime still needs signing before notarisation will pass — the script
-   prints the command.
+1. Provision and notarise a release. Bundling, sandboxing and signing all work
+   — `scripts/bundle_runtime.sh` then
+   `apps/native-macos/scripts/sign-sculptor.sh` — and ad-hoc signing runs
+   locally. Signing with a real certificate additionally needs an embedded
+   provisioning profile granting the App Group and the worker's
+   `com.apple.security.inherit`; without it the signature is valid but the
+   worker is killed on spawn. That means registering
+   `com.hakobs.imagekid.sculptor` on the developer portal. Notarisation then
+   wants a Developer ID Application certificate, which is not in this keychain.
 2. Mirror the weights to R2 (`scripts/upload_weights_to_r2.sh`) for a faster
    install. Not blocking — the app already falls back to upstream.
 3. Replace the protocol's stage weights with the measured timings above; they

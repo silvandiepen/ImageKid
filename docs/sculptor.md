@@ -15,10 +15,15 @@ is ungated — and finds its own worker, so nothing needs configuring by hand.
 `Contents/Resources/sculptor-engine` (918 MB), and the target is sandboxed on
 the strength of it. A generation has been run entirely from that bundle.
 
-What is *not* done: the runtime's native libraries are not signed, so the app
-cannot be notarised or distributed; there is no app icon; and reconstruction
-quality is good rather than perfect. See "Phase 0 findings" below and
-`tools/sculptor-engine/README.md`.
+`apps/native-macos/scripts/sign-sculptor.sh` signs the runtime's ~190 native
+binaries and then the app, inside-out. The interpreter carries its own
+entitlements, because it runs as a separate process and the app's do not reach
+it.
+
+What is *not* done: notarisation, which uploads to Apple and needs a Developer
+ID Application certificate rather than the Apple Distribution one available
+here. Reconstruction quality is good rather than perfect — see "Phase 0
+findings" below and `tools/sculptor-engine/README.md`.
 
 ImageKid Sculptor is a focused macOS companion app that turns one image containing one clear object into a complete, inspectable 3D model on the user's Mac.
 
