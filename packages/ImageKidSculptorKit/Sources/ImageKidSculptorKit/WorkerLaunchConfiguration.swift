@@ -34,6 +34,17 @@ public struct WorkerLaunchConfiguration: Equatable, Sendable {
     public static let pythonDefaultsKey = "SculptorWorkerPython"
     public static let sourceDefaultsKey = "SculptorWorkerSource"
 
+    /// Directories to walk upwards from when looking for a worker checkout.
+    ///
+    /// Injectable so tests can pass `[]` and assert the unconfigured case
+    /// without the surrounding repository being discovered.
+    public static var defaultSearchRoots: [String] {
+        [
+            FileManager.default.currentDirectoryPath,
+            Bundle.main.bundleURL.deletingLastPathComponent().path
+        ]
+    }
+
     /// Resolves a launch configuration, preferring a bundled runtime.
     ///
     /// - Returns: `nil` when no worker can be found, so the caller can explain
@@ -42,13 +53,17 @@ public struct WorkerLaunchConfiguration: Equatable, Sendable {
         bundle: Bundle = .main,
         defaults: UserDefaults = .standard,
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        searchRoots: [String] = defaultSearchRoots
     ) -> WorkerLaunchConfiguration? {
         if let bundled = bundled(in: bundle, fileManager: fileManager) {
             return bundled
         }
         return developerProvided(
-            defaults: defaults, environment: environment, fileManager: fileManager
+            defaults: defaults,
+            environment: environment,
+            fileManager: fileManager,
+            searchRoots: searchRoots
         )
     }
 
@@ -66,29 +81,71 @@ public struct WorkerLaunchConfiguration: Equatable, Sendable {
         )
     }
 
+    /// Looks for a worker checkout next to the running app.
+    ///
+    /// A development build lives deep inside DerivedData, so this walks up
+    /// looking for `tools/sculptor-engine` with its own virtual environment.
+    /// It saves every developer from a `defaults write` before first launch,
+    /// and finds nothing in a shipped app, where the bundled runtime applies.
+    private static func discoveredCheckout(
+        fileManager: FileManager, searchRoots: [String]
+    ) -> WorkerLaunchConfiguration? {
+        for candidate in searchRoots {
+            var directory = URL(fileURLWithPath: candidate)
+            for _ in 0..<12 {
+                let source = directory
+                    .appendingPathComponent("tools/sculptor-engine", isDirectory: true)
+                let python = source.appendingPathComponent(".venv/bin/python")
+                if fileManager.isExecutableFile(atPath: python.path),
+                   fileManager.fileExists(
+                    atPath: source.appendingPathComponent("sculptor_engine").path
+                   ) {
+                    return configuration(python: python.path, source: source.path)
+                }
+                let parent = directory.deletingLastPathComponent()
+                if parent == directory { break }
+                directory = parent
+            }
+        }
+        return nil
+    }
+
+    private static func configuration(
+        python: String, source: String, environment: [String: String] = [:]
+    ) -> WorkerLaunchConfiguration {
+        var childEnvironment = environment
+        childEnvironment["PYTHONPATH"] = source
+        // Unbuffered, so progress lines arrive as they happen rather than in a
+        // burst when the pipe flushes.
+        childEnvironment["PYTHONUNBUFFERED"] = "1"
+        return WorkerLaunchConfiguration(
+            executable: URL(fileURLWithPath: python),
+            arguments: ["-m", "sculptor_engine", "--serve"],
+            environment: childEnvironment
+        )
+    }
+
     private static func developerProvided(
         defaults: UserDefaults,
         environment: [String: String],
-        fileManager: FileManager
+        fileManager: FileManager,
+        searchRoots: [String]
     ) -> WorkerLaunchConfiguration? {
         let pythonPath = environment[pythonEnvironmentKey]
             ?? defaults.string(forKey: pythonDefaultsKey)
         let sourcePath = environment[sourceEnvironmentKey]
             ?? defaults.string(forKey: sourceDefaultsKey)
 
-        guard let pythonPath, let sourcePath else { return nil }
-        guard fileManager.isExecutableFile(atPath: pythonPath) else { return nil }
-
-        var childEnvironment = environment
-        childEnvironment["PYTHONPATH"] = sourcePath
-        // Unbuffered, so progress lines arrive as they happen rather than in a
-        // burst when the pipe flushes.
-        childEnvironment["PYTHONUNBUFFERED"] = "1"
-
-        return WorkerLaunchConfiguration(
-            executable: URL(fileURLWithPath: pythonPath),
-            arguments: ["-m", "sculptor_engine", "--serve"],
-            environment: childEnvironment
+        guard let pythonPath, let sourcePath else {
+            // Nothing configured: look for a checkout rather than giving up and
+            // making the user edit defaults by hand.
+            return discoveredCheckout(fileManager: fileManager, searchRoots: searchRoots)
+        }
+        guard fileManager.isExecutableFile(atPath: pythonPath) else {
+            return discoveredCheckout(fileManager: fileManager, searchRoots: searchRoots)
+        }
+        return configuration(
+            python: pythonPath, source: sourcePath, environment: environment
         )
     }
 

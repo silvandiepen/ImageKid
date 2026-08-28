@@ -38,6 +38,39 @@ public enum SculptorModel: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// The upstream repository the weights originate from.
+    ///
+    /// TripoSR is MIT licensed and **ungated**, so this is a usable download
+    /// source with no account, token or licence acceptance. That is what lets
+    /// the app install a model before anything has been mirrored.
+    public var upstreamRepository: String? {
+        switch self {
+        case .triposr: "stabilityai/TripoSR"
+        }
+    }
+
+    /// Where to fetch one file from, best source first.
+    ///
+    /// The mirror is preferred when it is populated — it is a CDN close to the
+    /// user and under our control. Upstream is the fallback rather than the
+    /// only source, so a download does not depend on Hugging Face staying up or
+    /// keeping its URL scheme, and does not break if the mirror is empty.
+    public func downloadSources(for file: String, mirror: URL) -> [URL] {
+        var sources = [
+            mirror
+                .appendingPathComponent(rawValue)
+                .appendingPathComponent(version)
+                .appendingPathComponent(file)
+        ]
+        if let repository = upstreamRepository,
+           let upstream = URL(
+            string: "https://huggingface.co/\(repository)/resolve/main/\(file)"
+           ) {
+            sources.append(upstream)
+        }
+        return sources
+    }
+
     public static let appGroupIdentifier = "group.com.hakobs.imagekid"
 
     /// Root holding every Sculptor model, inside the App Group so the main app

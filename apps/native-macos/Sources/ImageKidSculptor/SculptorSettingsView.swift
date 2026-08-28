@@ -45,6 +45,41 @@ struct SculptorSettingsView: View {
                 }
             }
 
+            // Only shown while the runtime is not packaged into the bundle.
+            // Once it is, the app finds its own engine and this is noise.
+            if !model.hasBundledRuntime {
+                Section("Reconstruction engine") {
+                    LabeledContent("Status") {
+                        Text(model.setupProblem == nil ? "Found" : "Not found")
+                            .foregroundStyle(model.setupProblem == nil ? .primary : .secondary)
+                    }
+                    if let path = model.workerDescription {
+                        LabeledContent("Interpreter") {
+                            Text(path)
+                                .font(.caption)
+                                .textSelection(.enabled)
+                                .lineLimit(2)
+                                .truncationMode(.middle)
+                        }
+                    }
+                    HStack {
+                        Button("Choose Interpreter…") { model.chooseWorkerPython() }
+                        if model.hasManualWorker {
+                            Button("Use Automatic") { model.clearWorkerOverride() }
+                        }
+                        Spacer()
+                    }
+                    Text(
+                        "Sculptor reconstructs in a separate process. A development "
+                        + "build finds the checkout automatically; pick an interpreter "
+                        + "only if it cannot."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
             Section("Processing") {
                 Text(
                     "Generation runs entirely on this Mac. Images are never "

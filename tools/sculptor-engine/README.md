@@ -96,10 +96,19 @@ python scripts/fetch_weights.py
 python -m sculptor_engine --check
 ```
 
-**The app's own "Install Model" button does not work yet.** It fetches from
-`https://models-data.hakobs.com/v1/TripoSR/v1/`, the same bucket ImageKid's Core
-ML models come from, and nothing has been uploaded there — the URL currently
-404s. Publish them once with:
+**The app installs the model itself**, trying two sources per file in order:
+
+1. `https://models-data.hakobs.com/v1/TripoSR/v1/` — the same bucket ImageKid's
+   Core ML models come from. A CDN close to the user, and under our control.
+2. `https://huggingface.co/stabilityai/TripoSR/resolve/main/` — upstream.
+
+Nothing has been mirrored to the bucket yet, so today every download falls
+through to upstream and works anyway. That is the point of the fallback: TripoSR
+is MIT and ungated, so the install needs no account, token or mirror. A 404 or a
+transport failure moves to the next source rather than saving the error page,
+which would otherwise leave a "model" that reads as installed and fails at load.
+
+To populate the mirror and get the faster path:
 
 ```bash
 R2_ENDPOINT=… R2_BUCKET=… AWS_ACCESS_KEY_ID=… AWS_SECRET_ACCESS_KEY=… \
@@ -313,16 +322,16 @@ still want more.
 
 ## Still open
 
-1. Upload the weights to R2 (`scripts/upload_weights_to_r2.sh`). Until then the
-   app's in-app install fails and the model must be installed from the command
-   line with `scripts/fetch_weights.py`.
-2. Replace the protocol's stage weights with the measured timings above; they
+1. Package the Python runtime into the app bundle with
+   `scripts/bundle_runtime.sh`, then re-enable the sandbox. Weigh it first: the
+   bundle grows by roughly 2.5 GB and every native binary inside needs signing,
+   so a Core ML port of the engine may be the better answer.
+2. Mirror the weights to R2 (`scripts/upload_weights_to_r2.sh`) for a faster
+   install. Not blocking — the app already falls back to upstream.
+3. Replace the protocol's stage weights with the measured timings above; they
    are currently derived from stage ordering, so the progress bar is uneven.
-3. `engines/spar3d.py` has never been run: its weights are gated. The
+4. `engines/spar3d.py` has never been run: its weights are gated. The
    `from_pretrained`/`run_image` signatures are written from upstream docs and
    need confirming against a pinned commit before anyone relies on it.
-4. Package a Python runtime into the app bundle. Until then the Sculptor target
-   cannot be sandboxed, because a sandboxed process may only execute binaries it
-   ships with. See `apps/native-macos/project.yml`.
 5. Evaluate a higher-fidelity engine for hero assets, and a Core ML port to
    remove the Python runtime altogether.

@@ -26,20 +26,45 @@ final class SculptorAppModel: ObservableObject {
         self.viewpoint = defaults.string(forKey: Self.viewpointKey)
             .flatMap(SourceViewpoint.init(rawValue:)) ?? .eyeLevel
 
-        if let launch = WorkerLaunchConfiguration.resolve() {
-            session = SculptorSession(worker: SculptorWorker(launch: launch))
-        } else {
+        session = Self.makeSession()
+        setupProblem = WorkerLaunchConfiguration.resolve() == nil
+            ? WorkerLaunchConfiguration.missingWorkerExplanation
+            : nil
+        observe()
+    }
+
+    private static func makeSession() -> SculptorSession {
+        guard let launch = WorkerLaunchConfiguration.resolve() else {
             // Still construct a session so the UI has something to bind to; it
             // will fail loudly if a generation is attempted.
             let fallback = WorkerLaunchConfiguration(
                 executable: URL(fileURLWithPath: "/usr/bin/false"), arguments: []
             )
-            session = SculptorSession(worker: SculptorWorker(launch: fallback))
-            setupProblem = WorkerLaunchConfiguration.missingWorkerExplanation
+            return SculptorSession(worker: SculptorWorker(launch: fallback))
         }
+        return SculptorSession(worker: SculptorWorker(launch: launch))
+    }
 
-        // SculptorSession is its own ObservableObject; forward its changes so
-        // views observing this model redraw.
+    /// Rebuilds the session against a newly chosen interpreter.
+    ///
+    /// The old worker is shut down rather than left running: it holds model
+    /// weights in memory and a child process that nothing would reap.
+    private func rebuildSession() {
+        let previous = session
+        Task { await previous.shutdown() }
+
+        cancellables.removeAll()
+        session = Self.makeSession()
+        setupProblem = WorkerLaunchConfiguration.resolve() == nil
+            ? WorkerLaunchConfiguration.missingWorkerExplanation
+            : nil
+        observe()
+        Task { await session.warmUp() }
+    }
+
+    /// `SculptorSession` and the downloader are their own `ObservableObject`s;
+    /// forward their changes so views observing this model redraw.
+    private func observe() {
         session.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
@@ -58,6 +83,52 @@ final class SculptorAppModel: ObservableObject {
     func warmUp() async {
         guard setupProblem == nil else { return }
         await session.warmUp()
+    }
+
+    // MARK: - Engine location
+
+    /// True once the Python runtime ships inside the app, at which point the
+    /// engine settings are irrelevant.
+    var hasBundledRuntime: Bool {
+        guard let resources = Bundle.main.resourceURL else { return false }
+        return FileManager.default.isExecutableFile(
+            atPath: resources.appendingPathComponent("sculptor-engine/bin/python3").path
+        )
+    }
+
+    var hasManualWorker: Bool {
+        defaults.string(forKey: WorkerLaunchConfiguration.pythonDefaultsKey) != nil
+    }
+
+    var workerDescription: String? {
+        WorkerLaunchConfiguration.resolve()?.executable.path
+    }
+
+    /// Lets the user point at an interpreter rather than editing defaults by
+    /// hand. The worker checkout is inferred from it, since the two always sit
+    /// together in a checkout.
+    func chooseWorkerPython() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.message = "Choose a Python interpreter with the worker's dependencies."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        defaults.set(url.path, forKey: WorkerLaunchConfiguration.pythonDefaultsKey)
+        // .venv/bin/python -> the checkout two levels above bin.
+        let inferred = url
+            .deletingLastPathComponent()   // bin
+            .deletingLastPathComponent()   // .venv
+            .deletingLastPathComponent()   // checkout
+        defaults.set(inferred.path, forKey: WorkerLaunchConfiguration.sourceDefaultsKey)
+        rebuildSession()
+    }
+
+    func clearWorkerOverride() {
+        defaults.removeObject(forKey: WorkerLaunchConfiguration.pythonDefaultsKey)
+        defaults.removeObject(forKey: WorkerLaunchConfiguration.sourceDefaultsKey)
+        rebuildSession()
     }
 
     // MARK: - Import

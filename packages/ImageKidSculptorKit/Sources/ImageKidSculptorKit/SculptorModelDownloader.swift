@@ -31,6 +31,8 @@ public final class SculptorModelDownloader: NSObject, ObservableObject {
     private let baseURL: URL
     private var session: URLSession!
     private var remaining: [String] = []
+    /// Remaining sources to try for the file currently downloading.
+    private var sources: [URL] = []
     private var completedBytes: Int64 = 0
     private var totalExpectedBytes: Int64 = 0
     private var currentTask: URLSessionDownloadTask?
@@ -74,13 +76,31 @@ public final class SculptorModelDownloader: NSObject, ObservableObject {
             finishInstall()
             return
         }
-        let url = baseURL
-            .appendingPathComponent(model.rawValue)
-            .appendingPathComponent(model.version)
-            .appendingPathComponent(file)
+        sources = model.downloadSources(for: file, mirror: baseURL)
+        startCurrentSource()
+    }
+
+    /// Tries the current file's next source. Falling through the list is what
+    /// lets the install work before anything has been mirrored.
+    private func startCurrentSource() {
+        guard let url = sources.first else {
+            failed("Could not download \(remaining.first ?? "the model").")
+            return
+        }
         let task = session.downloadTask(with: url)
         currentTask = task
         task.resume()
+    }
+
+    /// Moves to the next source for the current file, or fails if exhausted.
+    fileprivate func tryNextSource(reason: String) {
+        guard !sources.isEmpty else { return }
+        sources.removeFirst()
+        if sources.isEmpty {
+            failed(reason)
+        } else {
+            startCurrentSource()
+        }
     }
 
     private func finishInstall() {
@@ -103,6 +123,18 @@ public final class SculptorModelDownloader: NSObject, ObservableObject {
 
     fileprivate func handle(location: URL, for task: URLSessionDownloadTask) {
         guard let file = remaining.first else { return }
+
+        // A 404 still arrives here, with the error page as the body. Saving it
+        // would leave a "model" that reads as installed and fails at load time,
+        // so anything but success falls through to the next source.
+        if let http = task.response as? HTTPURLResponse, http.statusCode != 200 {
+            try? FileManager.default.removeItem(at: location)
+            tryNextSource(
+                reason: "\(file) is not available (HTTP \(http.statusCode))."
+            )
+            return
+        }
+
         let destination = model.directory.appendingPathComponent(file)
         let fileManager = FileManager.default
         do {
@@ -121,6 +153,7 @@ public final class SculptorModelDownloader: NSObject, ObservableObject {
         }
         completedBytes += task.countOfBytesReceived
         remaining.removeFirst()
+        sources.removeAll()
         startNext()
     }
 
@@ -179,9 +212,12 @@ extension SculptorModelDownloader: URLSessionDownloadDelegate {
     ) {
         guard let error else { return }
         let isCancellation = (error as NSError).code == NSURLErrorCancelled
+        let description = error.localizedDescription
         Task { @MainActor in
             guard !isCancellation else { return }
-            self.failed(error.localizedDescription)
+            // A transport failure on one source is not fatal while others
+            // remain — the mirror may be unreachable when upstream is fine.
+            self.tryNextSource(reason: description)
         }
     }
 }
