@@ -75,7 +75,7 @@ The repository is a development foundation. A successful Swift package build is 
 
 ## Documentation
 
-Start with the [documentation index](docs/README.md), [product definition](docs/product.md), [implementation status](docs/implementation.md), [requirements](docs/requirements.md), [architecture](docs/architecture.md), [companion app strategy](docs/companion-apps.md), and [ImageKid Slicer definition](docs/slicer.md).
+Start with the [documentation index](docs/README.md), [product definition](docs/product.md), [implementation status](docs/implementation.md), [requirements](docs/requirements.md), [architecture](docs/architecture.md), and [companion app strategy](docs/companion-apps.md). Planned companion-product documentation includes [ImageKid Slicer](docs/slicer.md), the composite-image slicing tool, and [ImageKid Sculptor](docs/sculptor.md), the local single-image-to-3D workflow.
 
 ## Licence
 

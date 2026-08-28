@@ -13,6 +13,7 @@ ImageKid is currently an offline native macOS image utility with basic video vie
 - [Upscaling](upscaling.md) — standard and Best Quality upscaling paths.
 - [Companion apps](companion-apps.md) — status, product strategy, and roadmap for ImageKid Upscale, ImageKid Cutout, and ImageKid Slicer.
 - [ImageKid Slicer](slicer.md) — focused macOS tool for opening one composite image, defining rectangular slices directly on the canvas, and saving every slice as a separate local image.
+- [ImageKid Sculptor](sculptor.md) — planned local macOS companion app for turning one single-object image into a complete inspectable 3D model and exporting GLB.
 - [iOS feasibility](ios-feasibility.md) — whether upscaling and background removal can move to iOS, and the Core ML direction.
 - [Build](build.md) — native and website development commands.
 - [Website](website.md) — routes, content ownership, domains, and Cloudflare Pages deployment.
