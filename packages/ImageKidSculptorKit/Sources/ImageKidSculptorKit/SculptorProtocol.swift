@@ -19,6 +19,16 @@ public struct SculptorOptions: Codable, Equatable, Sendable {
     /// ``SourceViewpoint``.
     public var pitchCorrection: Double?
     public var alignGround: Bool?
+    /// Taubin smoothing passes. Marching cubes terraces curved surfaces; this
+    /// is what removes it.
+    public var smoothingIterations: Int?
+    /// Decimate to about this many triangles.
+    public var targetTriangles: Int?
+    /// Flatten colour to this many tones for a cartoon look. 0 keeps the
+    /// colour sampled from the source image.
+    public var paletteColours: Int?
+    /// Extra formats to write beside the canonical GLB.
+    public var exportFormats: [String]?
     public var seed: Int?
     public var device: String?
     public var lowMemory: Bool?
@@ -30,6 +40,10 @@ public struct SculptorOptions: Codable, Equatable, Sendable {
         normaliseScale: Bool? = nil,
         pitchCorrection: Double? = nil,
         alignGround: Bool? = nil,
+        smoothingIterations: Int? = nil,
+        targetTriangles: Int? = nil,
+        paletteColours: Int? = nil,
+        exportFormats: [String]? = nil,
         seed: Int? = nil,
         device: String? = nil,
         lowMemory: Bool? = nil
@@ -40,6 +54,10 @@ public struct SculptorOptions: Codable, Equatable, Sendable {
         self.normaliseScale = normaliseScale
         self.pitchCorrection = pitchCorrection
         self.alignGround = alignGround
+        self.smoothingIterations = smoothingIterations
+        self.targetTriangles = targetTriangles
+        self.paletteColours = paletteColours
+        self.exportFormats = exportFormats
         self.seed = seed
         self.device = device
         self.lowMemory = lowMemory
@@ -181,6 +199,8 @@ public struct ResultMessage: Codable, Equatable, Sendable {
     public let glbPath: String
     /// Viewer-compatible copy: Model I/O cannot read GLB. Disposable.
     public let previewPath: String
+    /// Any extra formats that were requested, keyed by format name.
+    public let exports: [String: String]
     public let preparedImagePath: String
     public let triangleCount: Int
     public let vertexCount: Int

@@ -24,6 +24,14 @@ struct SculptorView: View {
         }
         // A real binding, not `.constant`: an alert that cannot be dismissed
         // re-presents itself forever and locks the window.
+        .sheet(isPresented: $model.isExporting) {
+            ExportSheet(
+                settings: $model.exportSettings,
+                currentTriangles: model.generatedTriangles,
+                onCancel: { model.cancelExport() },
+                onExport: { model.performExport() }
+            )
+        }
         .alert(
             "Setup needed",
             isPresented: Binding(

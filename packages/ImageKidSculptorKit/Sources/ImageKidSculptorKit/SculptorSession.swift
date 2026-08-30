@@ -142,6 +142,52 @@ public final class SculptorSession: ObservableObject {
         if phase.isProcessing { phase = sourceURL == nil ? .empty : .ready }
     }
 
+    /// Regenerates with export-specific settings and returns the new result.
+    ///
+    /// Detail and colour live in the mesh, so exporting at a different triangle
+    /// count or without flat colour means asking the worker again rather than
+    /// re-saving the file already on disk. The on-screen model is replaced by
+    /// the new one, so what the user exported is what they are still looking
+    /// at.
+    public func regenerateForExport(options: SculptorOptions) async -> ResultMessage? {
+        guard let sourceURL else { return nil }
+
+        let jobId = UUID().uuidString
+        let workspace = workspaceRoot.appendingPathComponent(jobId, isDirectory: true)
+        let request = GenerateRequest(
+            jobId: jobId,
+            sourcePath: sourceURL.path,
+            workspace: workspace.path,
+            options: options
+        )
+
+        currentJobId = jobId
+        phase = .processing(stage: .preparingImage, fraction: 0)
+        defer { currentJobId = nil }
+
+        do {
+            for try await event in await worker.generate(request) {
+                switch event {
+                case .progress(let progress):
+                    phase = .processing(stage: progress.stage, fraction: progress.fraction)
+                case .finished(let result):
+                    lastOptions = options
+                    phase = .finished(result)
+                    return result
+                }
+            }
+        } catch let error as SculptorWorkerError {
+            phase = .failed(
+                message: error.errorDescription ?? "Export failed.",
+                recoverable: error.isRecoverable,
+                code: { if case .reported(let code, _, _) = error { return code }; return nil }()
+            )
+        } catch {
+            phase = .failed(message: error.localizedDescription, recoverable: true, code: nil)
+        }
+        return nil
+    }
+
     /// Runs again from the same source image, with the same settings.
     public func regenerate() {
         guard sourceURL != nil else { return }

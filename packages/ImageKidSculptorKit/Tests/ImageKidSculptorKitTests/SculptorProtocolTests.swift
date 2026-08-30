@@ -60,11 +60,12 @@ final class SculptorProtocolTests: XCTestCase {
 
     func testDecodesResult() throws {
         // One line, exactly as the worker writes it.
-        let json = #"{"type":"result","jobId":"j1","glbPath":"/w/output/model.glb","previewPath":"/w/output/preview.ply","preparedImagePath":"/w/input/prepared.png","triangleCount":200864,"vertexCount":100480,"hasTexture":true,"appliedScale":1.0588,"boundingBoxLongestEdge":1.0,"upAxis":"+Y","originConvention":"bottomCentre","durationSeconds":14.913}"#
+        let json = #"{"type":"result","jobId":"j1","glbPath":"/w/output/model.glb","previewPath":"/w/output/preview.ply","exports":{"obj":"/w/output/model.obj"},"preparedImagePath":"/w/input/prepared.png","triangleCount":200864,"vertexCount":100480,"hasTexture":true,"appliedScale":1.0588,"boundingBoxLongestEdge":1.0,"upAxis":"+Y","originConvention":"bottomCentre","durationSeconds":14.913}"#
         let message = try decode(json)
         guard case .result(let result) = message else { return XCTFail("expected result") }
         XCTAssertEqual(result.glbPath, "/w/output/model.glb")
         XCTAssertEqual(result.previewPath, "/w/output/preview.ply")
+        XCTAssertEqual(result.exports["obj"], "/w/output/model.obj")
         XCTAssertEqual(result.triangleCount, 200_864)
         XCTAssertTrue(result.hasTexture)
         XCTAssertEqual(result.upAxis, "+Y")

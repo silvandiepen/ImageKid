@@ -188,17 +188,111 @@ final class SculptorAppModel: ObservableObject {
 
     // MARK: - Export
 
+    /// Whether the export options sheet is showing.
+    @Published var isExporting = false
+    @Published var exportSettings = ExportSettings()
+    /// Set while a re-generate triggered by export settings is running.
+    @Published private(set) var isReexporting = false
+
+    var generatedTriangles: Int {
+        if case .finished(let result) = session.phase { return result.triangleCount }
+        return 0
+    }
+
+    /// Opens the options sheet rather than going straight to a save panel.
     func exportModel() {
-        guard case .finished = session.phase else { return }
+        guard canExport else { return }
+        isExporting = true
+    }
+
+    func cancelExport() {
+        isExporting = false
+    }
+
+    /// Runs the export the sheet described.
+    ///
+    /// Detail and colour are properties of the mesh, not of the file, so
+    /// changing them means asking the worker for a new model rather than
+    /// re-saving the one on screen. Format alone needs no regeneration when
+    /// only GLB was asked for, since that file already exists.
+    func performExport() {
+        isExporting = false
+        guard case .finished(let result) = session.phase else { return }
+
+        let settings = exportSettings
+        let needsRegenerate =
+            settings.triangleBudget != nil
+            || !settings.flatColour
+            || !settings.additionalFormats.isEmpty
+
+        guard needsRegenerate else {
+            saveExports(["glb": result.glbPath])
+            return
+        }
+
+        isReexporting = true
+        Task {
+            defer { isReexporting = false }
+            var options = SculptorOptions(
+                pitchCorrection: viewpoint.pitchCorrection,
+                exportFormats: settings.additionalFormats
+            )
+            if let budget = settings.triangleBudget { options.targetTriangles = budget }
+            if !settings.flatColour { options.paletteColours = 0 }
+
+            guard let produced = await session.regenerateForExport(options: options) else {
+                return
+            }
+            var paths = produced.exports
+            paths["glb"] = produced.glbPath
+            saveExports(paths)
+        }
+    }
+
+    /// Asks where to put the files, then writes each chosen format there.
+    private func saveExports(_ produced: [String: String]) {
+        let chosen = exportSettings.formats
+        guard let primary = chosen.sorted(by: { $0.rawValue < $1.rawValue }).first else {
+            return
+        }
+
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "glb") ?? .data]
-        panel.nameFieldStringValue = session.suggestedExportName
-        panel.message = "Export the generated 3D model."
+        panel.allowedContentTypes = [
+            UTType(filenameExtension: primary.fileExtension) ?? .data
+        ]
+        panel.nameFieldStringValue =
+            (session.suggestedExportName as NSString).deletingPathExtension
+            + "." + primary.fileExtension
+        panel.message = chosen.count > 1
+            ? "Choose where to save. \(chosen.count) files will be written."
+            : "Export the generated 3D model."
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            try session.export(to: url)
-        } catch {
-            NSAlert(error: error).runModal()
+
+        let base = url.deletingPathExtension()
+        var failures: [String] = []
+        for format in chosen.sorted(by: { $0.rawValue < $1.rawValue }) {
+            guard let source = produced[format.rawValue] else {
+                failures.append("\(format.title) was not produced")
+                continue
+            }
+            let destination = base.appendingPathExtension(format.fileExtension)
+            do {
+                if FileManager.default.fileExists(atPath: destination.path) {
+                    try FileManager.default.removeItem(at: destination)
+                }
+                try FileManager.default.copyItem(
+                    at: URL(fileURLWithPath: source), to: destination
+                )
+            } catch {
+                failures.append("\(format.title): \(error.localizedDescription)")
+            }
+        }
+
+        if !failures.isEmpty {
+            let alert = NSAlert()
+            alert.messageText = "Some formats could not be saved"
+            alert.informativeText = failures.joined(separator: "\n")
+            alert.runModal()
         }
     }
 }
