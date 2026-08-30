@@ -69,3 +69,11 @@ Unlike ImageKid Upscale and ImageKid Cutout, Slicer must not inherit the batch q
 Slicer follows the existing suite decisions: native Apple frameworks first, source files immutable, no implicit cloud or account dependency, and geometry independent of window pixels. Slice rectangles are stored relative to the orientation-correct source image and resolved to integer source-image pixel bounds during export.
 
 The first release deliberately excludes automatic object/grid/whitespace detection, AI slice suggestions, multiple source images, persistent project files, polygon slicing, editing/annotation tools, and an export-settings screen. These may only be considered later if they improve the focused workflow without changing the product into a general editor. See `slicer.md`.
+
+## D-016 — Slicer holds several images, but stays a canvas
+
+D-015 recorded that Slicer must not inherit the batch queue, and `slicer.md` listed multiple source images in one window as a first-release non-goal. Both are narrowed here: Slicer now opens any number of images into a filmstrip, each with its own slices, guides, crop, and view transform.
+
+The reasoning behind D-015 stands and is unchanged: the interface is still one media-first canvas with direct manipulation, not a queue with per-file status rows. What the filmstrip adds is the ability to keep several sheets open, apply one layout across all of them, and export them in a single run — the repeat case a slicing tool actually gets used for. Nothing about it makes the operation less spatial or less manual.
+
+Single-image use is untouched: the filmstrip only appears once a second image is open.
