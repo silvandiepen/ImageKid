@@ -37,6 +37,41 @@ public final class SculptorSession: ObservableObject {
     private var jobTask: Task<Void, Never>?
     private var lastOptions: SculptorOptions?
     private var analysisTask: Task<Void, Never>?
+    /// The worker-readable copy of the source image. See ``stageSource``.
+    private var stagedURL: URL?
+
+    /// Copies the source image somewhere the worker can read it.
+    ///
+    /// The worker is a separate process. A sandboxed app is granted access to a
+    /// file the user opened — through the open panel, a drop, or Finder — but
+    /// that grant does not reach a child process, so handing the worker the
+    /// original path fails with "Operation not permitted" even though the app
+    /// itself can read and display the image perfectly well.
+    ///
+    /// Staging it inside the workspace, which the app owns outright, sidesteps
+    /// the whole question. It also means a generation is unaffected if the user
+    /// moves or deletes the original while it runs.
+    private func stageSource(_ url: URL) throws -> URL {
+        let staging = workspaceRoot.appendingPathComponent("staged", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: staging, withIntermediateDirectories: true
+        )
+        let extensionName = url.pathExtension.isEmpty ? "png" : url.pathExtension
+        let staged = staging.appendingPathComponent(
+            UUID().uuidString + "." + extensionName
+        )
+
+        // A security-scoped URL needs opening before it can be read; one that
+        // is not scoped returns false here and is readable anyway.
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+
+        if FileManager.default.fileExists(atPath: staged.path) {
+            try FileManager.default.removeItem(at: staged)
+        }
+        try FileManager.default.copyItem(at: url, to: staged)
+        return staged
+    }
 
     public init(worker: SculptorWorker, workspaceRoot: URL? = nil) {
         self.worker = worker
@@ -50,15 +85,17 @@ public final class SculptorSession: ObservableObject {
         cancel()
         sourceURL = url
         analysis = nil
+        stagedURL = try? stageSource(url)
         phase = .ready
 
         // Rate the image straight away, so a subject that cannot reconstruct
         // well — a flag, a cropped object — says so before the user waits out
         // a generation to find out.
         analysisTask?.cancel()
+        guard let readable = stagedURL else { return }
         analysisTask = Task { [worker] in
             let rating = try? await worker.analyse(
-                AnalyseRequest(requestId: UUID().uuidString, sourcePath: url.path)
+                AnalyseRequest(requestId: UUID().uuidString, sourcePath: readable.path)
             )
             guard !Task.isCancelled, self.sourceURL == url else { return }
             self.analysis = rating
@@ -70,6 +107,7 @@ public final class SculptorSession: ObservableObject {
         analysisTask?.cancel()
         analysisTask = nil
         analysis = nil
+        stagedURL = nil
         sourceURL = nil
         phase = .empty
     }
@@ -88,9 +126,15 @@ public final class SculptorSession: ObservableObject {
         phase = .processing(stage: .preparingImage, fraction: 0)
 
         let workspace = workspaceRoot.appendingPathComponent(jobId, isDirectory: true)
+        guard let staged = stagedURL ?? (try? stageSource(sourceURL)) else {
+            phase = .failed(
+                message: "Could not read the image.", recoverable: true, code: nil
+            )
+            return
+        }
         let request = GenerateRequest(
             jobId: jobId,
-            sourcePath: sourceURL.path,
+            sourcePath: staged.path,
             workspace: workspace.path,
             options: options
         )
@@ -154,9 +198,12 @@ public final class SculptorSession: ObservableObject {
 
         let jobId = UUID().uuidString
         let workspace = workspaceRoot.appendingPathComponent(jobId, isDirectory: true)
+        guard let staged = stagedURL ?? (try? stageSource(sourceURL)) else {
+            return nil
+        }
         let request = GenerateRequest(
             jobId: jobId,
-            sourcePath: sourceURL.path,
+            sourcePath: staged.path,
             workspace: workspace.path,
             options: options
         )

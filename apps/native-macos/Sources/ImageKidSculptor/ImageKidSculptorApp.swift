@@ -64,7 +64,14 @@ struct ImageKidSculptorApp: App {
             SculptorView(model: model)
                 .task {
                     delegate.model = model
+                    // An image given on the command line, for an automated run
+                    // that launches the binary rather than going through
+                    // LaunchServices.
+                    if let image = AutomationSupport.imageArgument {
+                        _ = model.accept(image)
+                    }
                     await model.warmUp()
+                    await model.runAutomationIfRequested()
                 }
         }
         .windowStyle(.hiddenTitleBar)

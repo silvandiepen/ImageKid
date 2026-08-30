@@ -20,6 +20,7 @@ destroy the texturing the product depends on.
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -276,7 +277,16 @@ def simplify(mesh: trimesh.Trimesh, target_triangles: int) -> trimesh.Trimesh:
         return mesh
     try:
         reduced = mesh.simplify_quadric_decimation(face_count=target_triangles)
-    except Exception:
+    except Exception as exc:
+        # Loudly, on stderr. Silence here once shipped a bundle whose runtime
+        # was missing the decimation backend: every model came out at five
+        # times the requested triangle count and nothing said why.
+        print(
+            "[sculptor-engine] decimation unavailable, keeping "
+            f"{len(mesh.faces)} triangles: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
         return mesh
     if reduced is None or len(reduced.faces) == 0:
         return mesh

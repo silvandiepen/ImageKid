@@ -85,6 +85,30 @@ final class SculptorAppModel: ObservableObject {
         await session.warmUp()
     }
 
+    /// Presses the buttons a launch argument asked for.
+    ///
+    /// Generation lives behind a button, and synthesising a click into it needs
+    /// Accessibility permission that a build machine does not have — so without
+    /// this the path from button to preview can only be checked by hand. See
+    /// ``AutomationSupport``.
+    func runAutomationIfRequested() async {
+        guard AutomationSupport.autoGenerates, session.sourceURL != nil else { return }
+        generate()
+
+        if AutomationSupport.showsExportSheet {
+            // Wait for the result the sheet describes, rather than guessing at
+            // a duration — a generation takes as long as it takes.
+            for _ in 0..<600 {
+                if case .finished = session.phase {
+                    isExporting = true
+                    return
+                }
+                if case .failed = session.phase { return }
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+        }
+    }
+
     // MARK: - Engine location
 
     /// True once the Python runtime ships inside the app, at which point the
