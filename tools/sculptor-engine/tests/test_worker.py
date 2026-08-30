@@ -134,7 +134,17 @@ class TestSuccessfulJob:
 
     def test_result_metadata_matches_the_normalised_asset(self, source_image, tmp_path):
         emitter = RecordingEmitter()
-        Worker(BoxEngine(), emitter).run(make_request(source_image, tmp_path / "w"))
+        # Smoothing and simplification off, so the geometry reaching
+        # normalisation is exactly the box the engine returned and the scale is
+        # predictable. Their own effects are covered in test_meshnorm.
+        Worker(BoxEngine(), emitter).run(
+            make_request(
+                source_image,
+                tmp_path / "w",
+                smoothingIterations=0,
+                targetTriangles=0,
+            )
+        )
         result = emitter.of_type("result")[0]
 
         assert result["triangleCount"] == 12

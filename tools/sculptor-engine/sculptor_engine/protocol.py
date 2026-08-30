@@ -116,6 +116,19 @@ class GenerateOptions:
     #: tilted. 0 suits an eye-level photo; -60 stands up the isometric renders
     #: in the Tiko Media catalogue.
     pitchCorrection: float = 0.0
+    #: Taubin smoothing passes over the surface. Marching cubes terraces every
+    #: curved surface into concentric steps — most visible on the smooth,
+    #: stylised subjects this product targets, where a rabbit's paws come out
+    #: looking contoured. It takes a lot of passes to remove that, not a few.
+    #: 0 keeps the raw isosurface.
+    smoothingIterations: int = 30
+    #: Decimate to about this many triangles. A 256 isosurface emits a couple
+    #: of hundred thousand for shapes that are genuinely simple; once the
+    #: terracing is smoothed away, the honest triangle count is far lower.
+    #: 0 keeps every triangle.
+    targetTriangles: int = 20000
+    #: Extra formats to write beside the canonical GLB: obj, stl, ply.
+    exportFormats: tuple = ()
     #: Recover the upright axis from the object's largest flat surface instead
     #: of a fixed pitch. Off by default: on real reconstructions the biggest
     #: planar region is often the smooth invented back face rather than the
@@ -137,8 +150,28 @@ class GenerateOptions:
         unknown = set(raw) - set(GenerateOptions.__dataclass_fields__)
         if unknown:
             raise ProtocolError(f"unknown options: {', '.join(sorted(unknown))}")
+
+        values = dict(raw)
+        if "exportFormats" in values:
+            formats = values["exportFormats"]
+            if not isinstance(formats, (list, tuple)):
+                raise ProtocolError("exportFormats must be an array")
+            # Validated here rather than at export time, so a typo fails before
+            # the user waits out a whole generation.
+            from .meshnorm import EXPORT_FORMATS
+
+            cleaned = []
+            for name in formats:
+                if not isinstance(name, str) or name.lower() not in EXPORT_FORMATS:
+                    raise ProtocolError(
+                        f"unsupported export format {name!r}; expected any of "
+                        f"{', '.join(sorted(EXPORT_FORMATS))}"
+                    )
+                cleaned.append(name.lower())
+            values["exportFormats"] = tuple(cleaned)
+
         try:
-            return GenerateOptions(**raw)
+            return GenerateOptions(**values)
         except TypeError as exc:
             raise ProtocolError(str(exc)) from exc
 
@@ -259,6 +292,8 @@ class ResultArtifacts:
     #: Viewer-compatible copy for the app's 3D preview. Apple's Model I/O does
     #: not read GLB, so the preview loads this instead. Disposable.
     previewPath: str
+    #: Any extra formats that were requested, keyed by format name.
+    exports: dict
     preparedImagePath: str
     triangleCount: int
     vertexCount: int

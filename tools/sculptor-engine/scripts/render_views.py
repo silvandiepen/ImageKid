@@ -45,15 +45,37 @@ def as_single_mesh(path: Path) -> trimesh.Trimesh:
     return trimesh.util.concatenate(meshes)
 
 
+#: Used only when a mesh genuinely carries no colour.
+NEUTRAL = np.array([200, 200, 200], dtype=np.uint8)
+
+
 def vertex_colours(mesh: trimesh.Trimesh) -> np.ndarray:
-    visual = mesh.visual
-    try:
-        colours = visual.to_color().vertex_colors
-    except Exception:
-        colours = None
-    if colours is None or len(colours) != len(mesh.vertices):
-        return np.full((len(mesh.vertices), 3), 200, dtype=np.uint8)
-    return np.asarray(colours)[:, :3].astype(np.uint8)
+    """Per-vertex RGB, falling back to neutral grey only if there is none.
+
+    Reads ``ColorVisuals.vertex_colors`` directly rather than going through
+    ``to_color()``: on a mesh that already has colour, that round-trip hands
+    back trimesh's default grey and silently discards the real thing.
+    """
+
+    visual = getattr(mesh, "visual", None)
+    colours = None
+
+    if isinstance(visual, trimesh.visual.ColorVisuals):
+        stored = visual.vertex_colors
+        if stored is not None and len(stored) == len(mesh.vertices):
+            colours = np.asarray(stored)
+    elif isinstance(visual, trimesh.visual.TextureVisuals):
+        # Sample the texture through the UVs.
+        try:
+            converted = visual.to_color().vertex_colors
+            if converted is not None and len(converted) == len(mesh.vertices):
+                colours = np.asarray(converted)
+        except Exception:
+            colours = None
+
+    if colours is None:
+        return np.tile(NEUTRAL, (len(mesh.vertices), 1))
+    return colours[:, :3].astype(np.uint8)
 
 
 def rotate(vertices: np.ndarray, yaw_degrees: float | None) -> np.ndarray:

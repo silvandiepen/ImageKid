@@ -175,9 +175,16 @@ class Worker:
                 normalise_scale=options.normaliseScale,
                 pitch_correction=options.pitchCorrection,
                 align_ground=options.alignGround,
+                smoothing_iterations=options.smoothingIterations,
+                target_triangles=options.targetTriangles,
             )
             if asset.removed_fragments:
                 log(f"{job_id}: removed {asset.removed_fragments} stray fragment(s)")
+            if asset.simplified_from:
+                log(
+                    f"{job_id}: simplified {asset.simplified_from} -> "
+                    f"{asset.triangle_count} triangles"
+                )
             progress(Stage.CLEANING_MODEL, 1.0)
 
             # 6. Preparing preview ----------------------------------------------
@@ -189,6 +196,20 @@ class Worker:
                 destination=space.glb_path,
             )
             preview = meshnorm.export_preview(scene, space.preview_path)
+
+            # Extra formats alongside the canonical GLB, for callers that need
+            # to hand the asset to something else.
+            exports: dict[str, str] = {}
+            for file_format in options.exportFormats:
+                if file_format == "glb":
+                    exports["glb"] = str(glb)
+                    continue
+                extra = meshnorm.export_mesh(
+                    scene,
+                    space.output_dir / f"model{meshnorm.EXPORT_FORMATS[file_format]}",
+                    file_format,
+                )
+                exports[file_format] = str(extra)
             progress(Stage.PREPARING_PREVIEW, 1.0)
 
             self._emit.send(
@@ -197,6 +218,7 @@ class Worker:
                     ResultArtifacts(
                         glbPath=str(glb),
                         previewPath=str(preview),
+                        exports=exports,
                         preparedImagePath=str(prepared.path),
                         triangleCount=asset.triangle_count,
                         vertexCount=asset.vertex_count,
@@ -379,18 +401,35 @@ def run_once(
     work_dir: Path | None = None,
     engine_name: str = DEFAULT_ENGINE,
     options: GenerateOptions | None = None,
+    quiet: bool = False,
     **engine_kwargs,
 ) -> int:
-    """One-shot command-line generation, for the spike and for scripting.
+    """One-shot command-line generation, for scripting and for agents.
 
     Emits the same protocol messages on stdout as :func:`serve`, so the CLI and
     the app observe identical behaviour.
+
+    With ``quiet``, progress is suppressed and a single JSON object describing
+    the outcome is printed instead — one parse, one result, for a caller that
+    wants an answer rather than a stream.
     """
 
     import tempfile
     import uuid
 
-    emitter = Emitter(sys.stdout)
+    collected: list[dict] = []
+
+    class _Collector(Emitter):
+        def __init__(self) -> None:
+            self._stream = sys.stdout
+            self._lock = threading.Lock()
+
+        def send(self, message: dict) -> None:
+            collected.append(message)
+            if not quiet:
+                super().send(message)
+
+    emitter = _Collector()
     try:
         engine = create_engine(engine_name, **engine_kwargs)
     except Exception as exc:
@@ -418,6 +457,15 @@ def run_once(
         )
         produced = workspace.JobWorkspace(root).glb_path
         if not produced.is_file():
+            if quiet:
+                failure = next(
+                    (m for m in collected if m.get("type") == "error"), None
+                )
+                print(json.dumps({
+                    "ok": False,
+                    "error": (failure or {}).get("message", "generation failed"),
+                    "code": (failure or {}).get("code", "internalError"),
+                }))
             return 1
         output.parent.mkdir(parents=True, exist_ok=True)
         # shutil.move, not os.replace: the workspace may sit on a different
@@ -425,4 +473,37 @@ def run_once(
         import shutil
 
         shutil.move(str(produced), str(output))
+
+        result = next((m for m in collected if m.get("type") == "result"), {})
+
+        # Extra formats land beside the GLB, named after it, so a caller gets
+        # `model.obj` next to `model.glb` rather than a path inside a temporary
+        # workspace that is about to be deleted.
+        exports = {"glb": str(output)}
+        for file_format, path in (result.get("exports") or {}).items():
+            if file_format == "glb":
+                continue
+            source_path = Path(path)
+            if not source_path.is_file():
+                continue
+            beside = output.with_suffix(meshnorm.EXPORT_FORMATS[file_format])
+            shutil.move(str(source_path), str(beside))
+            exports[file_format] = str(beside)
+
+        if quiet:
+            print(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "output": str(output),
+                        "exports": exports,
+                        "triangles": result.get("triangleCount"),
+                        "vertices": result.get("vertexCount"),
+                        "hasColour": result.get("hasTexture"),
+                        "upAxis": result.get("upAxis"),
+                        "originConvention": result.get("originConvention"),
+                        "seconds": result.get("durationSeconds"),
+                    }
+                )
+            )
     return 0

@@ -10,3 +10,7 @@ pygltflib>=1.16
 # stray-fragment removal in meshnorm depends on. Without it trimesh raises
 # "no graph engines available!" at runtime rather than at import.
 scipy>=1.11
+# Quadric decimation behind trimesh's simplify_quadric_decimation. Needs
+# Python 3.10+, which is why the development venv is built from the same
+# CPython the app bundles rather than the system's 3.9 — see scripts/make_venv.sh.
+fast-simplification>=0.1.7

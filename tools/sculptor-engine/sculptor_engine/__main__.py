@@ -53,7 +53,33 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.0,
         help="degrees of pitch to undo the source camera elevation; 0 suits an "
-        "eye-level photo, -60 stands up an isometric render",
+        "eye-level photo, 30 an isometric render",
+    )
+    parser.add_argument(
+        "--format",
+        dest="formats",
+        action="append",
+        choices=["glb", "obj", "stl", "ply"],
+        help="extra format to write beside the GLB; repeatable",
+    )
+    parser.add_argument(
+        "--smoothing",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Taubin smoothing passes (default 8; 0 keeps the raw isosurface)",
+    )
+    parser.add_argument(
+        "--triangles",
+        type=int,
+        default=None,
+        metavar="N",
+        help="decimate to about N triangles (default 60000; 0 keeps them all)",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="print one JSON object describing the result, and nothing else",
     )
     parser.add_argument(
         "--work-dir",
@@ -111,13 +137,23 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.output:
         parser.error("--output is required with --image")
+
+    overrides = {"pitchCorrection": args.pitch}
+    if args.smoothing is not None:
+        overrides["smoothingIterations"] = args.smoothing
+    if args.triangles is not None:
+        overrides["targetTriangles"] = args.triangles
+    if args.formats:
+        overrides["exportFormats"] = tuple(dict.fromkeys(args.formats))
+
     return run_once(
         source=args.image,
         output=args.output,
         mask=args.mask,
         work_dir=args.work_dir,
         engine_name=engine_name,
-        options=GenerateOptions(pitchCorrection=args.pitch),
+        options=GenerateOptions(**overrides),
+        quiet=args.json,
         **engine_kwargs,
     )
 

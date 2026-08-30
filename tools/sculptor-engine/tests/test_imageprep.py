@@ -116,6 +116,73 @@ class TestSubjectBox:
         assert imageprep.subject_box(image, None) == (0, 0, 80, 40)
 
 
+class TestColourBleed:
+    """Growing subject colour into transparent pixels before compositing.
+
+    The engine flattens the cutout onto a solid background. A cutout's RGB is
+    undefined where alpha is zero — usually black — so without this the
+    silhouette blends into that undefined colour and leaves a halo, which
+    reconstructs as a thin shell of geometry around the object.
+    """
+
+    @staticmethod
+    def cutout() -> Image.Image:
+        image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+        image.paste(Image.new("RGBA", (24, 24), (230, 80, 40, 255)), (20, 20))
+        return image
+
+    def test_fills_transparent_pixels_with_neighbouring_colour(self):
+        import numpy as np
+
+        before = np.asarray(self.cutout())
+        after = np.asarray(imageprep.bleed_colour_outward(self.cutout()))
+
+        assert tuple(before[19, 32, :3]) == (0, 0, 0), "fixture should start black"
+        assert tuple(after[19, 32, :3]) == (230, 80, 40)
+
+    def test_leaves_alpha_alone(self):
+        import numpy as np
+
+        before = np.asarray(self.cutout())
+        after = np.asarray(imageprep.bleed_colour_outward(self.cutout()))
+        # The silhouette must not move; only colour under it changes.
+        assert np.array_equal(before[:, :, 3], after[:, :, 3])
+
+    def test_leaves_the_subject_untouched(self):
+        import numpy as np
+
+        before = np.asarray(self.cutout())
+        after = np.asarray(imageprep.bleed_colour_outward(self.cutout()))
+        assert np.array_equal(before[20:44, 20:44, :3], after[20:44, 20:44, :3])
+
+    def test_zero_passes_is_a_no_op(self):
+        import numpy as np
+
+        image = self.cutout()
+        assert np.array_equal(
+            np.asarray(image), np.asarray(imageprep.bleed_colour_outward(image, passes=0))
+        )
+
+    def test_prepare_applies_it_to_a_masked_subject(self, tmp_path):
+        import numpy as np
+
+        source = tmp_path / "s.png"
+        write_rgba(source, (200, 200), (60, 60, 140, 140))
+        out = tmp_path / "prepared.png"
+
+        imageprep.prepare(source, out, padding=0.4, size=128)
+
+        with Image.open(out) as prepared:
+            data = np.asarray(prepared.convert("RGBA"))
+        # Just outside the subject the pixels are still transparent, but their
+        # colour should now be the subject's rather than undefined black.
+        transparent = data[:, :, 3] < 8
+        assert transparent.any()
+        assert data[transparent][:, :3].max() > 0, (
+            "transparent pixels kept undefined black; the bleed did not run"
+        )
+
+
 class TestPrepare:
     def test_writes_a_square_png_of_the_requested_size(self, tmp_path):
         source = tmp_path / "s.png"

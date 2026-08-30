@@ -183,6 +183,43 @@ def subject_box(
     return box
 
 
+def bleed_colour_outward(image: Image.Image, passes: int = 8) -> Image.Image:
+    """Push subject colour into the transparent pixels around it.
+
+    A cutout's RGB is undefined wherever alpha is zero, and exporters often
+    leave it black or white there. The engine composites the subject onto a flat
+    background, so those undefined pixels blend into the silhouette and leave a
+    fringe — a dark or bright halo that reconstructs as a thin shell of geometry
+    around the object.
+
+    Growing the subject's own colour outward first means the composite blends
+    subject into subject at the edge, and the fringe never forms. Alpha is
+    untouched, so the silhouette itself does not change.
+    """
+
+    if passes <= 0:
+        return image
+
+    from PIL import ImageFilter
+
+    rgb = image.convert("RGB")
+    alpha = image.getchannel("A")
+    # Anything not solidly opaque is a candidate to be filled from its
+    # neighbours, which includes the soft edge itself.
+    solid = alpha.point(lambda value: 255 if value > 250 else 0)
+
+    for _ in range(passes):
+        # MaxFilter spreads the nearest non-black neighbour outward one ring per
+        # pass; masking keeps already-solid pixels exactly as they were.
+        spread = rgb.filter(ImageFilter.MaxFilter(3))
+        rgb = Image.composite(rgb, spread, solid)
+        solid = solid.filter(ImageFilter.MaxFilter(3))
+
+    result = rgb.convert("RGBA")
+    result.putalpha(alpha)
+    return result
+
+
 def _pad_to_square(
     box: tuple[int, int, int, int], padding: float
 ) -> tuple[int, int, int, int]:
@@ -290,6 +327,11 @@ def isolate_subject(
 
     if mask is not None:
         image.putalpha(mask)
+
+    # Before any resampling: the engine flattens this onto a solid background,
+    # and undefined colour under transparent pixels would fringe the silhouette.
+    if mask is not None:
+        image = bleed_colour_outward(image)
 
     square = _pad_to_square(box, padding)
     edge = max(square[2] - square[0], 1)

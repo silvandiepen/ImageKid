@@ -129,6 +129,7 @@ class TestMessages:
         artifacts = ResultArtifacts(
             glbPath="/tmp/model.glb",
             previewPath="/tmp/preview.ply",
+            exports={"obj": "/tmp/model.obj"},
             preparedImagePath="/tmp/prepared.png",
             triangleCount=12,
             vertexCount=8,
