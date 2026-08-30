@@ -177,6 +177,21 @@ targets:
             LSHandlerRank: Alternate
             LSItemContentTypes:
               - public.image
+          # Slicer owns its own session files outright, unlike images.
+          - CFBundleTypeName: Slicer Session
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Owner
+            LSItemContentTypes:
+              - com.hakobs.imagekid.slicer.session
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.hakobs.imagekid.slicer.session
+            UTTypeDescription: ImageKid Slicer Session
+            UTTypeConformsTo:
+              - public.data
+              - public.json
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - slicer
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hakobs.imagekid.slicer

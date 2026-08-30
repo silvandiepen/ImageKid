@@ -9,12 +9,19 @@ struct SlicerCommands: Commands {
         CommandGroup(replacing: .newItem) {
             Button("Open Image…") { model.openImage() }
                 .keyboardShortcut("o")
+
+            Button("Open Session…") { model.openSession() }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
         }
 
         CommandGroup(replacing: .saveItem) {
             Button("Save Slices…") { model.save() }
                 .keyboardShortcut("s")
                 .disabled(!model.canSave)
+
+            Button("Save Session…") { model.saveSession() }
+                .keyboardShortcut("s", modifiers: [.command, .option])
+                .disabled(!model.canSaveSession)
 
             Button("Export All Images…") { model.exportAll() }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
@@ -118,7 +125,7 @@ struct SlicerCommands: Commands {
             Button(model.isSidebarVisible ? "Hide Slices List" : "Show Slices List") {
                 model.isSidebarVisible.toggle()
             }
-            .keyboardShortcut("s", modifiers: [.command, .option])
+            .keyboardShortcut("s", modifiers: [.command, .control])
             .disabled(!model.hasSource)
         }
 

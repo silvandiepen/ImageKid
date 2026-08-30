@@ -179,7 +179,7 @@ final class SlicerDocumentModel: ObservableObject {
 
     static let minimumZoom: CGFloat = 1
     static let maximumZoom: CGFloat = 12
-    private static let previewMaxPixelSize: CGFloat = 4096
+    nonisolated private static let previewMaxPixelSize: CGFloat = 4096
 
     var hasSource: Bool { source != nil }
     var canSave: Bool { source != nil && !slices.isEmpty && !isExporting }
@@ -352,7 +352,14 @@ final class SlicerDocumentModel: ObservableObject {
         lastExport = nil
     }
 
-    private static func makeSource(from imageSource: CGImageSource, url: URL?, displayName: String) throws -> Source {
+    /// Decoding is pure work on a source that is already open, so it is
+    /// nonisolated and runs off the main actor — both the loader and the
+    /// session restore call it from a detached task.
+    nonisolated private static func makeSource(
+        from imageSource: CGImageSource,
+        url: URL?,
+        displayName: String
+    ) throws -> Source {
         let image = try SliceImageIO.loadOrientedImage(from: imageSource)
         let previewImage = SliceImageIO.preview(from: imageSource, maxPixelSize: previewMaxPixelSize) ?? image
         let preview = NSImage(
@@ -470,6 +477,141 @@ final class SlicerDocumentModel: ObservableObject {
         selectedGuideID = nil
         selectedSliceID = slices.first(where: { !$0.isLocked })?.id
         markEdited()
+    }
+
+    // MARK: - Sessions
+
+    /// The current state as a saveable document.
+    var sessionDocument: SlicerSessionDocument {
+        SlicerSessionDocument(
+            images: images.map { session in
+                SlicerSessionDocument.Image(
+                    displayName: session.source.displayName,
+                    path: session.source.url?.path,
+                    bookmark: SlicerSessionDocument.bookmark(for: session.source.url),
+                    slices: session.slices.map(SlicerSessionDocument.Slice.init),
+                    guides: session.guides.map(SlicerSessionDocument.Guide.init),
+                    cropRect: session.cropRect.map(SlicerSessionDocument.Rect.init)
+                )
+            },
+            grid: grid,
+            isSnappingEnabled: isSnappingEnabled,
+            snapsToCentreLines: snapsToCentreLines,
+            exportOptions: exports.options
+        )
+    }
+
+    var canSaveSession: Bool { !images.isEmpty }
+
+    func saveSession() {
+        guard canSaveSession else { return }
+
+        let url: URL
+        if let folder = UITestMode.saveFolder {
+            url = folder.appendingPathComponent("session.\(SlicerSessionDocument.fileExtension)")
+        } else {
+            let panel = NSSavePanel()
+            panel.allowedContentTypes = [SlicerSessionDocument.contentType]
+            panel.nameFieldStringValue = "\(SliceExporter.sanitized(source?.displayName) ?? "slicer").\(SlicerSessionDocument.fileExtension)"
+            panel.prompt = "Save Session"
+            guard panel.runModal() == .OK, let chosen = panel.url else { return }
+            url = chosen
+        }
+
+        do {
+            try sessionDocument.encoded().write(to: url, options: .atomic)
+            lastExport = ExportSummary(
+                folder: url.deletingLastPathComponent(),
+                created: [url],
+                failures: [],
+                isCrop: true
+            )
+        } catch {
+            alert = AlertContent(title: "The session could not be saved", message: error.localizedDescription)
+        }
+    }
+
+    func openSession() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [SlicerSessionDocument.contentType]
+        panel.prompt = "Open Session"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        openSession(at: url)
+    }
+
+    /// Reopen a saved session: re-read each source and put its layout back.
+    /// Images that can no longer be found are reported rather than dropped
+    /// silently — a session that quietly loses half its sheets is worse than
+    /// one that says so.
+    func openSession(at url: URL) {
+        let document: SlicerSessionDocument
+        do {
+            document = try SlicerSessionDocument.decoded(from: try Data(contentsOf: url))
+        } catch {
+            alert = AlertContent(title: "That session could not be opened", message: error.localizedDescription)
+            return
+        }
+
+        isLoading = true
+        Task.detached(priority: .userInitiated) {
+            var restored: [ImageSession] = []
+            var missing: [String] = []
+
+            for stored in document.images {
+                guard let resolved = SlicerSessionDocument.resolve(stored) else {
+                    missing.append(stored.displayName)
+                    continue
+                }
+                defer {
+                    if resolved.startedScope { resolved.url.stopAccessingSecurityScopedResource() }
+                }
+                do {
+                    let imageSource = try SliceImageIO.imageSource(at: resolved.url)
+                    let source = try Self.makeSource(
+                        from: imageSource,
+                        url: resolved.url,
+                        displayName: resolved.url.deletingPathExtension().lastPathComponent
+                    )
+                    var session = ImageSession(source: source)
+                    session.slices = stored.slices.map(\.restored)
+                    session.guides = stored.guides.map(\.restored)
+                    session.cropRect = stored.cropRect?.restored
+                    restored.append(session)
+                } catch {
+                    missing.append(stored.displayName)
+                }
+            }
+
+            let finalRestored = restored
+            let finalMissing = missing
+            await MainActor.run {
+                self.isLoading = false
+                guard !finalRestored.isEmpty else {
+                    self.alert = AlertContent(
+                        title: "Nothing in that session could be opened",
+                        message: "None of its images could be found: \(finalMissing.joined(separator: ", "))."
+                    )
+                    return
+                }
+                self.images = finalRestored
+                self.currentImageID = finalRestored.first?.id
+                self.inspectingSliceID = nil
+                self.grid = document.grid
+                self.isSnappingEnabled = document.isSnappingEnabled
+                self.snapsToCentreLines = document.snapsToCentreLines
+                self.exports.options = document.exportOptions
+                self.lastExport = nil
+
+                if !finalMissing.isEmpty {
+                    self.alert = AlertContent(
+                        title: "Some images could not be found",
+                        message: "Restored \(finalRestored.count); missing: \(finalMissing.joined(separator: ", "))."
+                    )
+                }
+            }
+        }
     }
 
     // MARK: - Nudging, copying, dragging out

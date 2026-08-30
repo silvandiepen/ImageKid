@@ -34,7 +34,12 @@ final class SlicerAppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ application: NSApplication, open urls: [URL]) {
         guard let model else { return }
-        Task { @MainActor in model.load(urls: urls) }
+        let sessions = urls.filter { $0.pathExtension == SlicerSessionDocument.fileExtension }
+        let images = urls.filter { $0.pathExtension != SlicerSessionDocument.fileExtension }
+        Task { @MainActor in
+            if let session = sessions.first { model.openSession(at: session) }
+            model.load(urls: images)
+        }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

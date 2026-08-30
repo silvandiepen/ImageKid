@@ -168,6 +168,7 @@ A slice can be renamed in its inspector or in the slices list (**View ▸ Show S
 A floating tool bar sits over the bottom of the canvas, in the same idiom as ImageKid's and Fekthor's: a material capsule of square buttons.
 
 - **Slice** (`S`) — draw, select, move, and resize rectangles.
+- **Suggest Guides** — find the gutters between tiles and drop a guide down the middle of each.
 - **Guides** (`G`) — drag cutting lines across the image.
 - **Crop** (`C`) — one region, saved straight out as a single file.
 - **Snapping** — toggle edge snapping.
@@ -190,6 +191,14 @@ Guides are lines across the whole image. They are not exported and they are not 
 - **Clear Guides** removes them all without touching the slices they produced.
 
 **Auto Slice** (`⇧⌘A`) turns every cell between the cut lines — the guides, plus the grid when it is shown — into one slice, numbered in reading order. Cells thinner than the minimum slice size are dropped rather than exported as slivers.
+
+## Suggested guides
+
+**Suggest Guides** (`⇧⌘G`) looks for the runs of uninterrupted background separating one tile from the next, and drops a guide down the middle of each. The background is taken as the median of the border pixels, so a tile running to the edge does not throw it off, and runs touching an edge are skipped — those are the sheet's own margin, and a cut there would only carve off a blank strip.
+
+What it produces is ordinary guides: draggable, deletable, ignorable. Auto Slice then cuts along them exactly as if they had been dragged out by hand. Detection stays an accelerator, never a mode, and manual slicing remains the complete workflow.
+
+The scan runs on a downsampled copy — a gutter is a large-scale feature, and a 12000px scan does not need 12000 columns of work.
 
 ## Snapping
 
@@ -327,6 +336,14 @@ The first release does not need an overwrite mode.
 - **Export All Images…** (`⇧⌘S`) runs every image that has slices in one go, into one subfolder per image inside the folder picked, so eight sheets do not land as seventy-two loose files. Images with no slices are skipped.
 - **Close Image** (`⇧⌘W`) confirms first if that image has unsaved slices; quitting counts unsaved work across every open image, not just the one on screen.
 
+## Sessions
+
+A session file (`.slicer`) records which images were open and everything drawn on each of them — slices, names, locks, guides, the crop — plus the grid, snapping, and export options. **File ▸ Save Session…** (`⌥⌘S`) writes one; **Open Session…** (`⇧⌘O`) or double-clicking the file restores it.
+
+It is plain JSON describing *layout*, not pixels: reopening re-reads the original sources, so a session stays tiny and never becomes a second copy of the user's images. Each image is recorded with a security-scoped bookmark (so a sandboxed relaunch can still reach it) and its path as a fallback. Images that can no longer be found are named in a warning rather than dropped silently — a session that quietly loses half its sheets is worse than one that says so.
+
+Slicer owns the type outright: it is declared in `UTExportedTypeDeclarations` and claimed at `Owner` rank, unlike images which it handles at `Alternate` rank so Preview stays the system default.
+
 ## Export options
 
 The export options popover — the toolbar button, labelled with the current settings — decides what Save actually writes. They apply to both the slice export and Crop & Save, and persist between launches.
@@ -429,6 +446,8 @@ apps/native-macos/Sources/ImageKidSlicer/
 ├── SliceGuides.swift           guides, grid, auto layout
 ├── SliceSnapping.swift         snap targets and edge snapping
 ├── SliceTemplates.swift        built-in and saved templates
+├── SliceDetection.swift        gutter finding behind Suggest Guides
+├── SlicerSession.swift         the .slicer session document
 ├── ExportOptions.swift         format, scale, quality, naming + their store
 ├── ExportOptionsView.swift     the export options popover
 ├── SliceImageIO.swift          decode, orientation, encode, atomic write
@@ -454,7 +473,11 @@ First-release commands:
 - `Command-E` — open the selected slice's inspector (or double-click the slice).
 - `Command-L` / `Shift-Command-L` — lock the selected slice / unlock every slice.
 - `Shift-Command-A` — Auto Slice from the current cutting lines.
-- `Option-Command-S` — show or hide the slices list.
+- `Control-Command-S` — show or hide the slices list.
+- `Option-Command-S` — save the session; `Shift-Command-O` — open one.
+- `Shift-Command-G` — suggest guides from the sheet's gutters.
+- `Command-C` — copy the selected slice as an image.
+- Arrow keys — nudge the selection by one source pixel, ten with `Shift`.
 - `Shift-Command-S` — export every open image's slices in one run.
 - `Option-Command-A` — apply this image's layout to every open image.
 - `Shift-Command-W` — close the current image.
@@ -567,14 +590,11 @@ ImageKid Slicer is ready for its first usable release when:
 
 ## Later possibilities
 
-Guides, snapping, the grid, templates, renaming, and locking have all shipped. Still open:
+Guides, snapping, the grid, templates, renaming, locking, arrow-key nudge, copy to clipboard, drag-out to the Finder, gutter-based suggestions, and session files have all shipped. Still open:
 
-- arrow-key nudge;
-- automatic whitespace/object-based slice suggestions;
-- reusable project/session files;
-- copy selected slice to clipboard;
-- drag an individual slice directly to Finder;
-- signing, notarisation, and release packaging.
+- notarisation and release packaging. Slicer signs with a real identity and archives, but a
+  Developer ID Application identity is not installed on the build machine, so a directly
+  distributable notarised build cannot be produced yet.
 
 These are enhancements, not requirements. The defining product experience remains:
 

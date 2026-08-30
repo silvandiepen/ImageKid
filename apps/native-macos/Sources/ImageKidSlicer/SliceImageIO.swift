@@ -153,6 +153,7 @@ enum SliceError: LocalizedError {
     case cannotWriteImage
     case emptySlice
     case noSlices
+    case unreadableSession
 
     var errorDescription: String? {
         switch self {
@@ -160,6 +161,7 @@ enum SliceError: LocalizedError {
         case .cannotWriteImage: "The slice could not be written."
         case .emptySlice: "That slice is too small to export."
         case .noSlices: "Draw at least one slice first."
+        case .unreadableSession: "That session was saved by a newer version of Slicer."
         }
     }
 }

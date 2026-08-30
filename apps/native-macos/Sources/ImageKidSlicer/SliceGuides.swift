@@ -26,7 +26,7 @@ struct SliceGuide: Identifiable, Equatable {
 /// An optional regular grid drawn over the source. It is a snapping and
 /// auto-slice aid only — it is never exported and never edits a slice by
 /// itself.
-struct SliceGrid: Equatable {
+struct SliceGrid: Equatable, Codable {
     var isEnabled: Bool = false
     var columns: Int = 3
     var rows: Int = 3
