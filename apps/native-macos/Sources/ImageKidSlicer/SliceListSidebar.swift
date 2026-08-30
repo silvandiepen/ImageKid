@@ -108,6 +108,12 @@ struct SliceListSidebar: View {
             model.selectedSliceID = slice.id
             model.selectedGuideID = nil
         }
+        // Dragging out lives on the list row, not the canvas rectangle: on the
+        // canvas a drag already means move, and a file drag would fight it.
+        .onDrag {
+            guard let url = model.temporaryFile(for: slice.id) else { return NSItemProvider() }
+            return NSItemProvider(contentsOf: url) ?? NSItemProvider()
+        }
     }
 
     /// Empty text means "no custom name", which puts the automatic `Slice n`

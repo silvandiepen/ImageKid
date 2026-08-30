@@ -28,6 +28,10 @@ struct SlicerCommands: Commands {
         }
 
         CommandGroup(replacing: .pasteboard) {
+            Button("Copy Slice") { model.copySelectedSliceToClipboard() }
+                .keyboardShortcut("c")
+                .disabled(!model.canCopySelectedSlice)
+
             Button("Paste Image") { model.pasteImage() }
                 .keyboardShortcut("v")
 

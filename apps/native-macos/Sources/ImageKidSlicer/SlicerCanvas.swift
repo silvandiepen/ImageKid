@@ -104,6 +104,12 @@ struct SlicerCanvas: View {
                         guard model.hasSelection else { return false }
                         model.deleteSelection()
                         return true
+                    },
+                    onArrow: { dx, dy, coarse in
+                        guard model.hasSelection else { return false }
+                        let step = coarse ? 10 : 1
+                        model.nudgeSelection(dx: dx * step, dy: dy * step)
+                        return true
                     }
                 )
             )
@@ -720,14 +726,23 @@ private struct CanvasKeyMonitor: NSViewRepresentable {
     let onEscape: () -> Void
     /// Returns `true` when it consumed the key.
     let onDelete: () -> Bool
+    /// Arrow nudge: a unit direction, plus whether Shift asked for a coarse
+    /// step. Returns `true` when it consumed the key.
+    let onArrow: (Int, Int, Bool) -> Bool
 
     private enum Key {
         static let escape: UInt16 = 53
         static let delete: UInt16 = 51
         static let forwardDelete: UInt16 = 117
+        static let left: UInt16 = 123
+        static let right: UInt16 = 124
+        static let down: UInt16 = 125
+        static let up: UInt16 = 126
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(onEscape: onEscape, onDelete: onDelete) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onEscape: onEscape, onDelete: onDelete, onArrow: onArrow)
+    }
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
@@ -738,6 +753,7 @@ private struct CanvasKeyMonitor: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.onEscape = onEscape
         context.coordinator.onDelete = onDelete
+        context.coordinator.onArrow = onArrow
         context.coordinator.attach(to: nsView)
     }
 
@@ -748,12 +764,18 @@ private struct CanvasKeyMonitor: NSViewRepresentable {
     final class Coordinator {
         var onEscape: () -> Void
         var onDelete: () -> Bool
+        var onArrow: (Int, Int, Bool) -> Bool
         private weak var view: NSView?
         private var monitor: Any?
 
-        init(onEscape: @escaping () -> Void, onDelete: @escaping () -> Bool) {
+        init(
+            onEscape: @escaping () -> Void,
+            onDelete: @escaping () -> Bool,
+            onArrow: @escaping (Int, Int, Bool) -> Bool
+        ) {
             self.onEscape = onEscape
             self.onDelete = onDelete
+            self.onArrow = onArrow
         }
 
         func attach(to view: NSView) {
@@ -770,6 +792,12 @@ private struct CanvasKeyMonitor: NSViewRepresentable {
                 case Key.delete, Key.forwardDelete:
                     guard !self.isEditingText(in: event.window) else { return event }
                     return self.onDelete() ? nil : event
+                case Key.left, Key.right, Key.up, Key.down:
+                    guard !self.isEditingText(in: event.window) else { return event }
+                    let coarse = event.modifierFlags.contains(.shift)
+                    let dx = event.keyCode == Key.left ? -1 : (event.keyCode == Key.right ? 1 : 0)
+                    let dy = event.keyCode == Key.up ? -1 : (event.keyCode == Key.down ? 1 : 0)
+                    return self.onArrow(dx, dy, coarse) ? nil : event
                 default:
                     return event
                 }

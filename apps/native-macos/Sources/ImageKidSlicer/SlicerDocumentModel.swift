@@ -471,6 +471,97 @@ final class SlicerDocumentModel: ObservableObject {
         markEdited()
     }
 
+    // MARK: - Nudging, copying, dragging out
+
+    /// Move the selection by whole source pixels. A guide moves along its own
+    /// axis; anything perpendicular to it is ignored.
+    func nudgeSelection(dx: Int, dy: Int) {
+        guard let source else { return }
+        let step = CGSize(
+            width: CGFloat(dx) / source.pixelSize.width,
+            height: CGFloat(dy) / source.pixelSize.height
+        )
+
+        if let selectedGuideID, let index = guides.firstIndex(where: { $0.id == selectedGuideID }) {
+            let delta = guides[index].axis == .vertical ? step.width : step.height
+            guides[index].position = min(max(guides[index].position + delta, 0), 1)
+            return
+        }
+
+        guard let id = selectedSliceID,
+              let index = slices.firstIndex(where: { $0.id == id }),
+              !slices[index].isLocked
+        else { return }
+        slices[index].rect = SliceGeometry.moved(slices[index].rect, by: step)
+        markEdited()
+    }
+
+    var canCopySelectedSlice: Bool { selectedSlice != nil }
+
+    /// Put the selected slice on the pasteboard as an image, so it can be
+    /// pasted straight into something else without a round trip through disk.
+    func copySelectedSliceToClipboard() {
+        guard let slice = selectedSlice, let image = croppedImage(for: slice) else { return }
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects([NSImage(
+            cgImage: image,
+            size: NSSize(width: image.width, height: image.height)
+        )])
+    }
+
+    /// A real file for one slice, written into the app's own temporary
+    /// directory so it can be dragged out to the Finder. Named exactly as the
+    /// export would name it, honouring the current export options.
+    func temporaryFile(for sliceID: Slice.ID) -> URL? {
+        guard
+            let source,
+            let index = slices.firstIndex(where: { $0.id == sliceID }),
+            let image = croppedImage(for: slices[index])
+        else { return nil }
+
+        let options = exports.options
+        let output = options.resolved(sourceType: source.outputType, sourceExtension: source.fileExtension)
+        let base = SliceExporter.fileName(
+            sourceName: source.displayName,
+            index: index,
+            count: slices.count,
+            customName: slices[index].name,
+            prefix: options.sanitizedPrefix
+        )
+
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dragged-slices", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = SliceExporter.uniqueURL(in: folder, baseName: base, fileExtension: output.fileExtension)
+
+        do {
+            let bounds = CGRect(origin: .zero, size: CGSize(width: image.width, height: image.height))
+            let resampled = options.isScaled
+                ? try SliceImageIO.scaled(image, to: options.outputPixelSize(for: bounds))
+                : image
+            try SliceImageIO.writeAtomically(
+                resampled,
+                to: url,
+                type: output.type,
+                quality: options.isLossy(sourceType: source.outputType) ? options.quality : nil
+            )
+            return url
+        } catch {
+            return nil
+        }
+    }
+
+    /// The slice's own pixels, cut from the full-resolution source.
+    private func croppedImage(for slice: Slice) -> CGImage? {
+        guard
+            let source,
+            let pixelRect = SliceGeometry.pixelRect(slice.rect, pixelSize: source.pixelSize)
+        else { return nil }
+        return source.image.cropping(to: pixelRect)
+    }
+
     // MARK: - Locking
 
     var selectedSliceIsLocked: Bool { selectedSlice?.isLocked ?? false }
