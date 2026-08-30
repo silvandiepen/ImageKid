@@ -78,6 +78,23 @@ if [ -n "$torchmcubes_url" ]; then
   "$runtime_python" -m pip install --no-build-isolation "$torchmcubes_url"
 fi
 
+# TripoSR's image tokenizer builds its ViT from facebook/dino-vitb16's config.
+# transformers resolves that through the Hugging Face cache in the user's home,
+# which a sandboxed app cannot read — the generation fails with "Operation not
+# permitted: ~/.cache/huggingface/...". Only the config is needed; the weights
+# come from TripoSR's own checkpoint. Pre-populate a cache that travels with the
+# app so nothing is looked up at runtime.
+echo "Pre-populating the Hugging Face cache with the ViT config…"
+HF_HOME="$staging/runtime/hf-cache" "$runtime_python" - <<'PY'
+from huggingface_hub import snapshot_download
+
+path = snapshot_download(
+    "facebook/dino-vitb16",
+    allow_patterns=["config.json", "preprocessor_config.json"],
+)
+print(f"  cached {path}")
+PY
+
 echo "Copying the worker…"
 cp -R "$here/sculptor_engine" "$staging/runtime/"
 if [ -d "$here/vendor/TripoSR/tsr" ]; then

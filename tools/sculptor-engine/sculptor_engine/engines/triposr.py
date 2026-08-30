@@ -54,6 +54,41 @@ BACKGROUND_GREY = 0.5
 UP_AXIS_CORRECTION_DEGREES = -90.0
 
 
+def _use_bundled_hugging_face_cache() -> None:
+    """Point Hugging Face at a cache that lives with the worker, and go offline.
+
+    TripoSR's image tokenizer builds its ViT from ``facebook/dino-vitb16``'s
+    *config* — the weights come from TripoSR's own checkpoint — and
+    ``transformers`` resolves that through the Hugging Face cache in the user's
+    home. A sandboxed app cannot read there, so a generation dies with:
+
+        Operation not permitted:
+        '~/.cache/huggingface/hub/models--facebook--dino-vitb16/refs/main'
+
+    ``bundle_runtime.sh`` pre-populates ``<runtime>/hf-cache`` with that one
+    config, so this points at it and sets offline mode: everything the engine
+    needs is already on disk, and a lookup that escaped to the network would
+    fail under the sandbox anyway.
+
+    A development checkout has no such cache and falls through to the user's
+    own, which is what it should do.
+    """
+
+    override = os.environ.get("SCULPTOR_HF_HOME")
+    cache = Path(override) if override else _package_root() / "hf-cache"
+    if not cache.is_dir():
+        return
+    os.environ.setdefault("HF_HOME", str(cache))
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
+
+def _package_root() -> Path:
+    """The directory holding the ``sculptor_engine`` package."""
+
+    return Path(__file__).resolve().parent.parent.parent
+
+
 def triposr_source_path() -> Path:
     """Where the vendored TripoSR source lives.
 
@@ -145,6 +180,9 @@ class TripoSREngine(ReconstructionEngine):
         reason = self.unavailable_reason
         if reason is not None:
             raise EngineUnavailable(reason)
+
+        # Must happen before transformers resolves anything.
+        _use_bundled_hugging_face_cache()
 
         # Only extend the path when ``tsr`` is not already importable; a bundled
         # runtime has it installed and needs no checkout on sys.path.
