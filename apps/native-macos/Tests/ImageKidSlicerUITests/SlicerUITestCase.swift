@@ -77,6 +77,50 @@ class SlicerUITestCase: XCTestCase {
         return CGSize(width: width, height: height)
     }
 
+    /// A sheet of separated tiles on a white background — the shape gutter
+    /// detection is meant to find.
+    @discardableResult
+    func writeTiledSheet(
+        to url: URL,
+        columns: Int = 3,
+        rows: Int = 2,
+        tile: Int = 120,
+        gap: Int = 24
+    ) throws -> CGSize {
+        let width = columns * tile + (columns + 1) * gap
+        let height = rows * tile + (rows + 1) * gap
+
+        guard let context = CGContext(
+            data: nil, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { throw CocoaError(.fileWriteUnknown) }
+
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context.setFillColor(CGColor(red: 0.15, green: 0.3, blue: 0.85, alpha: 1))
+        for row in 0..<rows {
+            for column in 0..<columns {
+                context.fill(CGRect(
+                    x: gap + column * (tile + gap),
+                    y: gap + row * (tile + gap),
+                    width: tile, height: tile
+                ))
+            }
+        }
+
+        guard
+            let image = context.makeImage(),
+            let destination = CGImageDestinationCreateWithURL(
+                url as CFURL, UTType.png.identifier as CFString, 1, nil
+            )
+        else { throw CocoaError(.fileWriteUnknown) }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
+        return CGSize(width: width, height: height)
+    }
+
     /// A save-folder name unique to this run. The app creates the folder in
     /// its own container, which outlives the process, so a shared name would
     /// let one run's output collide with the next one's.

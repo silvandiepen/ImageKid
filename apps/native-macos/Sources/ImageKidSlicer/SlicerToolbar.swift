@@ -55,10 +55,11 @@ struct SlicerToolbar: View {
         static let unlocked = "lock.open"
         static let sidebar = "sidebar.right"
         static let crop = "crop"
+        static let suggest = "wand.and.stars"
 
         static var all: [String] {
             SlicerTool.allCases.map(\.symbolName)
-                + [snapping, grid, templates, autoSlice, clearGuides, lock, lockFilled, unlocked, sidebar]
+                + [snapping, grid, templates, autoSlice, clearGuides, lock, lockFilled, unlocked, sidebar, suggest]
         }
     }
 
@@ -96,6 +97,16 @@ struct SlicerToolbar: View {
             divider
 
             templatesButton
+
+            Button {
+                model.suggestGuides()
+            } label: {
+                icon(Symbol.suggest, selected: false)
+            }
+            .disabled(!model.canSuggestGuides)
+            .help("Suggest Guides — find the gutters between tiles")
+            .accessibilityLabel("Suggest Guides")
+            .accessibilityIdentifier("slicer.suggestGuides")
 
             Button {
                 model.autoSlice()

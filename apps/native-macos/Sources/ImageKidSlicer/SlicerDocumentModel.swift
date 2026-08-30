@@ -97,6 +97,7 @@ final class SlicerDocumentModel: ObservableObject {
     /// The slices list beside the canvas. Off by default: the canvas is the
     /// interface until the user asks for the list.
     @Published var isSidebarVisible = false
+    @Published private(set) var isDetectingGuides = false
     @Published var isSnappingEnabled = true
     @Published var snapsToCentreLines = true
 
@@ -724,6 +725,34 @@ final class SlicerDocumentModel: ObservableObject {
         guard hasSource else { return false }
         let lines = cutLines
         return !lines.vertical.isEmpty || !lines.horizontal.isEmpty
+    }
+
+    var canSuggestGuides: Bool { hasSource && !isDetectingGuides }
+
+    /// Look for the gutters between tiles and drop a guide down the middle of
+    /// each. The result is ordinary guides — draggable, deletable, ignorable —
+    /// so this stays an accelerator rather than a mode.
+    func suggestGuides() {
+        guard let source, !isDetectingGuides else { return }
+        isDetectingGuides = true
+
+        let image = source.image
+        Task.detached(priority: .userInitiated) {
+            let suggestion = SliceDetection.gutters(in: image)
+            await MainActor.run {
+                self.isDetectingGuides = false
+                guard !suggestion.isEmpty else {
+                    self.alert = AlertContent(
+                        title: "No gutters found",
+                        message: "Slicer could not find runs of background separating the tiles. Drag the cutting lines in by hand, or use a template."
+                    )
+                    return
+                }
+                self.guides = suggestion.vertical.map { SliceGuide(axis: .vertical, position: $0) }
+                    + suggestion.horizontal.map { SliceGuide(axis: .horizontal, position: $0) }
+                self.selectedGuideID = nil
+            }
+        }
     }
 
     /// Turn the cut lines into one slice per cell.
