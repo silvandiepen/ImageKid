@@ -51,6 +51,8 @@ class NormalisedAsset:
     removed_fragments: int
     #: Triangle count before decimation, or 0 if none was applied.
     simplified_from: int = 0
+    #: Whether colour was reduced to a flat palette.
+    palette_flattened: bool = False
     #: Whether a dominant ground plane was found and used to stand the object
     #: upright. False means the mesh kept the engine's camera-frame orientation.
     ground_aligned: bool = False
@@ -357,6 +359,7 @@ def normalise(
     align_ground: bool = False,
     smoothing_iterations: int = 0,
     target_triangles: int = 0,
+    palette_colours: int = 0,
 ) -> tuple[trimesh.Scene, NormalisedAsset]:
     """Clean and re-place the generated geometry.
 
@@ -380,6 +383,7 @@ def normalise(
 
     removed = 0
     simplified_from = 0
+    flattened = False
     for name, mesh in list(scene.geometry.items()):
         if not isinstance(mesh, trimesh.Trimesh) or len(mesh.faces) == 0:
             continue
@@ -404,6 +408,13 @@ def normalise(
                 mesh = reduced
 
         smooth(mesh, smoothing_iterations)
+
+        # Last, so it paints the geometry that will actually be exported.
+        if palette_colours:
+            from .stylise import flatten_colour
+
+            if flatten_colour(mesh, palette_colours):
+                flattened = True
 
         # Repairs winding order and recomputes normals; invalid normals are the
         # common cause of a model that renders inside-out in the preview.
@@ -460,6 +471,7 @@ def normalise(
         bounding_box_longest_edge=longest * scale,
         removed_fragments=removed,
         simplified_from=simplified_from,
+        palette_flattened=flattened,
         ground_aligned=ground_aligned,
     )
 

@@ -127,6 +127,12 @@ class GenerateOptions:
     #: terracing is smoothed away, the honest triangle count is far lower.
     #: 0 keeps every triangle.
     targetTriangles: int = 20000
+    #: Reduce colour to this many flat tones, painted per face. The engine
+    #: samples colour from the source photograph, so a raw model carries
+    #: thousands of shades, soft gradients and baked-in lighting — it reads as a
+    #: photo draped over a mesh. A small palette gives back the solid regions
+    #: the stylised source actually had. 0 keeps the sampled colour.
+    paletteColours: int = 12
     #: Extra formats to write beside the canonical GLB: obj, stl, ply.
     exportFormats: tuple = ()
     #: Recover the upright axis from the object's largest flat surface instead

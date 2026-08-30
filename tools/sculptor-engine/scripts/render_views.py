@@ -102,8 +102,16 @@ def rotate(vertices: np.ndarray, yaw_degrees: float | None) -> np.ndarray:
     return vertices @ matrix.T
 
 
-def render(mesh: trimesh.Trimesh, yaw: float | None, size: int) -> Image.Image:
-    """Orthographic z-buffered render with flat per-face shading."""
+def render(
+    mesh: trimesh.Trimesh, yaw: float | None, size: int, shading: str = "smooth"
+) -> Image.Image:
+    """Orthographic z-buffered render.
+
+    ``shading`` is ``smooth`` for continuous headlight shading, ``toon`` for a
+    few hard bands, or ``flat`` for none at all. Flat is how you check whether
+    the mesh's own colours are actually flat: smooth shading puts a gradient
+    over every face and hides the difference.
+    """
 
     vertices = rotate(np.asarray(mesh.vertices, dtype=np.float64), yaw)
     colours = vertex_colours(mesh)
@@ -129,6 +137,14 @@ def render(mesh: trimesh.Trimesh, yaw: float | None, size: int) -> Image.Image:
     rotated_normals = rotate(normals, yaw)
     # Simple headlight shading, clamped so back faces stay visible rather than black.
     shade = np.clip(np.abs(rotated_normals[:, 2]) * 0.75 + 0.25, 0.0, 1.0)
+    if shading == "flat":
+        shade = np.ones_like(shade)
+    elif shading == "toon":
+        # Three hard bands: enough to read the form, without the gradient that
+        # makes a flat-coloured model look airbrushed.
+        shade = np.select(
+            [shade > 0.8, shade > 0.55], [1.0, 0.82], default=0.62
+        )
 
     for index, face in enumerate(faces):
         xs = screen_x[face]

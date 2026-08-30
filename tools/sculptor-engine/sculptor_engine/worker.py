@@ -177,6 +177,7 @@ class Worker:
                 align_ground=options.alignGround,
                 smoothing_iterations=options.smoothingIterations,
                 target_triangles=options.targetTriangles,
+                palette_colours=options.paletteColours,
             )
             if asset.removed_fragments:
                 log(f"{job_id}: removed {asset.removed_fragments} stray fragment(s)")

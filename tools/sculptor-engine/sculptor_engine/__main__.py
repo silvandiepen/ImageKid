@@ -67,14 +67,22 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         metavar="N",
-        help="Taubin smoothing passes (default 8; 0 keeps the raw isosurface)",
+        help="Taubin smoothing passes (default 30; 0 keeps the raw isosurface)",
     )
     parser.add_argument(
         "--triangles",
         type=int,
         default=None,
         metavar="N",
-        help="decimate to about N triangles (default 60000; 0 keeps them all)",
+        help="decimate to about N triangles (default 20000; 0 keeps them all)",
+    )
+    parser.add_argument(
+        "--palette",
+        type=int,
+        default=None,
+        metavar="N",
+        help="flatten colour to N tones for a cartoon look "
+        "(default 12; 0 keeps the sampled colour)",
     )
     parser.add_argument(
         "--json",
@@ -143,6 +151,8 @@ def main(argv: list[str] | None = None) -> int:
         overrides["smoothingIterations"] = args.smoothing
     if args.triangles is not None:
         overrides["targetTriangles"] = args.triangles
+    if args.palette is not None:
+        overrides["paletteColours"] = args.palette
     if args.formats:
         overrides["exportFormats"] = tuple(dict.fromkeys(args.formats))
 
