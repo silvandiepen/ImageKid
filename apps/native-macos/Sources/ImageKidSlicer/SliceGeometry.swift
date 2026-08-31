@@ -349,6 +349,46 @@ struct SliceCanvasLayout {
         )
     }
 
+    /// The pan offset that keeps `anchor` — a point in canvas coordinates —
+    /// under the pointer while the zoom is multiplied by `factor`.
+    ///
+    /// Zooming about the centre is fine for taking in the whole sheet and
+    /// useless for inspecting a corner: the thing being looked at slides away
+    /// exactly when it gets big enough to see.
+    func panOffset(keeping anchor: CGPoint, scaledBy factor: CGFloat, in bounds: CGRect) -> CGSize {
+        guard isUsable, factor > 0 else { return .zero }
+
+        // Where the anchor sits on the image now, as a fraction of it.
+        let unit = CGPoint(
+            x: (anchor.x - imageRect.minX) / imageRect.width,
+            y: (anchor.y - imageRect.minY) / imageRect.height
+        )
+        let scaled = CGSize(width: imageRect.width * factor, height: imageRect.height * factor)
+
+        // The origin that puts that same fraction back under the anchor, minus
+        // where a centred image of the new size would already sit.
+        return CGSize(
+            width: anchor.x - unit.x * scaled.width - (bounds.midX - scaled.width / 2),
+            height: anchor.y - unit.y * scaled.height - (bounds.midY - scaled.height / 2)
+        )
+    }
+
+    /// Keep at least a corner of the image on screen, so a stray gesture
+    /// cannot fling it somewhere it has to be hunted for.
+    static func clampedPan(
+        _ pan: CGSize,
+        imageSize: CGSize,
+        bounds: CGRect,
+        keepingVisible margin: CGFloat = 60
+    ) -> CGSize {
+        let maximumX = max(bounds.width / 2 + imageSize.width / 2 - margin, 0)
+        let maximumY = max(bounds.height / 2 + imageSize.height / 2 - margin, 0)
+        return CGSize(
+            width: min(max(pan.width, -maximumX), maximumX),
+            height: min(max(pan.height, -maximumY), maximumY)
+        )
+    }
+
     /// The handle under the pointer, if any. Corners win over edges so the
     /// overlapping hit areas at a rectangle's corners behave predictably.
     func handle(at point: CGPoint, of normalized: CGRect, tolerance: CGFloat) -> SliceHandle? {

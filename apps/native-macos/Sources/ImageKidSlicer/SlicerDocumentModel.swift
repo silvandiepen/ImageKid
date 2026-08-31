@@ -184,7 +184,8 @@ final class SlicerDocumentModel: ObservableObject {
     }
 
     static let minimumZoom: CGFloat = 1
-    static let maximumZoom: CGFloat = 12
+    /// Far enough in to see individual source pixels on a large sheet.
+    static let maximumZoom: CGFloat = 32
     nonisolated private static let previewMaxPixelSize: CGFloat = 4096
 
     var hasSource: Bool { source != nil }

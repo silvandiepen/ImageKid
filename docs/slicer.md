@@ -185,7 +185,11 @@ Every one of these is also a menu command, so the whole app is reachable from th
 
 Every icon carries a tooltip, and so does every menu command.
 
-The icons set `NSView.toolTip` on their backing view rather than relying on SwiftUI's `.help()`, which drew nothing on the floating tool bar — most likely because those buttons sit in an overlay above a canvas owning a zero-distance drag gesture. The annotation view sits *inside* the control and labels its superview, because labelling itself would need it to be hit-testable, and a hit-testable overlay would swallow the click meant for the button underneath. `.help()` is still applied alongside, since that is what carries the text into the accessibility tree. macOS menu items support `NSMenuItem.toolTip` but SwiftUI's `Commands` cannot set one, so the live menu is annotated as it opens — as it opens rather than once at launch, because SwiftUI rebuilds the items as state changes and titles like Lock/Unlock flip with it. The text lives in one table in `SlicerHelp`, and a test reads `SlicerCommands.swift` and fails if a command is added without one.
+The icons do not rely on SwiftUI's `.help()`, which drew nothing on the floating tool bar. Setting `NSView.toolTip` on the annotation's own view did not work either: dumping the real hierarchy showed SwiftUI hosting a `.background` representable *behind* the control and sometimes laid out beyond its parent's bounds — hosts at x=161 inside 41-point-wide parents at x=47 — so the view carrying the tooltip was clipped and never consulted.
+
+What works is registering a tooltip **rect** on an ancestor that is correctly framed and on top, which is what `addToolTip(_:owner:userData:)` is for. Each annotation measures itself in the root view's coordinates, registers there, and re-registers whenever it moves. `.help()` is applied alongside, since that is what carries the text into the accessibility tree.
+
+The tests assert geometry rather than text: two earlier attempts set the right string on the wrong view, which no text-only assertion could tell apart from working. macOS menu items support `NSMenuItem.toolTip` but SwiftUI's `Commands` cannot set one, so the live menu is annotated as it opens — as it opens rather than once at launch, because SwiftUI rebuilds the items as state changes and titles like Lock/Unlock flip with it. The text lives in one table in `SlicerHelp`, and a test reads `SlicerCommands.swift` and fails if a command is added without one.
 
 ## Cutting guides
 
@@ -285,13 +289,17 @@ The crop region is independent of the slices: it survives Auto Slice and templat
 
 ## Zoom and navigation
 
-The app needs only enough canvas navigation to define accurate rectangles:
+Enough navigation to work at the pixel, not just to place a rectangle:
 
 - fit image to window by default;
-- pinch or `Command-+` / `Command--` to zoom;
+- pinch, `Command`-scroll, or `Command-+` / `Command--` to zoom, up to 32×;
 - `Command-0` to fit/reset;
-- pan with trackpad/two-finger interaction or Space-drag when zoomed;
+- two-finger scroll to pan when zoomed in;
 - slice geometry remains attached to source-image coordinates at every zoom level.
+
+**Zoom is anchored to the pointer**, not to the middle of the canvas. Zooming about the centre is fine for taking in a whole sheet and useless for inspecting a corner — the thing being looked at slides away exactly when it gets big enough to see.
+
+Once the image is drawn larger than its own pixels the canvas switches from smooth interpolation to exact: blurring is the wrong answer when the point is to see pixels. Panning is clamped to keep a corner of the image on screen, so a stray gesture cannot fling it somewhere it has to be hunted for.
 
 A permanent zoom control is not required.
 

@@ -3,84 +3,119 @@ import SwiftUI
 import XCTest
 @testable import ImageKidSlicer
 
-/// The tooltip annotation: that it labels the control rather than itself, and
-/// that it never intercepts a click.
+/// The tooltip annotation. The point of these is geometry: two earlier
+/// attempts set the right text on the wrong view, which no text-only
+/// assertion could tell apart from working.
 @MainActor
 final class ToolTipTests: XCTestCase {
 
-    /// Reaches the private representable through the modifier, the same way
-    /// the app does.
-    private func hostedAnnotation(_ text: String) throws -> NSView {
-        let hosting = NSHostingView(rootView: Color.clear.toolTip(text).frame(width: 40, height: 40))
-        hosting.frame = NSRect(x: 0, y: 0, width: 40, height: 40)
-        hosting.layoutSubtreeIfNeeded()
-        return hosting
-    }
-
-    /// Depth-first search for a view carrying the tooltip.
-    private func findToolTip(_ text: String, in view: NSView) -> Bool {
-        if view.toolTip == text { return true }
-        return view.subviews.contains { findToolTip(text, in: $0) }
-    }
-
-    func testTheTooltipLandsOnAViewInTheHierarchy() throws {
-        let hosting = try hostedAnnotation("Suggest Guides — find the gutters")
-        XCTAssertTrue(
-            findToolTip("Suggest Guides — find the gutters", in: hosting),
-            "no view ended up carrying the tooltip")
-    }
-
-    /// The annotation labels its superview, so if SwiftUI were to share one
-    /// container between several controls the last tooltip would win and every
-    /// button in the tool bar would describe the same thing.
-    func testNeighbouringControlsKeepTheirOwnTooltips() throws {
-        let row = HStack(spacing: 0) {
-            Color.clear.frame(width: 30, height: 30).toolTip("first tool")
-            Color.clear.frame(width: 30, height: 30).toolTip("second tool")
-            Color.clear.frame(width: 30, height: 30).toolTip("third tool")
-        }
-        let hosting = NSHostingView(rootView: row)
-        hosting.frame = NSRect(x: 0, y: 0, width: 90, height: 30)
+    /// Host a real control in a real window, and return every probe found.
+    private func probes<Content: View>(in view: Content, size: CGSize) -> (root: NSView, probes: [ToolTipProbeView]) {
+        let hosting = NSHostingView(rootView: view)
+        hosting.frame = NSRect(origin: .zero, size: size)
+        let window = NSWindow(
+            contentRect: hosting.frame,
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.contentView = hosting
         hosting.layoutSubtreeIfNeeded()
 
-        for text in ["first tool", "second tool", "third tool"] {
-            XCTAssertTrue(findToolTip(text, in: hosting), "\(text) was lost")
+        var found: [ToolTipProbeView] = []
+        func walk(_ view: NSView) {
+            if let probe = view as? ToolTipProbeView { found.append(probe) }
+            view.subviews.forEach(walk)
         }
+        walk(hosting)
+        return (hosting, found)
     }
 
-    func testUpdatingTheTextReplacesIt() throws {
-        // The same mechanism, exercised directly: the annotation labels its
-        // container, so a container is what has to end up with the text.
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
-        let annotation = ToolTipProbe()
-        container.addSubview(annotation)
+    func testTheTooltipRectIsRegisteredOnTheRootView() {
+        let (_, found) = probes(
+            in: Color.clear.frame(width: 40, height: 40).toolTip("Suggest Guides"),
+            size: CGSize(width: 200, height: 100)
+        )
+        let probe = found.first
+        XCTAssertNotNil(probe, "no annotation was hosted")
+        XCTAssertNotNil(probe?.registeredRect, "nothing was registered — the tooltip cannot appear")
+    }
 
-        annotation.text = "first"
-        XCTAssertEqual(container.toolTip, "first")
+    /// The failure that made two earlier attempts look fine and behave badly:
+    /// the annotation was laid out outside its parent and clipped, so the
+    /// rect it described was nowhere near the control.
+    func testTheRectMatchesWhereTheControlActuallyIs() {
+        let (root, found) = probes(
+            in: HStack(spacing: 0) {
+                Color.clear.frame(width: 40, height: 40).toolTip("first")
+                Color.clear.frame(width: 40, height: 40).toolTip("second")
+            }
+            .frame(width: 200, height: 100),
+            size: CGSize(width: 200, height: 100)
+        )
 
-        annotation.text = "second"
-        XCTAssertEqual(container.toolTip, "second")
+        XCTAssertEqual(found.count, 2)
+        for probe in found {
+            let rect = try? XCTUnwrap(probe.registeredRect)
+            guard let rect else { continue }
+            XCTAssertTrue(
+                root.bounds.contains(rect),
+                "the tooltip rect \(rect) falls outside the root \(root.bounds) — it would be clipped")
+            XCTAssertEqual(rect.width, 40, accuracy: 1)
+            XCTAssertEqual(rect.height, 40, accuracy: 1)
+        }
+
+        let rects = found.compactMap(\.registeredRect)
+        XCTAssertNotEqual(rects[0], rects[1], "neighbouring controls must describe different places")
+    }
+
+    func testEachProbeReportsItsOwnText() {
+        let (_, found) = probes(
+            in: HStack(spacing: 0) {
+                Color.clear.frame(width: 40, height: 40).toolTip("first tool")
+                Color.clear.frame(width: 40, height: 40).toolTip("second tool")
+            },
+            size: CGSize(width: 200, height: 100)
+        )
+        let texts = found.map { $0.view($0, stringForToolTip: 0, point: .zero, userData: nil) }
+        XCTAssertEqual(Set(texts), ["first tool", "second tool"])
     }
 
     func testTheAnnotationNeverTakesAClick() {
-        let annotation = ToolTipProbe(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
+        let probe = ToolTipProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
         XCTAssertNil(
-            annotation.hitTest(NSPoint(x: 10, y: 10)),
-            "a hit-testable annotation would swallow the button's own click")
-    }
-}
-
-/// A stand-in with the same two behaviours the real annotation has, so they
-/// can be asserted without reaching into a private type.
-private final class ToolTipProbe: NSView {
-    var text: String? {
-        didSet { superview?.toolTip = text }
+            probe.hitTest(NSPoint(x: 20, y: 20)),
+            "a hit-testable annotation would swallow the click meant for the control")
     }
 
-    override func viewDidMoveToSuperview() {
-        super.viewDidMoveToSuperview()
-        superview?.toolTip = text
+    func testAnUnhostedAnnotationRegistersNothing() {
+        let probe = ToolTipProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        probe.tip = "nowhere"
+        XCTAssertNil(probe.registeredRect, "with no window there is nothing to register on")
     }
 
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    // MARK: - The real tool bar
+
+    func testEveryToolBarIconRegistersARectInsideTheWindow() throws {
+        let suite = try XCTUnwrap(UserDefaults(suiteName: "tooltips-\(UUID().uuidString)"))
+        let model = SlicerDocumentModel(
+            templates: SliceTemplateStore(store: suite),
+            exports: ExportOptionsStore(store: suite)
+        )
+        let image = try TestImages.halves(width: 200, height: 100)
+        model.adopt(SlicerDocumentModel.Source(
+            url: nil, displayName: "sheet", image: image,
+            preview: NSImage(cgImage: image, size: NSSize(width: 200, height: 100)),
+            outputType: .png, fileExtension: "png"
+        ))
+
+        let (root, found) = probes(in: SlicerToolbar(model: model), size: CGSize(width: 760, height: 70))
+
+        XCTAssertGreaterThanOrEqual(found.count, 10, "every icon in the bar should be described")
+        for probe in found {
+            let rect = probe.registeredRect
+            XCTAssertNotNil(rect, "an icon registered nothing")
+            if let rect {
+                XCTAssertTrue(root.bounds.contains(rect), "\(rect) is clipped out of \(root.bounds)")
+            }
+        }
+    }
 }

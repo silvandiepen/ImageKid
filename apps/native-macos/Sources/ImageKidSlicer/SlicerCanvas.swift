@@ -58,7 +58,9 @@ struct SlicerCanvas: View {
                 if layout.isUsable {
                     Image(nsImage: source.preview)
                         .resizable()
-                        .interpolation(.high)
+                        // Smooth while fitting, exact once magnified: blurring
+                        // is the wrong answer when the point is to see pixels.
+                        .interpolation(magnifiesBeyondSource(layout: layout) ? .none : .high)
                         .frame(width: layout.imageRect.width, height: layout.imageRect.height)
                         .shadow(color: .black.opacity(0.55), radius: 22, y: 8)
                         .position(x: layout.imageRect.midX, y: layout.imageRect.midY)
@@ -83,8 +85,20 @@ struct SlicerCanvas: View {
             .gesture(dragGesture(layout: layout))
             .overlay(
                 CanvasPointerEvents(
-                    onScroll: { delta in pan(by: delta) },
-                    onMagnify: { factor in model.setZoom(model.zoom * (1 + factor)) },
+                    onScroll: { delta, point, wantsZoom in
+                        if wantsZoom {
+                            // A scroll up is a zoom in; the divisor keeps a
+                            // notch from leaping across the whole range.
+                            zoom(by: 1 + delta.height / 120, around: point,
+                                 layout: layout, bounds: CGRect(origin: .zero, size: proxy.size))
+                        } else {
+                            pan(by: delta, layout: layout, bounds: CGRect(origin: .zero, size: proxy.size))
+                        }
+                    },
+                    onMagnify: { factor, point in
+                        zoom(by: 1 + factor, around: point,
+                             layout: layout, bounds: CGRect(origin: .zero, size: proxy.size))
+                    },
                     onDoubleClick: { point in openInspector(at: point, layout: layout) }
                 )
                 .allowsHitTesting(false)
@@ -487,12 +501,47 @@ struct SlicerCanvas: View {
         )
     }
 
-    private func pan(by delta: CGSize) {
+    private func pan(by delta: CGSize, layout: SliceCanvasLayout, bounds: CGRect) {
         guard model.zoom > SlicerDocumentModel.minimumZoom else { return }
-        model.panOffset = CGSize(
-            width: model.panOffset.width + delta.width,
-            height: model.panOffset.height + delta.height
+        model.panOffset = SliceCanvasLayout.clampedPan(
+            CGSize(
+                width: model.panOffset.width + delta.width,
+                height: model.panOffset.height + delta.height
+            ),
+            imageSize: layout.imageRect.size,
+            bounds: bounds
         )
+    }
+
+    /// Zoom about the pointer rather than the middle of the canvas, so the
+    /// thing being inspected stays under the cursor as it grows.
+    private func zoom(by factor: CGFloat, around point: CGPoint, layout: SliceCanvasLayout, bounds: CGRect) {
+        guard layout.isUsable, factor > 0 else { return }
+
+        let before = model.zoom
+        model.setZoom(before * factor)
+        let applied = model.zoom / before
+        guard applied != 1 else { return }
+
+        // Back at fit, centre the image again rather than leaving it adrift.
+        guard model.zoom > SlicerDocumentModel.minimumZoom else {
+            model.panOffset = .zero
+            return
+        }
+
+        model.panOffset = SliceCanvasLayout.clampedPan(
+            layout.panOffset(keeping: point, scaledBy: applied, in: bounds),
+            imageSize: CGSize(
+                width: layout.imageRect.width * applied,
+                height: layout.imageRect.height * applied
+            ),
+            bounds: bounds
+        )
+    }
+
+    /// True when the image is drawn larger than its own pixels.
+    private func magnifiesBeyondSource(layout: SliceCanvasLayout) -> Bool {
+        layout.isUsable && layout.imageRect.width > source.pixelSize.width
     }
 
     // MARK: - Snapping
@@ -632,8 +681,11 @@ private struct GuideLine: View {
 /// a frame to convert against; the events arrive through a local monitor, so
 /// the canvas keeps its own drag gesture.
 private struct CanvasPointerEvents: NSViewRepresentable {
-    let onScroll: (CGSize) -> Void
-    let onMagnify: (CGFloat) -> Void
+    /// Delta, the pointer in canvas coordinates, and whether the gesture was
+    /// a zoom (Command held) rather than a pan.
+    let onScroll: (CGSize, CGPoint, Bool) -> Void
+    /// Magnification and the pointer in canvas coordinates.
+    let onMagnify: (CGFloat, CGPoint) -> Void
     /// The click location in the canvas's own coordinates.
     let onDoubleClick: (CGPoint) -> Void
 
@@ -665,15 +717,15 @@ private struct CanvasPointerEvents: NSViewRepresentable {
     }
 
     final class Coordinator {
-        var onScroll: (CGSize) -> Void
-        var onMagnify: (CGFloat) -> Void
+        var onScroll: (CGSize, CGPoint, Bool) -> Void
+        var onMagnify: (CGFloat, CGPoint) -> Void
         var onDoubleClick: (CGPoint) -> Void
         private weak var view: NSView?
         private var monitor: Any?
 
         init(
-            onScroll: @escaping (CGSize) -> Void,
-            onMagnify: @escaping (CGFloat) -> Void,
+            onScroll: @escaping (CGSize, CGPoint, Bool) -> Void,
+            onMagnify: @escaping (CGFloat, CGPoint) -> Void,
             onDoubleClick: @escaping (CGPoint) -> Void
         ) {
             self.onScroll = onScroll
@@ -695,9 +747,13 @@ private struct CanvasPointerEvents: NSViewRepresentable {
                 switch event.type {
                 case .scrollWheel:
                     guard event.phase != .cancelled else { return event }
-                    self.onScroll(CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY))
+                    self.onScroll(
+                        CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY),
+                        location,
+                        event.modifierFlags.contains(.command)
+                    )
                 case .magnify:
-                    self.onMagnify(event.magnification)
+                    self.onMagnify(event.magnification, location)
                 case .leftMouseDown:
                     // Pass the event on regardless: the drag gesture still owns
                     // selection, and swallowing the second click of a
