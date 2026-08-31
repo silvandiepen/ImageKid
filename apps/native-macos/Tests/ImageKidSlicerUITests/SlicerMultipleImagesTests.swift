@@ -15,7 +15,8 @@ final class SlicerMultipleImagesTests: SlicerUITestCase {
         let app = launchApp(openImages: [first, second], saveFolderName: saveFolder)
         assertAppears(app.windows.firstMatch, timeout: 20)
 
-        // Both images are in the strip; the last one opened is current.
+        // Both images are in the strip, in the order they were given, and
+        // opening several selects the first of them.
         assertAppears(toolbarButton(app, "slicer.filmstrip"), "a second image should reveal the filmstrip")
         assertAppears(toolbarButton(app, "slicer.film.alpha"))
         assertAppears(toolbarButton(app, "slicer.film.beta"))
@@ -27,16 +28,16 @@ final class SlicerMultipleImagesTests: SlicerUITestCase {
         waitForLabel(sliceCount(app), "4 slices")
 
         // The other image is still untouched.
-        toolbarButton(app, "slicer.film.alpha").click()
+        toolbarButton(app, "slicer.film.beta").click()
         waitForLabel(sliceCount(app), "No slices yet")
 
         // Apply the layout from the image that has one, to all.
-        toolbarButton(app, "slicer.film.beta").click()
+        toolbarButton(app, "slicer.film.alpha").click()
         waitForLabel(sliceCount(app), "4 slices")
         app.menuBars.menuBarItems["Slice"].click()
         app.menuItems["Apply Layout to All Images"].click()
 
-        toolbarButton(app, "slicer.film.alpha").click()
+        toolbarButton(app, "slicer.film.beta").click()
         waitForLabel(sliceCount(app), "4 slices")
 
         // One run writes both images, each into its own folder.

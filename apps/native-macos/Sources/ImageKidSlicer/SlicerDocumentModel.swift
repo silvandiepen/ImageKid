@@ -34,6 +34,10 @@ final class SlicerDocumentModel: ObservableObject {
     struct ImageSession: Identifiable {
         let id = UUID()
         let source: Source
+        /// The position this image was asked for in. Decoding happens off the
+        /// main actor and finishes out of order, so without this the filmstrip
+        /// ends up in whatever sequence the images happened to decode in.
+        var order: Int = 0
 
         var slices: [Slice] = []
         var guides: [SliceGuide] = []
@@ -179,6 +183,9 @@ final class SlicerDocumentModel: ObservableObject {
         set { mutateCurrent { $0.panOffset = newValue } }
     }
 
+    /// Hands out the position each image will hold in the filmstrip.
+    private var nextOrder = 0
+
     private var slicesSavedSinceLastEdit: Bool {
         get { current?.slicesSavedSinceLastEdit ?? true }
         set { mutateCurrent { $0.slicesSavedSinceLastEdit = newValue } }
@@ -211,17 +218,24 @@ final class SlicerDocumentModel: ObservableObject {
     }
 
     func load(urls: [URL]) {
-        for url in urls { load(url: url) }
+        // Opening one image selects it. Opening several selects the first,
+        // which is predictable — selecting "the newest" would mean whichever
+        // happened to decode last.
+        for (offset, url) in urls.enumerated() {
+            load(url: url, selects: urls.count == 1 || offset == 0)
+        }
     }
 
     /// Opening an image adds it to the filmstrip rather than replacing what is
     /// already open, so nothing drawn is ever lost by opening something else.
-    func load(url: URL) {
+    func load(url: URL, selects: Bool = true) {
         if let existing = images.first(where: { $0.source.url == url }) {
             currentImageID = existing.id
             return
         }
-        loadSource(named: url.deletingPathExtension().lastPathComponent) {
+        let order = nextOrder
+        nextOrder += 1
+        loadSource(named: url.deletingPathExtension().lastPathComponent, order: order, selects: selects) {
             let imageSource = try SliceImageIO.imageSource(at: url)
             return try Self.makeSource(from: imageSource, url: url, displayName: url.deletingPathExtension().lastPathComponent)
         }
@@ -238,7 +252,7 @@ final class SlicerDocumentModel: ObservableObject {
             alert = AlertContent(title: "Nothing to paste", message: "The clipboard does not contain an image.")
             return
         }
-        loadSource(named: "pasted") {
+        loadSource(named: "pasted", order: nextOrder, selects: true) {
             guard let imageSource = CGImageSourceCreateWithData(data as CFData, nil) else {
                 throw SliceError.unreadableImage
             }
@@ -267,7 +281,12 @@ final class SlicerDocumentModel: ObservableObject {
         return true
     }
 
-    private func loadSource(named name: String, _ make: @escaping () throws -> Source) {
+    private func loadSource(
+        named name: String,
+        order: Int,
+        selects: Bool,
+        _ make: @escaping () throws -> Source
+    ) {
         isLoading = true
         Task.detached(priority: .userInitiated) {
             let result = Result { try make() }
@@ -275,7 +294,7 @@ final class SlicerDocumentModel: ObservableObject {
                 self.isLoading = false
                 switch result {
                 case .success(let source):
-                    self.append(source)
+                    self.append(source, order: order, selects: selects)
                 case .failure(let error):
                     self.alert = AlertContent(
                         title: "Could not open \(name)",
@@ -286,11 +305,19 @@ final class SlicerDocumentModel: ObservableObject {
         }
     }
 
-    /// Add a decoded source to the filmstrip and make it current.
-    func append(_ source: Source) {
-        let session = ImageSession(source: source)
+    /// Add a decoded source to the filmstrip, in the position it was asked
+    /// for rather than the position it finished decoding in.
+    func append(_ source: Source, order: Int? = nil, selects: Bool = true) {
+        var session = ImageSession(source: source)
+        session.order = order ?? nextOrder
+        if order == nil { nextOrder += 1 }
+
         images.append(session)
-        currentImageID = session.id
+        images.sort { $0.order < $1.order }
+
+        if selects || currentImageID == nil {
+            currentImageID = session.id
+        }
         inspectingSliceID = nil
         lastExport = nil
     }
@@ -298,6 +325,7 @@ final class SlicerDocumentModel: ObservableObject {
     /// Replace everything with one image — the single-image entry point.
     func adopt(_ source: Source) {
         images = []
+        nextOrder = 0
         append(source)
     }
 
@@ -607,6 +635,7 @@ final class SlicerDocumentModel: ObservableObject {
                         displayName: resolved.url.deletingPathExtension().lastPathComponent
                     )
                     var session = ImageSession(source: source)
+                    session.order = restored.count
                     session.slices = stored.slices.map(\.restored)
                     session.guides = stored.guides.map(\.restored)
                     session.cropRect = stored.cropRect?.restored

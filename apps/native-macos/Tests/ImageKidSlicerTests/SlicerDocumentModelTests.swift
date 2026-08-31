@@ -411,3 +411,67 @@ final class SlicerToolHandoffTests: XCTestCase {
         XCTAssertEqual(model.slices.count, 2)
     }
 }
+
+/// The filmstrip's order, which decoding finishing out of order must not
+/// disturb.
+@MainActor
+final class SlicerFilmstripOrderTests: XCTestCase {
+    private var suiteName: String!
+    private var model: SlicerDocumentModel!
+
+    override func setUpWithError() throws {
+        suiteName = "com.hakobs.imagekid.slicer.order.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        model = SlicerDocumentModel(
+            templates: SliceTemplateStore(store: defaults),
+            exports: ExportOptionsStore(store: defaults)
+        )
+    }
+
+    override func tearDownWithError() throws {
+        UserDefaults().removePersistentDomain(forName: suiteName)
+        model = nil
+        suiteName = nil
+    }
+
+    private func source(_ name: String) throws -> SlicerDocumentModel.Source {
+        let image = try TestImages.halves(width: 40, height: 20)
+        return SlicerDocumentModel.Source(
+            url: URL(fileURLWithPath: "/tmp/\(name).png"),
+            displayName: name,
+            image: image,
+            preview: NSImage(cgImage: image, size: NSSize(width: 40, height: 20)),
+            outputType: .png,
+            fileExtension: "png"
+        )
+    }
+
+    func testImagesLandInTheOrderAskedForNotTheOrderTheyDecodeIn() throws {
+        // Third finishes first, first finishes last — as detached decoding does.
+        model.append(try source("third"), order: 2, selects: false)
+        model.append(try source("second"), order: 1, selects: false)
+        model.append(try source("first"), order: 0, selects: true)
+
+        XCTAssertEqual(model.images.map(\.source.displayName), ["first", "second", "third"])
+    }
+
+    func testOpeningSeveralSelectsTheFirstWhicheverArrivesFirst() throws {
+        model.append(try source("second"), order: 1, selects: false)
+        model.append(try source("first"), order: 0, selects: true)
+
+        XCTAssertEqual(model.source?.displayName, "first")
+    }
+
+    func testSomethingIsAlwaysSelectedEvenIfNothingClaimsIt() throws {
+        model.append(try source("only"), order: 5, selects: false)
+        XCTAssertEqual(model.source?.displayName, "only", "an unselected first image still becomes current")
+    }
+
+    func testOpeningOneMoreLaterSelectsIt() throws {
+        model.append(try source("first"), order: 0, selects: true)
+        model.append(try source("later"))
+
+        XCTAssertEqual(model.source?.displayName, "later")
+        XCTAssertEqual(model.images.map(\.source.displayName), ["first", "later"])
+    }
+}

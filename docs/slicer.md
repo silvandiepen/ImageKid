@@ -178,7 +178,6 @@ A floating tool bar sits over the bottom of the canvas, in the same idiom as Ima
 - **Templates** — a popover listing the built-in layouts and the user's own.
 - **Auto Slice** — one slice per cell between the current cutting lines.
 - **Clear Guides** — remove every guide.
-- **Lock** — lock the selected slice.
 - **Slices list** — show or hide the sidebar.
 
 Every one of these is also a menu command, so the whole app is reachable from the keyboard.
@@ -254,7 +253,7 @@ Applying a template makes its grid the visible grid and its cells the slices. Be
 
 A locked slice is inert to the pointer: it cannot be selected, moved, resized, or deleted, and a drag that starts on top of it draws a **new** slice rather than picking the locked one up. It still exports, still acts as a snap target, and survives Auto Slice and templates — locking is how the user says "not this one".
 
-Lock from the tool bar, `⌘L`, or a slice's context menu; `⇧⌘L` unlocks everything. A locked slice draws with a muted dashed outline and a lock badge, so the difference is visible before the user tries to drag it.
+Lock with `⌘L`, from a slice's context menu, from its row in the slices list, or from its inspector; `⇧⌘L` unlocks everything. It is deliberately not in the tool bar: everything there is a mode or a whole-image action, and locking acts on one selected slice. A locked slice draws with a muted dashed outline and a lock badge, so the difference is visible before the user tries to drag it.
 
 ## Slices list
 
@@ -360,7 +359,7 @@ The first release does not need an overwrite mode.
 
 ## Multiple images
 
-- **Open** and drag-and-drop both accept any number of images at once, as does the Dock icon.
+- **Open** and drag-and-drop both accept any number of images at once, as does the Dock icon. They land in the filmstrip in the order they were given, not the order they finish decoding in, and opening several selects the first — selecting "the newest" would mean whichever happened to decode last.
 - The **filmstrip** shows each open image with a thumbnail, its name, its slice count, and an orange dot while it has unsaved slices. Clicking switches to it; its context menu closes it.
 - **Apply Layout to All Images** (`⌥⌘A`) copies the current image's slices and guides onto every other open image. Because all geometry is normalised against the source, one layout lands correctly on sheets of different pixel sizes. Locked slices on the receiving images survive — locking means "not this one", on every image.
 - **Export All Images…** (`⇧⌘S`) runs every image that has slices in one go, into one subfolder per image inside the folder picked, so eight sheets do not land as seventy-two loose files. Images with no slices are skipped.

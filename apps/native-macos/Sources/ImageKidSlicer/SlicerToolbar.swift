@@ -50,7 +50,6 @@ struct SlicerToolbar: View {
         static let templates = "square.grid.3x3"
         static let autoSlice = "square.split.2x2"
         static let clearGuides = "eraser.line.dashed"
-        static let lock = "lock"
         static let lockFilled = "lock.fill"
         static let unlocked = "lock.open"
         static let sidebar = "sidebar.right"
@@ -60,7 +59,7 @@ struct SlicerToolbar: View {
 
         static var all: [String] {
             SlicerTool.allCases.map(\.symbolName)
-                + [snapping, grid, templates, autoSlice, clearGuides, lock, lockFilled, unlocked, sidebar, suggest, detect]
+                + [snapping, grid, templates, autoSlice, clearGuides, lockFilled, unlocked, sidebar, suggest, detect]
                 + ExportOptionsSheet.Tab.allCases.map(\.symbol)
         }
     }
@@ -141,16 +140,6 @@ struct SlicerToolbar: View {
             .accessibilityIdentifier("slicer.clearGuides")
 
             divider
-
-            Button {
-                model.toggleLockOnSelection()
-            } label: {
-                icon(model.selectedSliceIsLocked ? "lock.fill" : Symbol.lock, selected: false)
-            }
-            .disabled(model.selectedSlice == nil)
-            .toolTip("Lock the selected slice so the pointer ignores it")
-            .accessibilityLabel("Lock Slice")
-            .accessibilityIdentifier("slicer.lock")
 
             Button {
                 model.isSidebarVisible.toggle()

@@ -76,7 +76,7 @@ struct SliceListSidebar: View {
             Button {
                 model.setLocked(!slice.isLocked, id: slice.id)
             } label: {
-                Image(systemName: slice.isLocked ? "lock.fill" : "lock.open")
+                Image(systemName: slice.isLocked ? SlicerToolbar.Symbol.lockFilled : SlicerToolbar.Symbol.unlocked)
                     .foregroundStyle(slice.isLocked ? Color.accentColor : .secondary)
             }
             .buttonStyle(.plain)
