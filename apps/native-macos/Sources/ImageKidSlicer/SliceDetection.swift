@@ -84,6 +84,152 @@ enum SliceDetection {
         return edges
     }
 
+    // MARK: - Elements
+
+    /// A box around every separate thing in the image.
+    ///
+    /// Where gutter finding projects the whole image onto one axis — and so
+    /// can only ever describe a grid — this walks the pixels and groups the
+    /// ones that touch. That finds three boxes scattered across a collage,
+    /// which no amount of projecting will.
+    ///
+    /// Boxes are returned in reading order, so the slices they become are
+    /// numbered the way the sheet is read.
+    static func elements(
+        in image: CGImage,
+        tolerance: Int = defaultTolerance,
+        minimumSide: CGFloat = 0.012,
+        mergeGap: Int = 3
+    ) -> [CGRect] {
+        guard let sample = Sample(image: image) else { return [] }
+        let width = sample.width
+        let height = sample.height
+        let background = sample.backgroundColour()
+
+        var isContent = [Bool](repeating: false, count: width * height)
+        for y in 0..<height {
+            for x in 0..<width {
+                isContent[y * width + x] = !sample.matches(background, x: x, y: y, tolerance: tolerance)
+            }
+        }
+
+        var boxes = boundingBoxes(ofComponentsIn: isContent, width: width, height: height)
+
+        // A thing is rarely one component: a letter, a shadow, an outline and
+        // its fill all touch nothing. Merging near neighbours puts them back
+        // together before anything is measured.
+        boxes = merged(boxes, within: mergeGap)
+
+        let minimumWidth = minimumSide * CGFloat(width)
+        let minimumHeight = minimumSide * CGFloat(height)
+        boxes = boxes.filter { $0.width >= minimumWidth && $0.height >= minimumHeight }
+
+        return readingOrder(boxes).map { box in
+            SliceGeometry.clamped(CGRect(
+                x: box.minX / CGFloat(width),
+                y: box.minY / CGFloat(height),
+                width: box.width / CGFloat(width),
+                height: box.height / CGFloat(height)
+            ))
+        }
+    }
+
+    /// One box per group of touching content pixels, found with an explicit
+    /// stack — a recursive fill would blow through the stack on a large image.
+    static func boundingBoxes(ofComponentsIn isContent: [Bool], width: Int, height: Int) -> [CGRect] {
+        guard width > 0, height > 0, isContent.count == width * height else { return [] }
+
+        var visited = [Bool](repeating: false, count: width * height)
+        var boxes: [CGRect] = []
+        var stack: [Int] = []
+
+        for start in 0..<(width * height) where isContent[start] && !visited[start] {
+            visited[start] = true
+            stack.removeAll(keepingCapacity: true)
+            stack.append(start)
+
+            var minX = start % width, maxX = minX
+            var minY = start / width, maxY = minY
+
+            while let index = stack.popLast() {
+                let x = index % width
+                let y = index / width
+                if x < minX { minX = x }
+                if x > maxX { maxX = x }
+                if y < minY { minY = y }
+                if y > maxY { maxY = y }
+
+                // Eight-connected: a diagonal touch is still the same thing.
+                for dy in -1...1 {
+                    for dx in -1...1 where !(dx == 0 && dy == 0) {
+                        let nx = x + dx, ny = y + dy
+                        guard nx >= 0, nx < width, ny >= 0, ny < height else { continue }
+                        let neighbour = ny * width + nx
+                        guard isContent[neighbour], !visited[neighbour] else { continue }
+                        visited[neighbour] = true
+                        stack.append(neighbour)
+                    }
+                }
+            }
+
+            boxes.append(CGRect(
+                x: CGFloat(minX), y: CGFloat(minY),
+                width: CGFloat(maxX - minX + 1), height: CGFloat(maxY - minY + 1)
+            ))
+        }
+        return boxes
+    }
+
+    /// Union any boxes that overlap once grown by `gap`, repeatedly, until
+    /// nothing more merges.
+    static func merged(_ boxes: [CGRect], within gap: Int) -> [CGRect] {
+        var result = boxes
+        var didMerge = true
+
+        while didMerge {
+            didMerge = false
+            var next: [CGRect] = []
+
+            for box in result {
+                let grown = box.insetBy(dx: -CGFloat(gap), dy: -CGFloat(gap))
+                if let index = next.firstIndex(where: { $0.insetBy(dx: -CGFloat(gap), dy: -CGFloat(gap)).intersects(grown) }) {
+                    next[index] = next[index].union(box)
+                    didMerge = true
+                } else {
+                    next.append(box)
+                }
+            }
+            result = next
+        }
+        return result
+    }
+
+    /// Left to right, top to bottom — boxes that overlap vertically count as
+    /// the same row, however ragged their tops are.
+    static func readingOrder(_ boxes: [CGRect]) -> [CGRect] {
+        var remaining = boxes.sorted { $0.minY < $1.minY }
+        var ordered: [CGRect] = []
+
+        while !remaining.isEmpty {
+            let first = remaining.removeFirst()
+            var row = [first]
+            var rowBottom = first.maxY
+
+            var index = 0
+            while index < remaining.count {
+                if remaining[index].minY < rowBottom {
+                    let box = remaining.remove(at: index)
+                    rowBottom = max(rowBottom, box.maxY)
+                    row.append(box)
+                } else {
+                    index += 1
+                }
+            }
+            ordered.append(contentsOf: row.sorted { $0.minX < $1.minX })
+        }
+        return ordered
+    }
+
     /// Which columns and rows are entirely background. Gutter finding and
     /// content edges read the image the same way, so the scan happens once.
     private struct Projection {
@@ -173,10 +319,11 @@ enum SliceDetection {
             self.bytes = bytes
         }
 
-        /// Rows are drawn bottom-up into the context, so y is flipped back here
-        /// to match the top-left origin every slice rectangle uses.
+        /// A bitmap context's memory runs top-down even though its drawing
+        /// origin is bottom-left, so row 0 is already the visual top — the
+        /// same top-left origin every slice rectangle uses. No flip.
         private func offset(x: Int, y: Int) -> Int {
-            ((height - 1 - y) * width + x) * 4
+            (y * width + x) * 4
         }
 
         func pixel(x: Int, y: Int) -> (r: Int, g: Int, b: Int, a: Int) {

@@ -921,6 +921,34 @@ final class SlicerDocumentModel: ObservableObject {
         }
     }
 
+    var canDetectElements: Bool { hasSource && !isDetectingGuides }
+
+    /// One slice per separate thing in the image, wherever it sits.
+    ///
+    /// Unlike Auto Slice this does not go through guides and does not produce
+    /// a grid: a collage of three boxes becomes three slices, not four cells.
+    func detectElements() {
+        guard let source, !isDetectingGuides else { return }
+        isDetectingGuides = true
+
+        let image = source.image
+        Task.detached(priority: .userInitiated) {
+            let rects = SliceDetection.elements(in: image)
+            await MainActor.run {
+                self.isDetectingGuides = false
+                guard !rects.isEmpty else {
+                    self.alert = AlertContent(
+                        title: "No elements found",
+                        message: "Slicer could not find anything separated from the background. Try Suggest Guides, a template, or drawing the slices by hand."
+                    )
+                    return
+                }
+                guard self.confirmReplacingSlices(with: rects.count) else { return }
+                self.replaceSlices(with: rects)
+            }
+        }
+    }
+
     /// Turn the cut lines into one slice per cell.
     func autoSlice() {
         guard canAutoSlice else { return }

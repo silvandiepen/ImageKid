@@ -121,6 +121,35 @@ class SlicerUITestCase: XCTestCase {
         return CGSize(width: width, height: height)
     }
 
+    /// Three boxes that line up in no grid — the layout gutter projection
+    /// cannot describe and element detection can.
+    @discardableResult
+    func writeCollage(to url: URL, width: Int = 600, height: Int = 400) throws -> CGSize {
+        guard let context = CGContext(
+            data: nil, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { throw CocoaError(.fileWriteUnknown) }
+
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context.setFillColor(CGColor(red: 0.2, green: 0.3, blue: 0.9, alpha: 1))
+        context.fill(CGRect(x: 40, y: 240, width: 160, height: 120))
+        context.fill(CGRect(x: 300, y: 180, width: 200, height: 160))
+        context.fill(CGRect(x: 120, y: 40, width: 140, height: 100))
+
+        guard
+            let image = context.makeImage(),
+            let destination = CGImageDestinationCreateWithURL(
+                url as CFURL, UTType.png.identifier as CFString, 1, nil
+            )
+        else { throw CocoaError(.fileWriteUnknown) }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
+        return CGSize(width: width, height: height)
+    }
+
     /// A save-folder name unique to this run. The app creates the folder in
     /// its own container, which outlives the process, so a shared name would
     /// let one run's output collide with the next one's.

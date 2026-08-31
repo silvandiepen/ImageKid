@@ -56,10 +56,11 @@ struct SlicerToolbar: View {
         static let sidebar = "sidebar.right"
         static let crop = "crop"
         static let suggest = "wand.and.stars"
+        static let detect = "viewfinder"
 
         static var all: [String] {
             SlicerTool.allCases.map(\.symbolName)
-                + [snapping, grid, templates, autoSlice, clearGuides, lock, lockFilled, unlocked, sidebar, suggest]
+                + [snapping, grid, templates, autoSlice, clearGuides, lock, lockFilled, unlocked, sidebar, suggest, detect]
         }
     }
 
@@ -107,6 +108,16 @@ struct SlicerToolbar: View {
             .help("Suggest Guides — find the gutters between tiles")
             .accessibilityLabel("Suggest Guides")
             .accessibilityIdentifier("slicer.suggestGuides")
+
+            Button {
+                model.detectElements()
+            } label: {
+                icon(Symbol.detect, selected: false)
+            }
+            .disabled(!model.canDetectElements)
+            .help("Detect Elements — one slice around each separate thing in the image")
+            .accessibilityLabel("Detect Elements")
+            .accessibilityIdentifier("slicer.detectElements")
 
             Button {
                 model.autoSlice()

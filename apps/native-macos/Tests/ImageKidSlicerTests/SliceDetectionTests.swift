@@ -93,6 +93,29 @@ final class SliceDetectionTests: XCTestCase {
         XCTAssertEqual(rects.count, 6, "three columns by two rows")
     }
 
+    /// The projection reads rows top-down. An asymmetric sheet is the only
+    /// kind that catches a vertical flip — every square fixture passes either
+    /// way round, which is how the flip survived unnoticed once already.
+    func testTheHorizontalProjectionIsNotVerticallyFlipped() throws {
+        // One wide band across the top third, nothing below it.
+        guard let context = CGContext(
+            data: nil, width: 120, height: 300,
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { throw CocoaError(.fileWriteUnknown) }
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 120, height: 300))
+        context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+        // Bottom-up drawing: y 240…300 is the top 60 pixels on screen.
+        context.fill(CGRect(x: 0, y: 240, width: 120, height: 60))
+        let image = try XCTUnwrap(context.makeImage())
+
+        let element = try XCTUnwrap(SliceDetection.elements(in: image).first)
+        XCTAssertEqual(element.minY, 0, accuracy: 0.02, "the band is at the top, not the bottom")
+        XCTAssertEqual(element.height, 0.2, accuracy: 0.02)
+    }
+
     func testASheetWithNoGuttersSuggestsNothing() throws {
         let image = try TestImages.halves(width: 120, height: 80)
         XCTAssertTrue(SliceDetection.gutters(in: image).isEmpty, "adjacent blocks have no background between them")

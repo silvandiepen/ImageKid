@@ -76,6 +76,10 @@ struct SlicerCommands: Commands {
                 .keyboardShortcut("g", modifiers: [.command, .shift])
                 .disabled(!model.canSuggestGuides)
 
+            Button("Detect Elements") { model.detectElements() }
+                .keyboardShortcut("d", modifiers: [.command, .shift])
+                .disabled(!model.canDetectElements)
+
             Button("Auto Slice from Guides") { model.autoSlice() }
                 .keyboardShortcut("a", modifiers: [.command, .shift])
                 .disabled(!model.canAutoSlice)

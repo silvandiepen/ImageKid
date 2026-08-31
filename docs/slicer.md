@@ -170,6 +170,7 @@ A floating tool bar sits over the bottom of the canvas, in the same idiom as Ima
 
 - **Slice** (`S`) — draw, select, move, and resize rectangles.
 - **Suggest Guides** — find the gutters between tiles and drop a guide down the middle of each.
+- **Detect Elements** — one slice around each separate thing in the image.
 - **Guides** (`G`) — drag cutting lines across the image.
 - **Crop** (`C`) — one region, saved straight out as a single file.
 - **Snapping** — toggle edge snapping.
@@ -192,6 +193,17 @@ Guides are lines across the whole image. They are not exported and they are not 
 - **Clear Guides** removes them all without touching the slices they produced.
 
 **Auto Slice** (`⇧⌘A`) turns every cell between the cut lines — the guides, plus the grid when it is shown — into one slice, numbered in reading order. Cells thinner than the minimum slice size are dropped rather than exported as slivers.
+
+## Detecting elements
+
+Two different jobs, deliberately kept apart:
+
+- **Suggest Guides** (`⇧⌘G`) projects the whole image onto each axis and finds the runs that are background all the way across. It produces *guides*, and can only ever describe a **grid** — which is exactly right for a sheet of tiles laid out in rows and columns.
+- **Detect Elements** (`⇧⌘D`) walks the pixels and groups the ones that touch. It produces *slices*, one around each separate thing, wherever it sits. A collage of three boxes that share no full-width gutter becomes three slices; projection would give four cells matching nothing.
+
+Element detection is eight-connected, so a diagonal touch counts as the same thing. Boxes within a few pixels of each other are merged first — a thing is rarely one component, since an outline, its fill and its shadow all touch nothing — and anything smaller than roughly 1% of the image on either side is dropped as dust. The results come back in reading order, so the slices are numbered the way the sheet is read.
+
+Both run on the same downsampled copy, off the main actor, and both stay accelerators: what they produce is ordinary guides and ordinary slices, editable and deletable like any other.
 
 ## Suggested guides
 
@@ -450,7 +462,7 @@ apps/native-macos/Sources/ImageKidSlicer/
 ├── SliceGuides.swift           guides, grid, auto layout
 ├── SliceSnapping.swift         snap targets and edge snapping
 ├── SliceTemplates.swift        built-in and saved templates
-├── SliceDetection.swift        gutters and content edges, from one projection
+├── SliceDetection.swift        gutters, content edges and element detection
 ├── SlicerSession.swift         the .slicer session document
 ├── ExportOptions.swift         format, scale, quality, naming + their store
 ├── ExportOptionsView.swift     the export options popover
@@ -480,6 +492,7 @@ First-release commands:
 - `Control-Command-S` — show or hide the slices list.
 - `Option-Command-S` — save the session; `Shift-Command-O` — open one.
 - `Shift-Command-G` — suggest guides from the sheet's gutters.
+- `Shift-Command-D` — detect elements, one slice around each.
 - `Command-C` — copy the selected slice as an image.
 - Arrow keys — nudge the selection by one source pixel, ten with `Shift`.
 - `Shift-Command-S` — export every open image's slices in one run.
