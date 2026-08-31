@@ -376,7 +376,7 @@ Slicer owns the type outright: it is declared in `UTExportedTypeDeclarations` an
 
 ## Export options
 
-The export options popover — the toolbar button, labelled with the current settings — decides what Save actually writes. They apply to both the slice export and Crop & Save, and persist between launches.
+The export settings are a sheet (**File ▸ Export Options…**, `⇧⌘,`, or the toolbar button labelled with the current settings). They decide what Save actually writes. They apply to both the slice export and Crop & Save, and persist between launches.
 
 - **Format**: same as source, PNG, JPEG, HEIC, or TIFF. "Same as source" keeps the source's encoding where Image I/O can write it and falls back to PNG otherwise.
 - **Quality**: shown only when the resulting format is lossy — which, for "same as source", depends on the source.
@@ -384,7 +384,11 @@ The export options popover — the toolbar button, labelled with the current set
 - **Fit**, for a fixed size: **Contain** scales until the whole slice fits and pads the rest; **Cover** scales until the output is filled and crops the overflow. Contain's padding is transparent, white or black — with a warning when the chosen format has no alpha and transparent would come out black.
 - An export that changes nothing skips resampling entirely.
 - **Filename prefix**: sanitised and hyphenated, leading both automatic and custom names.
-- A live preview of the first filename, so none of the above is a guess.
+- A live preview: a render of the first slice as it will actually come out, over a transparency checkerboard, with the source and output pixel sizes and the first few filenames. Contain and Cover are much easier to choose between by looking than by reading.
+
+Three tabs — Format, Size, Naming — because these are unrelated decisions that had no business sharing one column. The preview and the summary stay visible across all of them. Reset returns everything to the defaults.
+
+The preview renders from the display-sized copy rather than the full-resolution source, so typing in a size field does not resample a 12000px crop on every keystroke.
 
 Every path — Save, Crop & Save, Export All, and dragging a slice to the Finder — renders through the same entry point, so an option set once applies everywhere. Resampling is at high interpolation quality, and the crop itself is still taken from the original-resolution source.
 
@@ -485,7 +489,7 @@ apps/native-macos/Sources/ImageKidSlicer/
 ├── SliceDetection.swift        gutters, content edges and element detection
 ├── SlicerSession.swift         the .slicer session document
 ├── ExportOptions.swift         format, scale, quality, naming + their store
-├── ExportOptionsView.swift     the export options popover
+├── ExportOptionsSheet.swift    the export settings sheet and its preview
 ├── SliceImageIO.swift          decode, orientation, encode, atomic write
 ├── SliceExporter.swift         naming, collisions, the export run
 └── UITestSupport.swift         the deterministic XCUITest launch arguments

@@ -189,6 +189,22 @@ class SlicerUITestCase: XCTestCase {
         app.descendants(matching: .any).matching(identifier: "slicer.sliceCount").firstMatch
     }
 
+    /// A tab in a `TabView`. SwiftUI exposes these as `Tab` elements whose
+    /// identifier is the symbol name and whose label is the title.
+    func tab(_ app: XCUIApplication, _ title: String) -> XCUIElement {
+        app.descendants(matching: .tab)
+            .matching(NSPredicate(format: "label == %@", title))
+            .firstMatch
+    }
+
+    /// Any control carrying this label, whatever type it is exposed as —
+    /// segmented picker options land on radio buttons, not buttons.
+    func control(_ app: XCUIApplication, labelled label: String) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", label))
+            .firstMatch
+    }
+
     func slice(_ app: XCUIApplication, named name: String) -> XCUIElement {
         app.descendants(matching: .any)
             .matching(NSPredicate(format: "label == %@", name))

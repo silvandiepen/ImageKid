@@ -61,6 +61,7 @@ struct SlicerToolbar: View {
         static var all: [String] {
             SlicerTool.allCases.map(\.symbolName)
                 + [snapping, grid, templates, autoSlice, clearGuides, lock, lockFilled, unlocked, sidebar, suggest, detect]
+                + ExportOptionsSheet.Tab.allCases.map(\.symbol)
         }
     }
 

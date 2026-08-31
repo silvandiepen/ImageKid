@@ -101,6 +101,7 @@ final class SlicerDocumentModel: ObservableObject {
     /// interface until the user asks for the list.
     @Published var isSidebarVisible = false
     @Published private(set) var isDetectingGuides = false
+    @Published var isShowingExportOptions = false
     @Published var isSnappingEnabled = true
     @Published var snapsToCentreLines = true
     /// Snap to the edges of what is actually in the image — the borders of the

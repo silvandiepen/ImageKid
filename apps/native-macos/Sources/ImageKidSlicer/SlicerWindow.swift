@@ -5,7 +5,6 @@ import UniformTypeIdentifiers
 struct SlicerWindow: View {
     @ObservedObject var model: SlicerDocumentModel
 
-    @State private var showExportOptions = false
 
     var body: some View {
         content
@@ -71,7 +70,7 @@ struct SlicerWindow: View {
 
                 if let source = model.source {
                     Button {
-                        showExportOptions.toggle()
+                        model.isShowingExportOptions = true
                     } label: {
                         Label(
                             model.exports.options.summary(
@@ -83,8 +82,8 @@ struct SlicerWindow: View {
                     }
                     .toolTip("Export options — format, scale, quality, naming")
                     .accessibilityIdentifier("slicer.exportOptions")
-                    .popover(isPresented: $showExportOptions, arrowEdge: .bottom) {
-                        ExportOptionsView(model: model, store: model.exports, source: source)
+                    .sheet(isPresented: $model.isShowingExportOptions) {
+                        ExportOptionsSheet(model: model, store: model.exports, source: source)
                     }
                 }
 

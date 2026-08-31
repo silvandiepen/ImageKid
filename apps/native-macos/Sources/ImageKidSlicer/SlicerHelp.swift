@@ -18,6 +18,7 @@ enum SlicerHelp {
         "Save Session…": "Save which images are open and everything drawn on them, to pick up later.",
         "Export All Images…": "Run every open image that has slices in one go, one subfolder per image.",
         "Close Image": "Close the current image. Asks first if it has unsaved slices.",
+        "Export Options…": "Choose the format, size and naming every export uses.",
 
         // Edit
         "Copy Slice": "Copy the selected slice's pixels to the clipboard at full resolution.",

@@ -19,6 +19,10 @@ struct SlicerCommands: Commands {
                 .keyboardShortcut("s")
                 .disabled(!model.canSave)
 
+            Button("Export Options…") { model.isShowingExportOptions = true }
+                .keyboardShortcut(",", modifiers: [.command, .shift])
+                .disabled(!model.hasSource)
+
             Button("Save Session…") { model.saveSession() }
                 .keyboardShortcut("s", modifiers: [.command, .option])
                 .disabled(!model.canSaveSession)
