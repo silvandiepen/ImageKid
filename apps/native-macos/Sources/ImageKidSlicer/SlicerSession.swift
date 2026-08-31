@@ -23,7 +23,38 @@ struct SlicerSessionDocument: Codable, Equatable {
     var grid = SliceGrid()
     var isSnappingEnabled = true
     var snapsToCentreLines = true
+    var snapsToContentEdges = true
     var exportOptions = ExportOptions()
+
+    init(
+        images: [Image] = [],
+        grid: SliceGrid = SliceGrid(),
+        isSnappingEnabled: Bool = true,
+        snapsToCentreLines: Bool = true,
+        snapsToContentEdges: Bool = true,
+        exportOptions: ExportOptions = ExportOptions()
+    ) {
+        self.images = images
+        self.grid = grid
+        self.isSnappingEnabled = isSnappingEnabled
+        self.snapsToCentreLines = snapsToCentreLines
+        self.snapsToContentEdges = snapsToContentEdges
+        self.exportOptions = exportOptions
+    }
+
+    /// Decoded field by field with defaults rather than by the synthesised
+    /// initialiser, so a session written before a setting existed still opens
+    /// instead of failing on a missing key.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? Self.currentVersion
+        images = try container.decodeIfPresent([Image].self, forKey: .images) ?? []
+        grid = try container.decodeIfPresent(SliceGrid.self, forKey: .grid) ?? SliceGrid()
+        isSnappingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isSnappingEnabled) ?? true
+        snapsToCentreLines = try container.decodeIfPresent(Bool.self, forKey: .snapsToCentreLines) ?? true
+        snapsToContentEdges = try container.decodeIfPresent(Bool.self, forKey: .snapsToContentEdges) ?? true
+        exportOptions = try container.decodeIfPresent(ExportOptions.self, forKey: .exportOptions) ?? ExportOptions()
+    }
 
     struct Image: Codable, Equatable {
         var displayName: String

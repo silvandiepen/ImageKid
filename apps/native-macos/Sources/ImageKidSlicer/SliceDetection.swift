@@ -31,20 +31,81 @@ enum SliceDetection {
         tolerance: Int = defaultTolerance,
         minimumRun: Int = defaultMinimumRun
     ) -> Suggestion {
-        guard let sample = Sample(image: image) else { return Suggestion() }
-
-        let background = sample.backgroundColour()
-        let columnIsBackground = (0..<sample.width).map { x in
-            (0..<sample.height).allSatisfy { y in sample.matches(background, x: x, y: y, tolerance: tolerance) }
-        }
-        let rowIsBackground = (0..<sample.height).map { y in
-            (0..<sample.width).allSatisfy { x in sample.matches(background, x: x, y: y, tolerance: tolerance) }
-        }
-
+        guard let projection = Projection(image: image, tolerance: tolerance) else { return Suggestion() }
         return Suggestion(
-            vertical: centres(ofRunsIn: columnIsBackground, minimumRun: minimumRun),
-            horizontal: centres(ofRunsIn: rowIsBackground, minimumRun: minimumRun)
+            vertical: centres(ofRunsIn: projection.columns, minimumRun: minimumRun),
+            horizontal: centres(ofRunsIn: projection.rows, minimumRun: minimumRun)
         )
+    }
+
+    /// Where the content actually starts and stops — the borders of the tiles
+    /// rather than the middle of the gaps between them.
+    ///
+    /// These are what a dragged slice sticks to, so pulling an edge near a
+    /// square lands it exactly on that square instead of a pixel or two off.
+    static func contentEdges(
+        in image: CGImage,
+        tolerance: Int = defaultTolerance,
+        minimumRun: Int = defaultMinimumRun
+    ) -> Suggestion {
+        guard let projection = Projection(image: image, tolerance: tolerance) else { return Suggestion() }
+        return Suggestion(
+            vertical: edges(ofContentIn: projection.columns, minimumRun: minimumRun),
+            horizontal: edges(ofContentIn: projection.rows, minimumRun: minimumRun)
+        )
+    }
+
+    /// The normalised boundary either side of every run of content long enough
+    /// to count. Boundaries sitting on the image edge are dropped: the image's
+    /// own edges are already snap targets in their own right.
+    static func edges(ofContentIn backgroundFlags: [Bool], minimumRun: Int) -> [CGFloat] {
+        guard backgroundFlags.count > 2 else { return [] }
+
+        var edges: [CGFloat] = []
+        var runStart: Int?
+
+        func closeRun(at end: Int) {
+            guard let start = runStart else { return }
+            runStart = nil
+            guard end - start >= minimumRun else { return }
+            if start > 0 { edges.append(CGFloat(start) / CGFloat(backgroundFlags.count)) }
+            if end < backgroundFlags.count { edges.append(CGFloat(end) / CGFloat(backgroundFlags.count)) }
+        }
+
+        for index in backgroundFlags.indices {
+            if backgroundFlags[index] {
+                closeRun(at: index)
+            } else if runStart == nil {
+                runStart = index
+            }
+        }
+        closeRun(at: backgroundFlags.count)
+
+        return edges
+    }
+
+    /// Which columns and rows are entirely background. Gutter finding and
+    /// content edges read the image the same way, so the scan happens once.
+    private struct Projection {
+        /// `true` where the whole column is background.
+        let columns: [Bool]
+        /// `true` where the whole row is background.
+        let rows: [Bool]
+
+        init?(image: CGImage, tolerance: Int) {
+            guard let sample = Sample(image: image) else { return nil }
+            let background = sample.backgroundColour()
+            columns = (0..<sample.width).map { x in
+                (0..<sample.height).allSatisfy { y in
+                    sample.matches(background, x: x, y: y, tolerance: tolerance)
+                }
+            }
+            rows = (0..<sample.height).map { y in
+                (0..<sample.width).allSatisfy { x in
+                    sample.matches(background, x: x, y: y, tolerance: tolerance)
+                }
+            }
+        }
     }
 
     /// The normalised centre of every run of `true` long enough to count.

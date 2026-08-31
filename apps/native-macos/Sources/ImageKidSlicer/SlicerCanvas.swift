@@ -288,6 +288,12 @@ struct SlicerCanvas: View {
         if let hit = model.slices.reversed().first(where: {
             !$0.isLocked && layout.viewRect(for: $0.rect).contains(point)
         }) {
+            // Option-drag drags a copy out, at the same size — the original
+            // stays where it is. The copy starts on top of it, so the drag
+            // moves it from exactly where the pointer went down.
+            if NSEvent.modifierFlags.contains(.option), let copy = model.duplicate(id: hit.id, offset: 0) {
+                return .moving(id: copy, startRect: hit.rect)
+            }
             model.selectedSliceID = hit.id
             model.selectedGuideID = nil
             return .moving(id: hit.id, startRect: hit.rect)
@@ -507,7 +513,8 @@ struct SlicerCanvas: View {
                 excluding: id,
                 guides: model.guides,
                 grid: model.grid,
-                includeCentreLines: model.snapsToCentreLines
+                includeCentreLines: model.snapsToCentreLines,
+                contentEdges: model.snapsToContentEdges ? source.contentEdges : nil
             ),
             // One on-screen tolerance becomes two normalised ones, because the
             // image is rarely square.

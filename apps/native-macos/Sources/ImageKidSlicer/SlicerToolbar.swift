@@ -183,6 +183,10 @@ struct SlicerToolbar: View {
                 }
 
                 Toggle("Snap to centre lines", isOn: $model.snapsToCentreLines)
+                Toggle("Snap to content edges", isOn: $model.snapsToContentEdges)
+                Text("Sticks to where the tiles in the image actually start and stop.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
 
                 Divider()
 

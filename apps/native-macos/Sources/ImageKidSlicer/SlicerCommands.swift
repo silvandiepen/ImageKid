@@ -97,6 +97,7 @@ struct SlicerCommands: Commands {
 
             Toggle("Snap to Guides and Slices", isOn: $model.isSnappingEnabled)
             Toggle("Snap to Centre Lines", isOn: $model.snapsToCentreLines)
+            Toggle("Snap to Content Edges", isOn: $model.snapsToContentEdges)
             Toggle("Show Grid", isOn: $model.grid.isEnabled)
 
             Divider()

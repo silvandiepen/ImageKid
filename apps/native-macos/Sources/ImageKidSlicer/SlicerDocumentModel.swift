@@ -19,6 +19,9 @@ final class SlicerDocumentModel: ObservableObject {
         let preview: NSImage
         let outputType: UTType
         let fileExtension: String
+        /// Where the content in this image starts and stops, scanned once when
+        /// it loads so dragging never pays for it.
+        var contentEdges = SliceDetection.Suggestion()
 
         var pixelSize: CGSize { CGSize(width: image.width, height: image.height) }
         var pixelAspect: CGFloat { pixelSize.width / max(pixelSize.height, 1) }
@@ -100,6 +103,9 @@ final class SlicerDocumentModel: ObservableObject {
     @Published private(set) var isDetectingGuides = false
     @Published var isSnappingEnabled = true
     @Published var snapsToCentreLines = true
+    /// Snap to the edges of what is actually in the image — the borders of the
+    /// tiles on a sheet — not only to guides and other slices.
+    @Published var snapsToContentEdges = true
 
     let templates: SliceTemplateStore
     let exports: ExportOptionsStore
@@ -373,7 +379,8 @@ final class SlicerDocumentModel: ObservableObject {
             image: image,
             preview: preview,
             outputType: output.type,
-            fileExtension: output.fileExtension
+            fileExtension: output.fileExtension,
+            contentEdges: SliceDetection.contentEdges(in: image)
         )
     }
 
@@ -451,11 +458,26 @@ final class SlicerDocumentModel: ObservableObject {
     }
 
     func duplicateSelectedSlice() {
-        guard let slice = selectedSlice else { return }
-        let copy = Slice(rect: SliceGeometry.duplicated(slice.rect), name: nil, isLocked: false)
+        guard let id = selectedSliceID else { return }
+        _ = duplicate(id: id)
+    }
+
+    /// Copy one slice and select the copy. `offset` is zero for an
+    /// Option-drag, where the drag itself is about to move the copy and any
+    /// offset would make it jump out from under the pointer.
+    @discardableResult
+    func duplicate(id: Slice.ID, offset: CGFloat = 0.02) -> Slice.ID? {
+        guard let slice = slices.first(where: { $0.id == id }) else { return nil }
+        let copy = Slice(
+            rect: offset == 0 ? slice.rect : SliceGeometry.duplicated(slice.rect, offset: offset),
+            name: nil,
+            isLocked: false
+        )
         slices.append(copy)
         selectedSliceID = copy.id
+        selectedGuideID = nil
         markEdited()
+        return copy.id
     }
 
     func clearSelection() {
@@ -497,6 +519,7 @@ final class SlicerDocumentModel: ObservableObject {
             grid: grid,
             isSnappingEnabled: isSnappingEnabled,
             snapsToCentreLines: snapsToCentreLines,
+            snapsToContentEdges: snapsToContentEdges,
             exportOptions: exports.options
         )
     }
@@ -601,6 +624,7 @@ final class SlicerDocumentModel: ObservableObject {
                 self.grid = document.grid
                 self.isSnappingEnabled = document.isSnappingEnabled
                 self.snapsToCentreLines = document.snapsToCentreLines
+                self.snapsToContentEdges = document.snapsToContentEdges
                 self.exports.options = document.exportOptions
                 self.lastExport = nil
 

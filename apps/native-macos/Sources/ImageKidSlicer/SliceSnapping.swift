@@ -30,7 +30,8 @@ enum SliceSnapping {
         excluding excludedID: Slice.ID?,
         guides: [SliceGuide],
         grid: SliceGrid,
-        includeCentreLines: Bool
+        includeCentreLines: Bool,
+        contentEdges: SliceDetection.Suggestion? = nil
     ) -> SnapTargets {
         var targets = SnapTargets(vertical: [0, 1], horizontal: [0, 1])
 
@@ -57,6 +58,11 @@ enum SliceSnapping {
 
         targets.vertical.append(contentsOf: grid.verticalLines)
         targets.horizontal.append(contentsOf: grid.horizontalLines)
+
+        if let contentEdges {
+            targets.vertical.append(contentsOf: contentEdges.vertical)
+            targets.horizontal.append(contentsOf: contentEdges.horizontal)
+        }
 
         return targets
     }

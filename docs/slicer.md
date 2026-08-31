@@ -136,6 +136,7 @@ Do not show onboarding, recent projects, templates, presets, or configuration.
 
 - Drag inside the selected slice to move it.
 - Movement is clamped so the entire slice remains within the source image.
+- **Option-drag** pulls out a copy at the same size instead: the original stays where it is, and the drag moves the new slice. The copy starts exactly on top of the original, so it does not jump out from under the pointer, and it is never born locked or named.
 
 ### Resize
 
@@ -208,7 +209,10 @@ While snapping is on, a dragged slice latches onto:
 - the image centre lines, and other slices' centre lines (togglable);
 - other slices' edges;
 - guides;
-- the grid.
+- the grid;
+- **the edges of the content itself** (togglable) — where the tiles on a sheet actually start and stop, so pulling an edge near a square lands exactly on that square instead of a pixel or two off.
+
+Content edges come from the same column/row projection Suggest Guides uses, scanned once when the image loads so dragging never pays for it. Where a gutter guide sits down the *middle* of a gap, a content edge sits on the tile's own border — the two describe different lines, and a sheet offers both.
 
 A move snaps the whole rectangle by whichever of its leading edge, centre, or trailing edge is closest, so a move never resizes. A draw or resize only snaps the edges the pointer is actually moving, so the anchored edge stays put. Holding `Shift` (the square constraint) suspends snapping. The line a drag has latched onto is drawn while the drag is live.
 
@@ -446,7 +450,7 @@ apps/native-macos/Sources/ImageKidSlicer/
 ├── SliceGuides.swift           guides, grid, auto layout
 ├── SliceSnapping.swift         snap targets and edge snapping
 ├── SliceTemplates.swift        built-in and saved templates
-├── SliceDetection.swift        gutter finding behind Suggest Guides
+├── SliceDetection.swift        gutters and content edges, from one projection
 ├── SlicerSession.swift         the .slicer session document
 ├── ExportOptions.swift         format, scale, quality, naming + their store
 ├── ExportOptionsView.swift     the export options popover
