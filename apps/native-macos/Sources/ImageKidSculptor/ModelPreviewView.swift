@@ -68,22 +68,29 @@ struct ModelPreviewView: NSViewRepresentable {
         // material is told to read from that geometry source.
         node.enumerateHierarchy { child, _ in
             guard let geometry = child.geometry else { return }
-            let hasVertexColour = geometry.sources.contains { $0.semantic == .color }
             let material = geometry.firstMaterial ?? SCNMaterial()
-            material.lightingModel = .physicallyBased
-            material.roughness.contents = 0.85
-            material.metalness.contents = 0.0
             material.isDoubleSided = true
-            if hasVertexColour {
+
+            if geometry.sources.contains(where: { $0.semantic == .color }) {
+                // Vertex colour reaches the shader through `_geometry.color`,
+                // which no material property exposes — assigning a colour to
+                // `diffuse` just paints over it, and there is no
+                // "use vertex colour" flag to set. A one-line surface modifier
+                // is the supported way to read it.
+                //
+                // Lambert rather than physically-based: the models are painted
+                // in flat tones, and PBR's specular response puts gradients and
+                // highlights back over exactly the flatness that was the point.
+                material.lightingModel = .lambert
                 material.diffuse.contents = NSColor.white
-                material.multiply.contents = nil
-                geometry.firstMaterial = material
-                // SCNGeometry exposes vertex colour through this key path.
-                material.setValue(true, forKey: "useVertexColor")
+                material.shaderModifiers = [
+                    .surface: "_surface.diffuse *= _geometry.color;"
+                ]
             } else {
+                material.lightingModel = .lambert
                 material.diffuse.contents = NSColor(calibratedWhite: 0.78, alpha: 1)
-                geometry.firstMaterial = material
             }
+            geometry.firstMaterial = material
         }
         return node
     }

@@ -178,12 +178,35 @@ struct SculptorView: View {
 
     private func resultState(_ result: ResultMessage) -> some View {
         VStack(spacing: 0) {
-            ModelPreviewView(
-                previewURL: URL(fileURLWithPath: result.previewPath),
-                generation: previewGeneration
-            )
+            // Source beside result: the only way to judge a reconstruction is
+            // against what it was reconstructed from, and holding the original
+            // in your head while rotating a model does not work.
+            HSplitView {
+                VStack(spacing: 8) {
+                    sourcePreview
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    Text("Original")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(12)
+                .frame(minWidth: 200, idealWidth: 320)
+
+                VStack(spacing: 8) {
+                    ModelPreviewView(
+                        previewURL: URL(fileURLWithPath: result.previewPath),
+                        generation: previewGeneration
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .onAppear { previewGeneration += 1 }
+                    Text("Generated")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.bottom, 12)
+                .frame(minWidth: 320)
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onAppear { previewGeneration += 1 }
 
             HStack(spacing: 16) {
                 Label(

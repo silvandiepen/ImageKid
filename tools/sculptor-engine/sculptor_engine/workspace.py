@@ -62,9 +62,14 @@ class JobWorkspace:
 
     @property
     def preview_path(self) -> Path:
-        """Viewer-compatible copy for the app's 3D preview."""
+        """Viewer-compatible copy for the app's 3D preview.
 
-        return self.output_dir / "preview.ply"
+        OBJ with a material library: Model I/O does not import per-vertex
+        colour from PLY, so a PLY preview renders flat white in SceneKit
+        however the material is configured.
+        """
+
+        return self.output_dir / "preview.obj"
 
     def free_bytes(self) -> int:
         return shutil.disk_usage(self.root).free

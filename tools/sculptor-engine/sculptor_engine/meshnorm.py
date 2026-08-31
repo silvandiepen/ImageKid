@@ -600,6 +600,81 @@ def export_mesh(
     return destination
 
 
+def export_preview_obj(scene: trimesh.Scene, destination: Path) -> Path:
+    """Write the preview as OBJ with one material per colour.
+
+    Apple's Model I/O — which backs SceneKit's asset loading — does not import
+    per-vertex colour from PLY. Verified directly: a PLY that trimesh reads with
+    hundreds of colours arrives in SceneKit with a vertex source and nothing
+    else, which is why the preview rendered flat white however the material was
+    configured.
+
+    It does read OBJ material libraries. Since the model is painted from a small
+    palette, that maps cleanly: one material per palette entry, faces grouped
+    under it. The result is flat colour with crisp boundaries, which is what the
+    palette was for, and it survives a format that actually carries it.
+    """
+
+    meshes = _mesh_geometries(scene)
+    if not meshes:
+        raise ExportFailed("no mesh geometry to preview")
+    mesh = meshes[0] if len(meshes) == 1 else trimesh.util.concatenate(meshes)
+
+    colours = _face_rgb(mesh)
+    if colours is None:
+        raise ExportFailed("preview mesh has no usable colour")
+
+    palette, groups = np.unique(colours, axis=0, return_inverse=True)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    materials = destination.with_suffix(".mtl")
+
+    with materials.open("w", encoding="utf-8") as handle:
+        for index, colour in enumerate(palette):
+            red, green, blue = (component / 255.0 for component in colour)
+            handle.write(f"newmtl colour_{index}\n")
+            handle.write(f"Kd {red:.4f} {green:.4f} {blue:.4f}\n")
+            # No specular: these are flat painted shapes, and a highlight would
+            # put back the gradient the palette removed.
+            handle.write("Ks 0.0000 0.0000 0.0000\nKa 0.0000 0.0000 0.0000\nd 1.0\n\n")
+
+    vertices = np.asarray(mesh.vertices)
+    faces = np.asarray(mesh.faces)
+    with destination.open("w", encoding="utf-8") as handle:
+        handle.write(f"mtllib {materials.name}\n")
+        for vertex in vertices:
+            handle.write(f"v {vertex[0]:.6f} {vertex[1]:.6f} {vertex[2]:.6f}\n")
+        for index in range(len(palette)):
+            member = faces[groups == index]
+            if not len(member):
+                continue
+            handle.write(f"usemtl colour_{index}\ng colour_{index}\n")
+            for face in member:
+                # OBJ indices are 1-based.
+                handle.write(f"f {face[0] + 1} {face[1] + 1} {face[2] + 1}\n")
+
+    if not destination.is_file() or destination.stat().st_size == 0:
+        raise ExportFailed("preview OBJ export produced an empty file")
+    return destination
+
+
+def _face_rgb(mesh: trimesh.Trimesh) -> "np.ndarray | None":
+    """Per-face RGB, from face colours if present, else averaged per face."""
+
+    visual = getattr(mesh, "visual", None)
+    if not isinstance(visual, trimesh.visual.ColorVisuals):
+        return None
+
+    face_colours = getattr(visual, "face_colors", None)
+    if face_colours is not None and len(face_colours) == len(mesh.faces):
+        return np.asarray(face_colours)[:, :3].astype(np.uint8)
+
+    vertex_colours = getattr(visual, "vertex_colors", None)
+    if vertex_colours is not None and len(vertex_colours) == len(mesh.vertices):
+        averaged = np.asarray(vertex_colours)[:, :3][mesh.faces].mean(axis=1)
+        return averaged.astype(np.uint8)
+    return None
+
+
 def export_preview(scene: trimesh.Scene, destination: Path) -> Path:
     """Write a viewer-compatible copy of the asset for the app's 3D preview.
 

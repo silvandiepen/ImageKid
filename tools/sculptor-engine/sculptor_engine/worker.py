@@ -196,7 +196,7 @@ class Worker:
                 temporary=space.temp_dir / "model.glb.part",
                 destination=space.glb_path,
             )
-            preview = meshnorm.export_preview(scene, space.preview_path)
+            preview = meshnorm.export_preview_obj(scene, space.preview_path)
 
             # Extra formats alongside the canonical GLB, for callers that need
             # to hand the asset to something else.
