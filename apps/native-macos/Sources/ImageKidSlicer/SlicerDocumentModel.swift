@@ -490,9 +490,16 @@ final class SlicerDocumentModel: ObservableObject {
         lastExport = nil
     }
 
-    /// Replace every slice at once — how templates and Auto Slice apply.
-    /// Locked slices are kept: locking one is how the user says "not this one".
+    /// Replace every slice at once — how templates, Auto Slice and Detect
+    /// Elements apply. Locked slices are kept: locking one is how the user
+    /// says "not this one".
+    ///
+    /// Laying slices down also returns to the Slice tool. Anything that
+    /// produces slices is immediately followed by wanting to adjust them, and
+    /// arriving here from the Guides tool otherwise means the next click lays
+    /// a guide over the work instead of selecting it.
     func replaceSlices(with rects: [CGRect]) {
+        activeTool = .slice
         inspectingSliceID = nil
         let kept = slices.filter(\.isLocked)
         slices = kept + rects.map { Slice(rect: SliceGeometry.clamped($0)) }
@@ -917,6 +924,9 @@ final class SlicerDocumentModel: ObservableObject {
                 self.guides = suggestion.vertical.map { SliceGuide(axis: .vertical, position: $0) }
                     + suggestion.horizontal.map { SliceGuide(axis: .horizontal, position: $0) }
                 self.selectedGuideID = nil
+                // Suggested guides are the ones most likely to want nudging,
+                // so this leaves the pointer in the tool that moves them.
+                self.activeTool = .guides
             }
         }
     }

@@ -359,3 +359,55 @@ final class SlicerMultipleImagesTests: XCTestCase {
         XCTAssertEqual(model.source?.displayName, "fresh")
     }
 }
+
+/// Which tool you are left holding after an action that produces geometry.
+@MainActor
+final class SlicerToolHandoffTests: XCTestCase {
+    private var suiteName: String!
+    private var model: SlicerDocumentModel!
+
+    override func setUpWithError() throws {
+        suiteName = "com.hakobs.imagekid.slicer.handoff.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        model = SlicerDocumentModel(
+            templates: SliceTemplateStore(store: defaults),
+            exports: ExportOptionsStore(store: defaults)
+        )
+        let image = try TestImages.halves(width: 200, height: 100)
+        model.adopt(SlicerDocumentModel.Source(
+            url: nil,
+            displayName: "sheet",
+            image: image,
+            preview: NSImage(cgImage: image, size: NSSize(width: 200, height: 100)),
+            outputType: .png,
+            fileExtension: "png"
+        ))
+    }
+
+    override func tearDownWithError() throws {
+        UserDefaults().removePersistentDomain(forName: suiteName)
+        model = nil
+        suiteName = nil
+    }
+
+    func testLayingSlicesDownReturnsToTheSliceTool() {
+        model.activeTool = .guides
+        model.replaceSlices(with: [CGRect(x: 0, y: 0, width: 0.5, height: 1)])
+        XCTAssertEqual(model.activeTool, .slice, "otherwise the next click lays a guide over the new slices")
+    }
+
+    func testATemplateAlsoReturnsToTheSliceTool() {
+        model.activeTool = .crop
+        model.apply(SliceTemplate(name: "Quarters", columns: 2, rows: 2))
+        XCTAssertEqual(model.activeTool, .slice)
+        XCTAssertEqual(model.slices.count, 4)
+    }
+
+    func testAutoSliceAlsoReturnsToTheSliceTool() {
+        model.activeTool = .guides
+        model.addGuide(axis: .vertical, at: 0.5)
+        model.autoSlice()
+        XCTAssertEqual(model.activeTool, .slice)
+        XCTAssertEqual(model.slices.count, 2)
+    }
+}

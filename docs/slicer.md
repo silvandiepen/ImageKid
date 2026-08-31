@@ -209,6 +209,8 @@ Element detection is eight-connected, so a diagonal touch counts as the same thi
 
 Both run on the same downsampled copy, off the main actor, and both stay accelerators: what they produce is ordinary guides and ordinary slices, editable and deletable like any other.
 
+Each hands back the tool that edits what it just made: Detect Elements, Auto Slice and templates leave you on the **Slice** tool, Suggest Guides leaves you on **Guides**. Without that, running a detection from the Guides tool means the next click lays a guide across the new work instead of selecting it.
+
 ## Suggested guides
 
 **Suggest Guides** (`⇧⌘G`) looks for the runs of uninterrupted background separating one tile from the next, and drops a guide down the middle of each. The background is taken as the median of the border pixels, so a tile running to the edge does not throw it off, and runs touching an edge are skipped — those are the sheet's own margin, and a cut there would only carve off a blank strip.
