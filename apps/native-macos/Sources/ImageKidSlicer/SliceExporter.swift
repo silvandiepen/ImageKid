@@ -87,9 +87,7 @@ enum SliceExporter {
             claimed.insert(url.path)
 
             do {
-                let resampled = request.options.isScaled
-                    ? try SliceImageIO.scaled(cropped, to: request.options.outputPixelSize(for: pixelRect))
-                    : cropped
+                let resampled = try SliceImageIO.rendered(cropped, options: request.options)
                 try SliceImageIO.writeAtomically(resampled, to: url, type: output.type, quality: quality)
                 outcome.created.append(url)
             } catch {
@@ -121,9 +119,7 @@ enum SliceExporter {
         else {
             throw SliceError.emptySlice
         }
-        let resampled = options.isScaled
-            ? try SliceImageIO.scaled(cropped, to: options.outputPixelSize(for: pixelRect))
-            : cropped
+        let resampled = try SliceImageIO.rendered(cropped, options: options)
         try SliceImageIO.writeAtomically(resampled, to: url, type: outputType, quality: quality)
     }
 

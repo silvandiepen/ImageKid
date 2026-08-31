@@ -38,7 +38,7 @@ final class ExportOptionsTests: XCTestCase {
 
     func testUnscaledExportKeepsTheRegionSize() {
         let options = ExportOptions()
-        XCTAssertFalse(options.isScaled)
+        XCTAssertFalse(options.needsResampling)
         XCTAssertEqual(
             options.outputPixelSize(for: CGRect(x: 0, y: 0, width: 300, height: 200)),
             CGSize(width: 300, height: 200)
@@ -48,7 +48,7 @@ final class ExportOptionsTests: XCTestCase {
     func testScaleIsAppliedAndRounded() {
         var options = ExportOptions()
         options.scalePercent = 50
-        XCTAssertTrue(options.isScaled)
+        XCTAssertTrue(options.needsResampling)
         XCTAssertEqual(
             options.outputPixelSize(for: CGRect(x: 0, y: 0, width: 301, height: 200)),
             CGSize(width: 151, height: 100)
@@ -134,5 +134,7 @@ final class ExportOptionsTests: XCTestCase {
         let image = try TestImages.halves(width: 64, height: 32)
         XCTAssertTrue(try SliceImageIO.scaled(image, to: CGSize(width: 64, height: 32)) === image,
                       "an unscaled export should not pay for a redraw")
+        XCTAssertTrue(try SliceImageIO.rendered(image, options: ExportOptions()) === image,
+                      "and neither should the default options")
     }
 }

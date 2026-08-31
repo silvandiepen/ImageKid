@@ -380,11 +380,15 @@ The export options popover — the toolbar button, labelled with the current set
 
 - **Format**: same as source, PNG, JPEG, HEIC, or TIFF. "Same as source" keeps the source's encoding where Image I/O can write it and falls back to PNG otherwise.
 - **Quality**: shown only when the resulting format is lossy — which, for "same as source", depends on the source.
-- **Scale**: presets from 25% to 400% plus an exact percentage, with a live "1200×800 → 600×400" readout against a real region. An unscaled export skips resampling entirely.
+- **Size**: *Slice size* keeps each slice's own dimensions, with scale presets from 25% to 400% plus an exact percentage and a live "1200×800 → 600×400" readout. *Fixed size* writes every file at one exact width and height, whatever the slices measure — the setting that turns a set of differently-shaped slices into one set of usable assets.
+- **Fit**, for a fixed size: **Contain** scales until the whole slice fits and pads the rest; **Cover** scales until the output is filled and crops the overflow. Contain's padding is transparent, white or black — with a warning when the chosen format has no alpha and transparent would come out black.
+- An export that changes nothing skips resampling entirely.
 - **Filename prefix**: sanitised and hyphenated, leading both automatic and custom names.
 - A live preview of the first filename, so none of the above is a guess.
 
-Scaling resamples the cropped region at high interpolation quality; the crop itself is still taken from the original-resolution source.
+Every path — Save, Crop & Save, Export All, and dragging a slice to the Finder — renders through the same entry point, so an option set once applies everywhere. Resampling is at high interpolation quality, and the crop itself is still taken from the original-resolution source.
+
+The options decode field by field with defaults, so preferences or a session written before a setting existed still load.
 
 ## Session behavior
 

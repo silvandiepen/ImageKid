@@ -712,10 +712,7 @@ final class SlicerDocumentModel: ObservableObject {
         let url = SliceExporter.uniqueURL(in: folder, baseName: base, fileExtension: output.fileExtension)
 
         do {
-            let bounds = CGRect(origin: .zero, size: CGSize(width: image.width, height: image.height))
-            let resampled = options.isScaled
-                ? try SliceImageIO.scaled(image, to: options.outputPixelSize(for: bounds))
-                : image
+            let resampled = try SliceImageIO.rendered(image, options: options)
             try SliceImageIO.writeAtomically(
                 resampled,
                 to: url,

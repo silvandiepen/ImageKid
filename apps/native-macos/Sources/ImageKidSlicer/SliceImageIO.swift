@@ -86,6 +86,70 @@ enum SliceImageIO {
 
     // MARK: - Writing
 
+    /// Draw a cropped region as the export options ask for it: at its own
+    /// size, scaled by a percentage, or fitted into a fixed output.
+    ///
+    /// Fixed output is what makes a set of differently-shaped slices usable as
+    /// one set of assets — every file the same width and height, with the
+    /// slice either contained inside it or covering it.
+    static func rendered(_ image: CGImage, options: ExportOptions) throws -> CGImage {
+        guard options.needsResampling else { return image }
+
+        let source = CGSize(width: image.width, height: image.height)
+        let output = options.outputPixelSize(for: CGRect(origin: .zero, size: source))
+
+        switch options.sizing {
+        case .actual:
+            return try scaled(image, to: output)
+        case .fixed:
+            return try fitted(
+                image,
+                into: output,
+                fit: options.fit,
+                background: options.padding.color
+            )
+        }
+    }
+
+    /// Redraw an image into an exact canvas, contained or covering.
+    static func fitted(
+        _ image: CGImage,
+        into size: CGSize,
+        fit: ExportOptions.Fit,
+        background: CGColor?
+    ) throws -> CGImage {
+        let width = Int(max(size.width.rounded(), 1))
+        let height = Int(max(size.height.rounded(), 1))
+
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: image.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            throw SliceError.cannotWriteImage
+        }
+
+        if let background {
+            context.setFillColor(background)
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        }
+
+        context.interpolationQuality = .high
+        // Cover deliberately draws beyond the canvas; the context clips it.
+        context.draw(image, in: ExportOptions.drawRect(
+            for: CGSize(width: image.width, height: image.height),
+            in: CGSize(width: width, height: height),
+            fit: fit
+        ))
+
+        guard let rendered = context.makeImage() else { throw SliceError.cannotWriteImage }
+        return rendered
+    }
+
     /// Resample a cropped region. Only called when the export is scaled, so
     /// an unscaled export never pays for a redraw.
     static func scaled(_ image: CGImage, to size: CGSize) throws -> CGImage {

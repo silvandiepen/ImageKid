@@ -18,7 +18,12 @@ struct ExportOptionsView: View {
             if store.options.isLossy(sourceType: source.outputType) {
                 quality
             }
-            scale
+            sizing
+            if store.options.sizing == .fixed {
+                fixedSize
+            } else {
+                scale
+            }
             naming
 
             Divider()
@@ -61,6 +66,76 @@ struct ExportOptionsView: View {
         }
     }
 
+    private var sizing: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            label("Size")
+            Picker("Size", selection: options.sizing) {
+                ForEach(ExportOptions.Sizing.allCases) { option in
+                    Text(option.label).tag(option)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("slicer.export.sizing")
+        }
+    }
+
+    /// Every file the same shape, whatever the slices measure.
+    private var fixedSize: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                TextField("", value: options.outputWidth, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 72)
+                    .accessibilityIdentifier("slicer.export.width")
+                Text("×").foregroundStyle(.secondary)
+                TextField("", value: options.outputHeight, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 72)
+                    .accessibilityIdentifier("slicer.export.height")
+                Text("px").font(.caption).foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+
+            Picker("Fit", selection: options.fit) {
+                ForEach(ExportOptions.Fit.allCases) { option in
+                    Text(option.label).tag(option)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("slicer.export.fit")
+
+            Text(store.options.fit.detail)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+
+            if store.options.fit == .contain {
+                HStack(spacing: 6) {
+                    Text("Padding").font(.caption).foregroundStyle(.secondary)
+                    Picker("Padding", selection: options.padding) {
+                        ForEach(ExportOptions.Padding.allCases) { option in
+                            Text(option.label).tag(option)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 130)
+                    .accessibilityIdentifier("slicer.export.padding")
+                }
+                if store.options.padding == .transparent,
+                   !store.options.resolved(sourceType: source.outputType, sourceExtension: source.fileExtension)
+                    .type.conforms(to: .png) {
+                    Text("This format has no transparency; the padding will come out black.")
+                        .font(.caption2)
+                        .foregroundStyle(Color.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
     private var scale: some View {
         VStack(alignment: .leading, spacing: 5) {
             label("Scale")
@@ -91,7 +166,7 @@ struct ExportOptionsView: View {
         }
     }
 
-    /// What the scale does to a real region, so the number means something.
+    /// What the setting does to a real region, so the numbers mean something.
     private var scaleNote: String {
         let reference = model.slices.first?.rect
             ?? model.cropRect
