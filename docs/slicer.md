@@ -183,6 +183,8 @@ A floating tool bar sits over the bottom of the canvas, in the same idiom as Ima
 
 Every one of these is also a menu command, so the whole app is reachable from the keyboard.
 
+Every icon carries a tooltip, and so does every menu command. macOS menu items support `NSMenuItem.toolTip` but SwiftUI's `Commands` cannot set one, so the live menu is annotated as it opens — as it opens rather than once at launch, because SwiftUI rebuilds the items as state changes and titles like Lock/Unlock flip with it. The text lives in one table in `SlicerHelp`, and a test reads `SlicerCommands.swift` and fails if a command is added without one.
+
 ## Cutting guides
 
 Guides are lines across the whole image. They are not exported and they are not slices — they are what **Auto Slice** cuts along, and what other slices snap to.
@@ -450,6 +452,7 @@ apps/native-macos/Sources/ImageKidSlicer/
 ├── SlicerFilmstrip.swift       the strip of open images
 ├── SlicerWindowCoordinator.swift  keeps Slicer to a single window
 ├── SlicerChrome.swift          the dark-glass surfaces and canvas backdrop
+├── SlicerHelp.swift            tooltip text, and annotating the live menu
 ├── SlicerToolbar.swift         the floating tool bar, grid and template popovers
 ├── SlicerCanvas.swift          pointer, guides, grid and snap rendering
 ├── SliceOverlay.swift          one slice rectangle and its handles

@@ -26,10 +26,29 @@ struct ImageKidSlicerApp: App {
 final class SlicerAppDelegate: NSObject, NSApplicationDelegate {
     weak var model: SlicerDocumentModel?
 
+    private var menuObserver: Any?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Slicer is a dark tool: judging a crop against a light chrome is
         // harder, and the app has no appearance setting to honour.
         NSApp.appearance = NSAppearance(named: .darkAqua)
+
+        // Menu tooltips are annotated as each menu opens, because SwiftUI
+        // rebuilds the items as state changes and titles flip with it.
+        menuObserver = NotificationCenter.default.addObserver(
+            forName: NSMenu.didBeginTrackingNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                guard let menu = NSApp.mainMenu else { return }
+                SlicerHelp.applyTooltips(to: menu)
+            }
+        }
+    }
+
+    deinit {
+        if let menuObserver { NotificationCenter.default.removeObserver(menuObserver) }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

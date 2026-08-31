@@ -273,6 +273,7 @@ struct SlicerToolbar: View {
                 .contentShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
+            .help(SlicerHelp.templateItem)
             .accessibilityIdentifier("slicer.template.\(template.columns)x\(template.rows)")
 
             if removable {
