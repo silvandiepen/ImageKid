@@ -77,7 +77,7 @@ struct SlicerToolbar: View {
                 } label: {
                     icon(tool.symbolName, selected: model.activeTool == tool)
                 }
-                .help(tool.help)
+                .toolTip(tool.help)
                 .accessibilityLabel(tool.label)
                 .accessibilityIdentifier("slicer.tool.\(tool.rawValue)")
             }
@@ -89,7 +89,7 @@ struct SlicerToolbar: View {
             } label: {
                 icon(Symbol.snapping, selected: model.isSnappingEnabled)
             }
-            .help("Snap slices to guides, the grid, and other slices")
+            .toolTip("Snap slices to guides, the grid, and other slices")
             .accessibilityLabel("Snapping")
             .accessibilityIdentifier("slicer.snap")
 
@@ -105,7 +105,7 @@ struct SlicerToolbar: View {
                 icon(Symbol.suggest, selected: false)
             }
             .disabled(!model.canSuggestGuides)
-            .help("Suggest Guides — find the gutters between tiles")
+            .toolTip("Suggest Guides — find the gutters between tiles")
             .accessibilityLabel("Suggest Guides")
             .accessibilityIdentifier("slicer.suggestGuides")
 
@@ -115,7 +115,7 @@ struct SlicerToolbar: View {
                 icon(Symbol.detect, selected: false)
             }
             .disabled(!model.canDetectElements)
-            .help("Detect Elements — one slice around each separate thing in the image")
+            .toolTip("Detect Elements — one slice around each separate thing in the image")
             .accessibilityLabel("Detect Elements")
             .accessibilityIdentifier("slicer.detectElements")
 
@@ -125,7 +125,7 @@ struct SlicerToolbar: View {
                 icon(Symbol.autoSlice, selected: false)
             }
             .disabled(!model.canAutoSlice)
-            .help("Auto Slice — one slice per cell between the cutting lines")
+            .toolTip("Auto Slice — one slice per cell between the cutting lines")
             .accessibilityLabel("Auto Slice")
             .accessibilityIdentifier("slicer.autoSlice")
 
@@ -135,7 +135,7 @@ struct SlicerToolbar: View {
                 icon(Symbol.clearGuides, selected: false)
             }
             .disabled(model.guides.isEmpty)
-            .help("Remove every guide")
+            .toolTip("Remove every guide")
             .accessibilityLabel("Clear Guides")
             .accessibilityIdentifier("slicer.clearGuides")
 
@@ -147,7 +147,7 @@ struct SlicerToolbar: View {
                 icon(model.selectedSliceIsLocked ? "lock.fill" : Symbol.lock, selected: false)
             }
             .disabled(model.selectedSlice == nil)
-            .help("Lock the selected slice so the pointer ignores it")
+            .toolTip("Lock the selected slice so the pointer ignores it")
             .accessibilityLabel("Lock Slice")
             .accessibilityIdentifier("slicer.lock")
 
@@ -156,7 +156,7 @@ struct SlicerToolbar: View {
             } label: {
                 icon(Symbol.sidebar, selected: model.isSidebarVisible)
             }
-            .help("Show the slices list — rename, lock, and delete")
+            .toolTip("Show the slices list — rename, lock, and delete")
             .accessibilityLabel("Slices List")
             .accessibilityIdentifier("slicer.sidebarToggle")
         }
@@ -179,7 +179,7 @@ struct SlicerToolbar: View {
         } label: {
             icon(Symbol.grid, selected: model.grid.isEnabled)
         }
-        .help("Grid — a regular guide grid to snap and auto-slice against")
+        .toolTip("Grid — a regular guide grid to snap and auto-slice against")
         .accessibilityLabel("Grid")
         .accessibilityIdentifier("slicer.grid")
         .popover(isPresented: $showGrid, arrowEdge: .top) {
@@ -228,7 +228,7 @@ struct SlicerToolbar: View {
             icon(Symbol.templates, selected: false)
         }
         .disabled(!model.hasSource)
-        .help("Templates — lay a ready-made grid of slices over the image")
+        .toolTip("Templates — lay a ready-made grid of slices over the image")
         .accessibilityLabel("Templates")
         .accessibilityIdentifier("slicer.templates")
         .popover(isPresented: $showTemplates, arrowEdge: .top) {
@@ -273,7 +273,7 @@ struct SlicerToolbar: View {
                 .contentShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
-            .help(SlicerHelp.templateItem)
+            .toolTip(SlicerHelp.templateItem)
             .accessibilityIdentifier("slicer.template.\(template.columns)x\(template.rows)")
 
             if removable {
@@ -284,7 +284,7 @@ struct SlicerToolbar: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("Delete this template")
+                .toolTip("Delete this template")
                 .accessibilityLabel("Delete template \(template.name)")
                 .padding(.trailing, 8)
             }

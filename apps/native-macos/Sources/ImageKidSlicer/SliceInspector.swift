@@ -152,7 +152,7 @@ struct SliceInspector: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Keep the \(option.label.lowercased()) fixed while resizing")
+        .toolTip("Keep the \(option.label.lowercased()) fixed while resizing")
         // A button whose label is a bare shape has no text for the
         // accessibility tree to latch onto, so it is described explicitly.
         .accessibilityElement(children: .ignore)

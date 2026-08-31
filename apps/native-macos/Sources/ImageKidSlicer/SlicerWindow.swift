@@ -35,7 +35,7 @@ struct SlicerWindow: View {
             } label: {
                 Image(systemName: "folder")
             }
-            .help("Open an image (⌘O)")
+            .toolTip("Open an image (⌘O)")
             .accessibilityLabel("Open")
             .accessibilityIdentifier("slicer.open")
         }
@@ -81,7 +81,7 @@ struct SlicerWindow: View {
                             systemImage: "slider.horizontal.3"
                         )
                     }
-                    .help("Export options — format, scale, quality, naming")
+                    .toolTip("Export options — format, scale, quality, naming")
                     .accessibilityIdentifier("slicer.exportOptions")
                     .popover(isPresented: $showExportOptions, arrowEdge: .bottom) {
                         ExportOptionsView(model: model, store: model.exports, source: source)
@@ -139,7 +139,7 @@ struct SlicerWindow: View {
                     .font(.caption)
             }
         }
-        .help(summary.failures.map { "\($0.sliceName): \($0.message)" }.joined(separator: "\n"))
+        .toolTip(summary.failures.map { "\($0.sliceName): \($0.message)" }.joined(separator: "\n"))
     }
 
     // MARK: - Content

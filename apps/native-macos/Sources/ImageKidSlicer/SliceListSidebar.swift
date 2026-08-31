@@ -80,7 +80,7 @@ struct SliceListSidebar: View {
                     .foregroundStyle(slice.isLocked ? Color.accentColor : .secondary)
             }
             .buttonStyle(.plain)
-            .help(slice.isLocked ? "Unlock this slice" : "Lock this slice so the pointer ignores it")
+            .toolTip(slice.isLocked ? "Unlock this slice" : "Lock this slice so the pointer ignores it")
             .accessibilityLabel(slice.isLocked ? "Unlock \(slice.displayName(at: index))" : "Lock \(slice.displayName(at: index))")
             .accessibilityIdentifier("slicer.row.lock.\(index)")
 
@@ -92,7 +92,7 @@ struct SliceListSidebar: View {
             }
             .buttonStyle(.plain)
             .disabled(slice.isLocked)
-            .help("Delete this slice")
+            .toolTip("Delete this slice")
             .accessibilityLabel("Delete \(slice.displayName(at: index))")
             .accessibilityIdentifier("slicer.row.delete.\(index)")
         }

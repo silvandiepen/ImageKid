@@ -183,7 +183,9 @@ A floating tool bar sits over the bottom of the canvas, in the same idiom as Ima
 
 Every one of these is also a menu command, so the whole app is reachable from the keyboard.
 
-Every icon carries a tooltip, and so does every menu command. macOS menu items support `NSMenuItem.toolTip` but SwiftUI's `Commands` cannot set one, so the live menu is annotated as it opens — as it opens rather than once at launch, because SwiftUI rebuilds the items as state changes and titles like Lock/Unlock flip with it. The text lives in one table in `SlicerHelp`, and a test reads `SlicerCommands.swift` and fails if a command is added without one.
+Every icon carries a tooltip, and so does every menu command.
+
+The icons set `NSView.toolTip` on their backing view rather than relying on SwiftUI's `.help()`, which drew nothing on the floating tool bar — most likely because those buttons sit in an overlay above a canvas owning a zero-distance drag gesture. The annotation view sits *inside* the control and labels its superview, because labelling itself would need it to be hit-testable, and a hit-testable overlay would swallow the click meant for the button underneath. `.help()` is still applied alongside, since that is what carries the text into the accessibility tree. macOS menu items support `NSMenuItem.toolTip` but SwiftUI's `Commands` cannot set one, so the live menu is annotated as it opens — as it opens rather than once at launch, because SwiftUI rebuilds the items as state changes and titles like Lock/Unlock flip with it. The text lives in one table in `SlicerHelp`, and a test reads `SlicerCommands.swift` and fails if a command is added without one.
 
 ## Cutting guides
 
@@ -453,6 +455,7 @@ apps/native-macos/Sources/ImageKidSlicer/
 ├── SlicerWindowCoordinator.swift  keeps Slicer to a single window
 ├── SlicerChrome.swift          the dark-glass surfaces and canvas backdrop
 ├── SlicerHelp.swift            tooltip text, and annotating the live menu
+├── ToolTip.swift               AppKit tooltips on SwiftUI controls
 ├── SlicerToolbar.swift         the floating tool bar, grid and template popovers
 ├── SlicerCanvas.swift          pointer, guides, grid and snap rendering
 ├── SliceOverlay.swift          one slice rectangle and its handles
