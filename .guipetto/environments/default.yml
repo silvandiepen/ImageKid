@@ -1,0 +1,16 @@
+# The conditions every flow runs under unless it names another environment.
+#
+# No `device.profile` is pinned: Guipetto picks an installed device of the right family and
+# records which one it used in the run. Pin one — `profile: iPhone 17 Pro` — once you know
+# which device your screenshots are for.
+
+schemaVersion: 1
+id: default
+device:
+  family: iphone
+appearance: light
+locale: en-US
+language: en
+timeZone: UTC
+contentSize: medium
+network: online

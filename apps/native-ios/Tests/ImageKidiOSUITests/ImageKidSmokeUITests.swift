@@ -68,18 +68,18 @@ final class ImageKidSmokeUITests: ImageKidUITestCase {
 
         // Tap the canvas → inline editor appears; type.
         tapCanvas(0.50, 0.45)
-        let editor = waitFor("canvas.textEditor")
+        let editor = waitFor("canvas.text.editor")
         waitForKeyboardFocus(on: editor)
         app.typeText("Hello")
 
         // Tapping empty canvas commits; the text stays selected (border shows).
         tapCanvas(0.50, 0.15)
-        waitGone("canvas.textEditor")
+        waitGone("canvas.text.editor")
         waitFor("canvas.selectionBorder")
 
         // Double-tap the placed text → the inline editor reopens.
         canvasPoint(0.50, 0.45).withOffset(CGVector(dx: 24, dy: 16)).doubleTap()
-        let reopened = waitFor("canvas.textEditor")
+        let reopened = waitFor("canvas.text.editor")
         waitForKeyboardFocus(on: reopened)
 
         // Clear the text (double-tap selects the word) and commit → the empty
@@ -88,7 +88,7 @@ final class ImageKidSmokeUITests: ImageKidUITestCase {
         app.typeText(XCUIKeyboardKey.delete.rawValue)
         app.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 6))
         tapCanvas(0.50, 0.15)
-        waitGone("canvas.textEditor")
+        waitGone("canvas.text.editor")
         waitGone("canvas.selectionBorder")
 
         waitFor("topbar.layers").tap()
@@ -102,11 +102,11 @@ final class ImageKidSmokeUITests: ImageKidUITestCase {
         waitFor("editor.canvas")
 
         tapCanvas(0.45, 0.50)
-        let editor = waitFor("canvas.textEditor")
+        let editor = waitFor("canvas.text.editor")
         waitForKeyboardFocus(on: editor)
         app.typeText("Hi")
         tapCanvas(0.50, 0.15)
-        waitGone("canvas.textEditor")
+        waitGone("canvas.text.editor")
         waitFor("canvas.selectionBorder")
 
         // The committed text is still selected → the panel's delete is live.

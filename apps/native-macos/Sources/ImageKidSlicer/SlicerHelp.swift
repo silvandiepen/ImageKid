@@ -59,6 +59,10 @@ enum SlicerHelp {
         "Show Slices List": "Show the list beside the canvas, for renaming, locking and deleting.",
         "Hide Slices List": "Hide the slices list.",
 
+        // Help
+        "ImageKid Slicer Support": "Open ImageKid support in your web browser.",
+        "Privacy Policy": "Read the ImageKid privacy policy in your web browser.",
+
         // Submenus
         "Templates": "Lay a ready-made grid of slices over the whole image."
     ]

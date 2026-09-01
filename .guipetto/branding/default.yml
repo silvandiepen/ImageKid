@@ -1,0 +1,30 @@
+# What ImageKid's generated screenshots and demos should look like, said once.
+# The palette is the website's own: primary #0c71d1, ink #151820.
+
+schemaVersion: 1.1
+id: default
+
+name: ImageKid
+tagline: Edit pictures on your own device
+
+palette:
+  light:
+    background: "#f8f8f6"
+    ink: "#151820"
+    inkSecondary: "#4a5160"
+    accent: "#0c71d1"
+    shellFinish: silver
+  dark:
+    background: "#151820"
+    ink: "#f8f8f6"
+    inkSecondary: "#a7aebd"
+    accent: "#57a8f5"
+    shellFinish: graphite
+
+captions:
+  placement: aboveDevice
+  tone: plain
+
+logo:
+  wordmark: ImageKid
+  placement: topLeading
