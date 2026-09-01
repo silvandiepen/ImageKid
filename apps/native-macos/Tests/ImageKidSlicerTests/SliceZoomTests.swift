@@ -79,8 +79,10 @@ final class SliceZoomTests: XCTestCase {
             bounds: bounds
         )
         // Half the canvas plus half the image, less the margin kept on screen.
-        XCTAssertEqual(clamped.width, 800 / 2 + 1600 / 2 - 60, accuracy: 0.001)
-        XCTAssertEqual(clamped.height, -(800 / 2 + 800 / 2 - 60), accuracy: 0.001)
+        let maximumHorizontalPan: CGFloat = 800 / 2 + 1600 / 2 - 60
+        let maximumVerticalPan: CGFloat = 800 / 2 + 800 / 2 - 60
+        XCTAssertEqual(clamped.width, maximumHorizontalPan, accuracy: 0.001)
+        XCTAssertEqual(clamped.height, -maximumVerticalPan, accuracy: 0.001)
     }
 
     func testAModestPanIsLeftAlone() {
