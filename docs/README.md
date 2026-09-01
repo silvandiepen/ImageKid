@@ -11,7 +11,7 @@ ImageKid is currently an offline native macOS image utility with basic video vie
 - [Testing](testing.md) — validation strategy and release gates.
 - [Roadmap](roadmap.md) — implementation order for images, then basic video processing.
 - [Upscaling](upscaling.md) — standard and Best Quality upscaling paths.
-- [Companion apps](companion-apps.md) — status and roadmap for separate ImageKid Upscale and ImageKid Cutout batch apps.
+- [Companion apps](companion-apps.md) — status and roadmap for separate ImageKid Upscale and Cutout batch apps.
 - [iOS feasibility](ios-feasibility.md) — whether upscaling and background removal can move to iOS, and the Core ML direction.
 - [Build](build.md) — native and website development commands.
 - [Website](website.md) — routes, content ownership, domains, and Cloudflare Pages deployment.
