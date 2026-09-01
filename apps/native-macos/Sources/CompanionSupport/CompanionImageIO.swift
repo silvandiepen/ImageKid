@@ -11,11 +11,19 @@ enum CompanionImageIO {
             throw CompanionProcessingError.unreadableImage
         }
 
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int
+        else {
+            throw CompanionProcessingError.unreadableImage
+        }
         let options: [CFString: Any] = [
-            kCGImageSourceShouldCache: true,
-            kCGImageSourceCreateThumbnailWithTransform: true
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(width, height)
         ]
-        guard let image = CGImageSourceCreateImageAtIndex(source, 0, options as CFDictionary) else {
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
             throw CompanionProcessingError.unreadableImage
         }
         return image
@@ -29,6 +37,10 @@ enum CompanionImageIO {
             let height = properties[kCGImagePropertyPixelHeight] as? Int
         else {
             return nil
+        }
+        let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+        if [5, 6, 7, 8].contains(orientation) {
+            return (height, width)
         }
         return (width, height)
     }
@@ -93,11 +105,30 @@ enum CompanionImageIO {
         type: CFString,
         options: [CFString: Any]
     ) throws {
-        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, type, 1, nil) else {
+        let fileManager = FileManager.default
+        let directory = url.deletingLastPathComponent()
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let temporaryURL = directory.appendingPathComponent(
+            ".\(url.lastPathComponent).\(UUID().uuidString).tmp"
+        )
+        defer { try? fileManager.removeItem(at: temporaryURL) }
+
+        guard let destination = CGImageDestinationCreateWithURL(temporaryURL as CFURL, type, 1, nil) else {
             throw CompanionProcessingError.cannotWriteImage
         }
         CGImageDestinationAddImage(destination, image, options as CFDictionary)
         guard CGImageDestinationFinalize(destination) else {
+            throw CompanionProcessingError.cannotWriteImage
+        }
+
+        do {
+            if fileManager.fileExists(atPath: url.path) {
+                _ = try fileManager.replaceItemAt(url, withItemAt: temporaryURL)
+            } else {
+                try fileManager.moveItem(at: temporaryURL, to: url)
+            }
+        } catch {
             throw CompanionProcessingError.cannotWriteImage
         }
     }
