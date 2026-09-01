@@ -109,7 +109,12 @@ enum CompanionImageIO {
         let directory = url.deletingLastPathComponent()
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        let temporaryURL = directory.appendingPathComponent(
+        let replacesExistingFile = fileManager.fileExists(atPath: url.path)
+        // A Powerbox grant for an opened file permits replacing that file, but
+        // does not permit creating an arbitrary hidden sibling. Stage explicit
+        // overwrites in the app container and coordinate the replacement.
+        let stagingDirectory = replacesExistingFile ? fileManager.temporaryDirectory : directory
+        let temporaryURL = stagingDirectory.appendingPathComponent(
             ".\(url.lastPathComponent).\(UUID().uuidString).tmp"
         )
         defer { try? fileManager.removeItem(at: temporaryURL) }
@@ -123,13 +128,37 @@ enum CompanionImageIO {
         }
 
         do {
-            if fileManager.fileExists(atPath: url.path) {
-                _ = try fileManager.replaceItemAt(url, withItemAt: temporaryURL)
+            if replacesExistingFile {
+                try coordinatedReplaceItem(at: url, with: temporaryURL, fileManager: fileManager)
             } else {
                 try fileManager.moveItem(at: temporaryURL, to: url)
             }
         } catch {
             throw CompanionProcessingError.cannotWriteImage
+        }
+    }
+
+    private static func coordinatedReplaceItem(
+        at destinationURL: URL,
+        with replacementURL: URL,
+        fileManager: FileManager
+    ) throws {
+        let coordinator = NSFileCoordinator()
+        var coordinationError: NSError?
+        var replacementError: Error?
+        coordinator.coordinate(
+            writingItemAt: destinationURL,
+            options: .forReplacing,
+            error: &coordinationError
+        ) { coordinatedURL in
+            do {
+                _ = try fileManager.replaceItemAt(coordinatedURL, withItemAt: replacementURL)
+            } catch {
+                replacementError = error
+            }
+        }
+        if let error = replacementError ?? coordinationError {
+            throw error
         }
     }
 }
