@@ -1,3 +1,4 @@
+import AppKit
 import ImageKidInference
 import SwiftUI
 
@@ -16,11 +17,15 @@ struct ImageKidUpscaleView: View {
             isProcessing: model.isProcessing,
             items: model.items,
             progress: model.overallProgress,
+            existingResultCount: model.existingResultCount,
             acceptsDrop: model.addFiles,
             openFiles: model.openFiles,
             clearCompleted: model.clearCompleted,
-            removeItem: model.removeItem,
-            primaryAction: { model.generate(operation: .upscale(scale: scale, contentMode: contentMode, engine: engine)) },
+            removeItems: model.removeItems,
+            resetItems: model.resetItems,
+            primaryAction: { policy in
+                model.generate(existingResults: policy)
+            },
             cancelAction: model.cancel
         ) {
             VStack(alignment: .leading, spacing: 18) {
@@ -33,6 +38,7 @@ struct ImageKidUpscaleView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    .labelsHidden()
 
                     if engine == .bestQuality {
                         ModelInstallRow(downloader: downloader, model: .realESRGAN)
@@ -48,6 +54,7 @@ struct ImageKidUpscaleView: View {
                         Text("8x").tag(8)
                     }
                     .pickerStyle(.segmented)
+                    .labelsHidden()
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -58,6 +65,7 @@ struct ImageKidUpscaleView: View {
                             Text(mode.label).tag(mode)
                         }
                     }
+                    .labelsHidden()
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -71,7 +79,21 @@ struct ImageKidUpscaleView: View {
                     .buttonStyle(.bordered)
                     Toggle("Overwrite originals when possible", isOn: $model.overwriteOriginals)
                 }
+
+                SourceActionSettings(model: model)
             }
         }
+        .onAppear { model.operation = currentOperation }
+        .onChange(of: engine) { _, _ in model.operation = currentOperation }
+        .onChange(of: scale) { _, _ in model.operation = currentOperation }
+        .onChange(of: contentMode) { _, _ in model.operation = currentOperation }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // The destination folder can change behind the app's back.
+            model.refreshExistingResults()
+        }
+    }
+
+    private var currentOperation: CompanionBatchModel.Operation {
+        .upscale(scale: scale, contentMode: contentMode, engine: engine)
     }
 }
