@@ -1,4 +1,6 @@
 import CoreGraphics
+import ImageIO
+import UniformTypeIdentifiers
 import XCTest
 
 final class CompanionImageIOTests: XCTestCase {
@@ -209,17 +211,46 @@ final class CompanionImageIOTests: XCTestCase {
         XCTAssertTrue(restored.alphaInfo != .none)
     }
 
-    private func makeTestImage() throws -> CGImage {
-        let width = 2
-        let height = 2
+    func testWriteAtomicallyReplacesExistingFileWithoutLeavingTemporaryOutput() throws {
+        let output = temporaryDirectory.appendingPathComponent("existing.png")
+        try Data("previous contents".utf8).write(to: output)
+
+        try CompanionImageIO.writePNG(makeTestImage(), to: output)
+
+        let restored = try CompanionImageIO.loadImage(at: output)
+        XCTAssertEqual(restored.width, 2)
+        XCTAssertEqual(restored.height, 2)
+        let remaining = try FileManager.default.contentsOfDirectory(
+            at: temporaryDirectory,
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertEqual(remaining.count, 1)
+        XCTAssertEqual(remaining.first?.lastPathComponent, output.lastPathComponent)
+    }
+
+    func testLoadAndPropertiesApplyEncodedOrientation() throws {
+        let source = temporaryDirectory.appendingPathComponent("rotated.jpeg")
+        try writeOrientedJPEG(makeTestImage(width: 2, height: 3), orientation: 6, to: source)
+
+        let properties = try XCTUnwrap(CompanionImageIO.properties(at: source))
+        let loaded = try CompanionImageIO.loadImage(at: source)
+
+        XCTAssertEqual(properties.width, 3)
+        XCTAssertEqual(properties.height, 2)
+        XCTAssertEqual(loaded.width, 3)
+        XCTAssertEqual(loaded.height, 2)
+    }
+
+    private func makeTestImage(width: Int = 2, height: Int = 2) throws -> CGImage {
         let bytesPerPixel = 4
         let bytesPerRow = width * bytesPerPixel
-        var data: [UInt8] = [
-            255, 0, 0, 255,
-            0, 255, 0, 128,
-            0, 0, 255, 64,
-            255, 255, 255, 0
-        ]
+        var data = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
+        for pixel in 0..<(width * height) {
+            data[pixel * 4] = UInt8((pixel * 31) % 255)
+            data[pixel * 4 + 1] = UInt8((pixel * 67) % 255)
+            data[pixel * 4 + 2] = UInt8((pixel * 101) % 255)
+            data[pixel * 4 + 3] = pixel == 0 ? 128 : 255
+        }
         guard
             let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
             let context = CGContext(
@@ -237,5 +268,24 @@ final class CompanionImageIOTests: XCTestCase {
             throw CompanionProcessingError.unreadableImage
         }
         return image
+    }
+
+    private func writeOrientedJPEG(_ image: CGImage, orientation: Int, to url: URL) throws {
+        guard let destination = CGImageDestinationCreateWithURL(
+            url as CFURL,
+            UTType.jpeg.identifier as CFString,
+            1,
+            nil
+        ) else {
+            throw CompanionProcessingError.cannotWriteImage
+        }
+        CGImageDestinationAddImage(
+            destination,
+            image,
+            [kCGImagePropertyOrientation: orientation] as CFDictionary
+        )
+        guard CGImageDestinationFinalize(destination) else {
+            throw CompanionProcessingError.cannotWriteImage
+        }
     }
 }
