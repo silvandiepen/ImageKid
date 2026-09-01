@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ModelInstallRow: View {
-    @ObservedObject var downloader: ModelDownloader
+    @ObservedObject var installer: ModelInstaller
     let model: CoreMLModel
 
     var body: some View {
@@ -18,8 +18,8 @@ struct ModelInstallRow: View {
                 action
             }
 
-            if case .downloading(let progress) = downloader.state(model) {
-                ProgressView(value: progress)
+            if case .installing = installer.state(model) {
+                ProgressView()
                     .controlSize(.small)
             }
         }
@@ -29,21 +29,27 @@ struct ModelInstallRow: View {
     }
 
     @ViewBuilder private var action: some View {
-        switch downloader.state(model) {
+        switch installer.state(model) {
         case .ready:
-            Label("Installed", systemImage: "checkmark.circle.fill")
-                .foregroundStyle(.green)
-        case .downloading:
+            HStack(spacing: 8) {
+                Label("Installed", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Button("Replace…") {
+                    installer.choosePackage(for: model)
+                }
+                .buttonStyle(.bordered)
+            }
+        case .installing:
             ProgressView()
                 .controlSize(.small)
         case .failed:
-            Button("Try Again") {
-                downloader.download(model)
+            Button("Choose Again…") {
+                installer.choosePackage(for: model)
             }
             .buttonStyle(.bordered)
-        case .notDownloaded:
-            Button("Install") {
-                downloader.download(model)
+        case .notInstalled:
+            Button("Import…") {
+                installer.choosePackage(for: model)
             }
             .buttonStyle(.borderedProminent)
         }

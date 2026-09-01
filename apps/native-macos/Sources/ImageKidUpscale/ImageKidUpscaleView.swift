@@ -4,7 +4,7 @@ import SwiftUI
 
 struct ImageKidUpscaleView: View {
     @ObservedObject var model: CompanionBatchModel
-    @StateObject private var downloader = ModelDownloader()
+    @StateObject private var installer = ModelInstaller()
     @State private var scale = 2
     @State private var contentMode = UpscaleContentMode.automatic
     @State private var engine = CompanionBatchModel.UpscaleEngine.standard
@@ -60,7 +60,7 @@ struct ImageKidUpscaleView: View {
             }
 
             if engine == .bestQuality {
-                ModelInstallRow(downloader: downloader, model: .realESRGAN)
+                ModelInstallRow(installer: installer, model: .realESRGAN)
             }
         }
     }

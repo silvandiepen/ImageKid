@@ -6,7 +6,7 @@ options:
 settings:
   base:
     MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "3"
+    CURRENT_PROJECT_VERSION: "4"
     SWIFT_VERSION: "5.0"
     # DEVELOPMENT_TEAM is deliberately NOT set here. Automatic signing needs a
     # team to resolve an identity against, and without one a target falls back
@@ -102,7 +102,6 @@ targets:
         # Needed to remember the chosen output folder across launches: a security-scoped
         # bookmark is the only way a sandboxed app keeps write access to it.
         com.apple.security.files.bookmarks.app-scope: true
-        com.apple.security.network.client: true
         com.apple.security.application-groups:
           - group.com.hakobs.imagekid
     settings:
@@ -134,7 +133,6 @@ targets:
         com.apple.security.app-sandbox: true
         com.apple.security.files.user-selected.read-write: true
         com.apple.security.files.bookmarks.app-scope: true
-        com.apple.security.network.client: true
         com.apple.security.application-groups:
           - group.com.hakobs.imagekid
     settings:
