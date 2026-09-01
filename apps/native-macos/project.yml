@@ -6,7 +6,7 @@ options:
 settings:
   base:
     MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    CURRENT_PROJECT_VERSION: "3"
     SWIFT_VERSION: "5.0"
     # DEVELOPMENT_TEAM is deliberately NOT set here. Automatic signing needs a
     # team to resolve an identity against, and without one a target falls back
@@ -99,6 +99,10 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.files.user-selected.read-write: true
+        # Needed to remember the chosen output folder across launches: a security-scoped
+        # bookmark is the only way a sandboxed app keeps write access to it.
+        com.apple.security.files.bookmarks.app-scope: true
+        com.apple.security.network.client: true
         com.apple.security.application-groups:
           - group.com.hakobs.imagekid
     settings:
@@ -117,8 +121,11 @@ targets:
     sources:
       - path: Sources/CompanionSupport
       - path: Sources/ImageKidCutout
-      # See ImageKidUpscale: `resources` is not an XcodeGen key.
+      # The asset catalog must be a source entry: XcodeGen has no top-level
+      # `resources:` key, so listing it there produced no Resources build phase
+      # and shipped the app without its icon.
       - path: Sources/ImageKid/Resources/Assets.xcassets
+        buildPhase: resources
     dependencies:
       - package: ImageKidInference
     entitlements:
@@ -126,15 +133,17 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.files.user-selected.read-write: true
+        com.apple.security.files.bookmarks.app-scope: true
+        com.apple.security.network.client: true
         com.apple.security.application-groups:
           - group.com.hakobs.imagekid
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hakobs.imagekid.cutout
-        PRODUCT_NAME: ImageKid Cutout
+        PRODUCT_NAME: Cutout
         ASSETCATALOG_COMPILER_APPICON_NAME: CutoutAppIcon
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: ImageKid Cutout
+        INFOPLIST_KEY_CFBundleDisplayName: Cutout
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.graphics-design
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_STYLE: Automatic
@@ -296,6 +305,9 @@ targets:
     platform: macOS
     sources:
       - path: Sources/CompanionSupport
+      # The mask is the one piece of the editor that is pure logic, so it is tested
+      # here rather than left to click-testing.
+      - path: Sources/ImageKidCutout/CutoutMask.swift
       - path: Tests/ImageKidCompanionTests
     dependencies:
       - package: ImageKidInference
@@ -309,6 +321,22 @@ targets:
 # defined, so Fekthor keeps a shared scheme of its own — with the UI smoke
 # suite attached to its test action — next to the dedicated test scheme.
 schemes:
+  ImageKidUpscale:
+    build:
+      targets:
+        ImageKidUpscale: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+  ImageKidCutout:
+    build:
+      targets:
+        ImageKidCutout: all
+    run:
+      config: Debug
+    archive:
+      config: Release
   Fekthor:
     build:
       targets:

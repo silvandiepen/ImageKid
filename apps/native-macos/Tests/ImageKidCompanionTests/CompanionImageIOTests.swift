@@ -29,7 +29,7 @@ final class CompanionImageIOTests: XCTestCase {
             customFolder: nil,
             overwriteOriginals: false
         )
-        XCTAssertEqual(first.lastPathComponent, "photo-2x.png")
+        XCTAssertEqual(first.lastPathComponent, "photo.png")
         XCTAssertEqual(first.deletingLastPathComponent().lastPathComponent, "ImageKid Upscaled")
 
         FileManager.default.createFile(atPath: first.path, contents: Data())
@@ -41,7 +41,7 @@ final class CompanionImageIOTests: XCTestCase {
             customFolder: nil,
             overwriteOriginals: false
         )
-        XCTAssertEqual(second.lastPathComponent, "photo-2x-2.png")
+        XCTAssertEqual(second.lastPathComponent, "photo-2.png")
     }
 
     func testOverwriteReturnsOriginalWhenExtensionMatches() throws {
@@ -73,8 +73,128 @@ final class CompanionImageIOTests: XCTestCase {
             overwriteOriginals: true
         )
 
-        XCTAssertEqual(destination.lastPathComponent, "portrait-cutout.png")
+        XCTAssertEqual(destination.lastPathComponent, "portrait.png")
         XCTAssertEqual(destination.deletingLastPathComponent().lastPathComponent, "ImageKid Cutouts")
+    }
+
+    func testPlannedDestinationIgnoresAnExistingFile() {
+        let source = temporaryDirectory.appendingPathComponent("photo.jpg")
+        let output = temporaryDirectory
+            .appendingPathComponent("ImageKid Cutouts", isDirectory: true)
+        try? FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        FileManager.default.createFile(
+            atPath: output.appendingPathComponent("photo.png").path,
+            contents: Data()
+        )
+
+        let planned = CompanionImageIO.plannedDestinationURL(
+            for: source,
+            operationFolderName: "ImageKid Cutouts",
+            suffix: "-cutout",
+            extension: "png",
+            customFolder: nil,
+            overwriteOriginals: false
+        )
+
+        XCTAssertEqual(planned.lastPathComponent, "photo.png")
+    }
+
+    func testSuffixIsKeptOnlyWhenTheResultLandsBesideTheOriginal() {
+        let source = temporaryDirectory.appendingPathComponent("photo.jpg")
+
+        let beside = CompanionImageIO.plannedDestinationURL(
+            for: source,
+            operationFolderName: "ImageKid Cutouts",
+            suffix: "-cutout",
+            extension: "png",
+            customFolder: temporaryDirectory,
+            overwriteOriginals: false
+        )
+        XCTAssertEqual(beside.lastPathComponent, "photo-cutout.png")
+
+        let elsewhere = CompanionImageIO.plannedDestinationURL(
+            for: source,
+            operationFolderName: "ImageKid Cutouts",
+            suffix: "-cutout",
+            extension: "png",
+            customFolder: temporaryDirectory.appendingPathComponent("Output", isDirectory: true),
+            overwriteOriginals: false
+        )
+        XCTAssertEqual(elsewhere.lastPathComponent, "photo.png")
+    }
+
+    func testOverwriteExistingKeepsThePlannedName() throws {
+        let source = temporaryDirectory.appendingPathComponent("photo.jpg")
+        let folder = temporaryDirectory.appendingPathComponent("Output", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        FileManager.default.createFile(
+            atPath: folder.appendingPathComponent("photo.png").path,
+            contents: Data()
+        )
+
+        let destination = try CompanionImageIO.destinationURL(
+            for: source,
+            operationFolderName: "ImageKid Cutouts",
+            suffix: "-cutout",
+            extension: "png",
+            customFolder: folder,
+            overwriteOriginals: false,
+            overwriteExisting: true
+        )
+
+        XCTAssertEqual(destination.lastPathComponent, "photo.png")
+    }
+
+    /// The defect behind a batch of perfectly-masked black silhouettes: a `CGImage` made
+    /// from a URL decodes lazily, so a file moved by a When Done action between load and
+    /// use produced black pixels instead of an error.
+    func testLoadedImageSurvivesItsFileBeingMoved() throws {
+        let source = temporaryDirectory.appendingPathComponent("red.png")
+        try CompanionImageIO.writePNG(try makeOpaqueRedImage(), to: source)
+
+        let image = try CompanionImageIO.loadImage(at: source)
+        try FileManager.default.removeItem(at: source)
+
+        var pixels = [UInt8](repeating: 0, count: 4)
+        let context = try XCTUnwrap(pixels.withUnsafeMutableBytes { raw in
+            CGContext(
+                data: raw.baseAddress,
+                width: 1,
+                height: 1,
+                bitsPerComponent: 8,
+                bytesPerRow: 4,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )
+        })
+        context.draw(image, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+
+        XCTAssertGreaterThan(Int(pixels[0]), 200, "the red channel must survive the file going away")
+        XCTAssertEqual(Int(pixels[3]), 255)
+    }
+
+    func testLoadingAMissingFileReportsIt() {
+        let missing = temporaryDirectory.appendingPathComponent("nope.png")
+        XCTAssertThrowsError(try CompanionImageIO.loadImage(at: missing)) { error in
+            guard case CompanionProcessingError.sourceMissing = error else {
+                return XCTFail("expected sourceMissing, got \(error)")
+            }
+        }
+    }
+
+    private func makeOpaqueRedImage() throws -> CGImage {
+        let context = try XCTUnwrap(CGContext(
+            data: nil,
+            width: 4,
+            height: 4,
+            bitsPerComponent: 8,
+            bytesPerRow: 16,
+            space: try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB)),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+        return try XCTUnwrap(context.makeImage())
     }
 
     func testPNGWriteRoundTripsAlpha() throws {
