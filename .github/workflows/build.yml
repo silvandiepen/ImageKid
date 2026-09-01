@@ -65,3 +65,16 @@ jobs:
         run: swift build
       - name: Test
         run: swift test
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate application project
+        run: xcodegen generate
+      - name: Test companion applications
+        run: >-
+          xcodebuild
+          -quiet
+          -project ImageKid.xcodeproj
+          -scheme ImageKidCompanionTests
+          -destination 'platform=macOS'
+          -derivedDataPath "$RUNNER_TEMP/ImageKidCompanionDerivedData"
+          test
