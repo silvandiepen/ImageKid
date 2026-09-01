@@ -1,6 +1,6 @@
 # Documentation
 
-ImageKid is currently an offline native macOS image utility with basic video viewing. It also ships optional, opt-in local Best Quality add-ons for AI upscaling and background removal that download a model runtime on demand and run it on-device. The repository also contains focused companion-app work for ImageKid Upscale and ImageKid Cutout, plus the planned ImageKid Slicer utility.
+ImageKid is currently an offline native macOS image utility with basic video viewing. It also ships optional, opt-in local Best Quality add-ons for AI upscaling and background removal that download a model runtime on demand and run it on-device. The repository also contains focused companion-app work for ImageKid Upscale and ImageKid Cutout, plus the ImageKid Slicer utility.
 
 - [Product definition](product.md) — purpose, audience, scope, principles, and non-goals.
 - [Requirements](requirements.md) — functional and quality requirements for the core application.

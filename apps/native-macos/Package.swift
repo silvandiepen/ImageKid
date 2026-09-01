@@ -8,7 +8,8 @@ let package = Package(
         .macOS(.v14)
     ],
     products: [
-        .executable(name: "ImageKid", targets: ["ImageKid"])
+        .executable(name: "ImageKid", targets: ["ImageKid"]),
+        .executable(name: "ImageKidSlicer", targets: ["ImageKidSlicer"])
     ],
     dependencies: [
         .package(path: "../../packages/ImageKidInference"),
@@ -28,6 +29,14 @@ let package = Package(
                 .process("Resources")
             ]
         ),
+        .executableTarget(
+            name: "ImageKidSlicer",
+            dependencies: [
+                .product(name: "ImageKidCore", package: "ImageKidCore")
+            ],
+            path: "Sources/ImageKidSlicer",
+            exclude: ["ImageKidSlicer.entitlements", "Info.plist"]
+        ),
         .testTarget(
             name: "ImageKidTests",
             dependencies: [
@@ -35,6 +44,11 @@ let package = Package(
                 .product(name: "ImageKidCore", package: "ImageKidCore")
             ],
             path: "Tests/ImageKidTests"
+        ),
+        .testTarget(
+            name: "ImageKidSlicerTests",
+            dependencies: ["ImageKidSlicer"],
+            path: "Tests/ImageKidSlicerTests"
         )
     ],
     swiftLanguageVersions: [.v5]

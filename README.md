@@ -23,11 +23,11 @@ Node 22 or newer is required for workspace commands. Native development requires
 - Editable rectangle, ellipse, line, arrow, freehand, and text annotations.
 - Full-resolution PNG, JPEG, HEIC, TIFF, BMP, and GIF image export.
 - Basic local video loading and playback through AVFoundation.
-- Separate initial macOS companion targets for ImageKid Upscale and ImageKid Cutout.
+- Separate initial macOS companion targets for ImageKid Upscale, ImageKid Cutout, and ImageKid Slicer.
 
 The colour picker does not yet have a pixel-grid loupe or dominant-palette extraction. Undo, close protection, blur/pixelation, metadata preservation, and production packaging remain incomplete. Video editing and export are not implemented.
 
-A third focused macOS companion, **ImageKid Slicer**, is planned but not yet implemented. Its intentionally minimal workflow is: open one composite image, draw rectangular slice regions directly on the image, then Save to a folder to create every slice as a separate local image. See [docs/slicer.md](docs/slicer.md).
+A third focused macOS companion, **ImageKid Slicer**, has a first implementation: open one composite image, define regions — by hand, by cutting guides, by a grid, or from a template — then Save to a folder to create every slice as a separate local image. It is not packaged, signed, or notarised. See [docs/slicer.md](docs/slicer.md).
 
 ## Development
 
@@ -75,7 +75,7 @@ The repository is a development foundation. A successful Swift package build is 
 
 ## Documentation
 
-Start with the [documentation index](docs/README.md), [product definition](docs/product.md), [implementation status](docs/implementation.md), [requirements](docs/requirements.md), [architecture](docs/architecture.md), and [companion app strategy](docs/companion-apps.md). Planned companion-product documentation includes [ImageKid Slicer](docs/slicer.md), the composite-image slicing tool, and [ImageKid Sculptor](docs/sculptor.md), the local single-image-to-3D workflow.
+Start with the [documentation index](docs/README.md), [product definition](docs/product.md), [implementation status](docs/implementation.md), [requirements](docs/requirements.md), [architecture](docs/architecture.md), [companion app strategy](docs/companion-apps.md), and [ImageKid Slicer](docs/slicer.md), the composite-image slicing tool. [ImageKid Sculptor](docs/sculptor.md), the local single-image-to-3D workflow, is planned and not implemented.
 
 ## Licence
 

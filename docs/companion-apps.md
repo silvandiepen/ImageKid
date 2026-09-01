@@ -2,11 +2,11 @@
 
 ## Current status
 
-ImageKid currently has implemented macOS targets for two companion apps and a documented third companion app:
+ImageKid currently has implemented macOS targets for three companion apps:
 
 - `ImageKidUpscale` / display name `ImageKid Upscale` / bundle id `com.hakobs.imagekid.upscale` — implemented.
 - `ImageKidCutout` / display name `ImageKid Cutout` / bundle id `com.hakobs.imagekid.cutout` — implemented.
-- `ImageKidSlicer` / display name `ImageKid Slicer` / proposed bundle id `com.hakobs.imagekid.slicer` — planned; see [ImageKid Slicer](slicer.md).
+- `ImageKidSlicer` / display name `ImageKid Slicer` / bundle id `com.hakobs.imagekid.slicer` — first implementation; see [ImageKid Slicer](slicer.md).
 
 Upscale and Cutout currently share lightweight batch UI and file I/O helpers under `apps/native-macos/Sources/CompanionSupport`. They can open or accept dropped image files, show a queue with thumbnails and per-file status, process files serially on device, and write outputs to a sibling folder or a user-chosen folder. Upscale supports the always-available Core Image path and a Best Quality Core ML path. Cutout supports Apple Vision background removal and a Best Quality Core ML path. The companion apps include model install controls and reuse ImageKid's shared App Group model cache when signed with `group.com.hakobs.imagekid`. Richer output controls, retry/reveal actions, and release packaging are still planned work.
 
