@@ -1,0 +1,40 @@
+schemaVersion: 1
+id: caption-a-photo
+title: Caption a photo
+goal: Show someone typing a caption straight onto an open picture and finding it waiting afterwards as its own editable layer.
+
+preconditions:
+  environment: default
+
+steps:
+  - waitFor: editor.toolbar
+    note: Every tool, one tap away
+  - tap: tool.text
+  - waitFor: editor.canvas
+  - tap: editor.canvas
+    note: Tap where the words should go
+  - waitFor: canvas.text.editor
+    note: Colour, size and font in one bar
+  - type:
+      target: canvas.text.editor
+      value: Golden hour
+    note: Type straight onto the picture
+  - tap: textbar.done
+    note: Placed — and still editable
+  - waitFor: editor.toolbar
+  - tap: topbar.layers
+    note: Every edit stays its own layer
+  - waitFor: layers.sheet
+
+assertions:
+  - visible: layers.sheet
+  - visible: layers.row
+  - visible: layers.delete
+  # The row is named after the caption, so this proves the typed words really
+  # became an editable layer and not a flattened pixel.
+  - textContains:
+      target: layers.row.name
+      value: Golden hour
+
+safety:
+  externalEffects: false

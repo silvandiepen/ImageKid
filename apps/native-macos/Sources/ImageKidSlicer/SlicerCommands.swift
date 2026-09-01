@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Menu commands. Everything the canvas can do by pointer is also here, so the
@@ -150,6 +151,15 @@ struct SlicerCommands: Commands {
             Button("Fit to Window") { model.resetView() }
                 .keyboardShortcut("0", modifiers: .command)
                 .disabled(!model.hasSource)
+        }
+
+        CommandGroup(after: .help) {
+            Button("ImageKid Slicer Support") {
+                NSWorkspace.shared.open(URL(string: "https://imagekid.hakobs.com/support")!)
+            }
+            Button("Privacy Policy") {
+                NSWorkspace.shared.open(URL(string: "https://imagekid.hakobs.com/privacy")!)
+            }
         }
     }
 }

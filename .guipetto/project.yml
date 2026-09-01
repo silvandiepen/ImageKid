@@ -1,0 +1,27 @@
+# How Guipetto obtains and launches this application.
+#
+# `guipetto init` wrote this from what it could read on disk. Check the scheme and the
+# bundle identifier before the first run: the build is what proves them, not this file.
+
+schemaVersion: 1.1
+project:
+  name: ImageKid
+  description: A photo editor for iPhone and iPad — draw, crop, mask and enhance, on device
+platforms:
+  ios:
+    project: apps/native-ios/ImageKidiOS.xcodeproj
+    scheme: ImageKidiOS
+    bundleIdentifier: com.hakobs.imagekid
+
+# ImageKid's own determinism hooks (see UITestSupport.swift): `--uitest` wipes the
+# persisted panel/canvas state and stops UIKit animations, and `--demo-image`
+# opens a generated picture straight into the editor — so a run never has to
+# drive the out-of-process photo picker, which publishes no identifiers we
+# control, and every run edits exactly the same picture.
+launch:
+  arguments:
+    - --uitest
+    - --demo-image
+
+branding:
+  preset: branding/default.yml

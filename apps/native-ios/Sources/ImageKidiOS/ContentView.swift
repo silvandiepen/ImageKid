@@ -339,10 +339,13 @@ struct ContentView: View {
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) {
                             Button("Done") { isShowingLayersSheet = false }
+                                .accessibilityIdentifier("layers.done")
                         }
                     }
                 }
                 .presentationDetents([.medium, .large])
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("layers.sheet")
             }
             .sheet(isPresented: $isShowingHistorySheet) {
                 NavigationStack {
@@ -1656,6 +1659,7 @@ struct LayersPanelContent: View {
                 .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
                 .lineLimit(1)
                 .opacity(hidden ? 0.5 : 1)
+                .accessibilityIdentifier("layers.row.name")
             Spacer()
             Button {
                 toggleHidden(entry)
@@ -1878,6 +1882,8 @@ private struct TextToolbar: View {
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Text colour")
+            .accessibilityIdentifier("textbar.color")
             .popover(isPresented: $showColor) {
                 ColorPalettePopover(color: $annotation.color).presentationCompactAdaptation(.popover)
             }
@@ -1891,6 +1897,8 @@ private struct TextToolbar: View {
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Text size")
+            .accessibilityIdentifier("textbar.size")
             .popover(isPresented: $showSize) {
                 SizePopover(fraction: $annotation.fontFraction).presentationCompactAdaptation(.popover)
             }
@@ -1901,6 +1909,8 @@ private struct TextToolbar: View {
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Text font")
+            .accessibilityIdentifier("textbar.font")
             .popover(isPresented: $showFont) {
                 FontPopover(fontName: $annotation.fontName).presentationCompactAdaptation(.popover)
             }
@@ -1928,6 +1938,8 @@ private struct TextToolbar: View {
         .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).strokeBorder(.white.opacity(0.10)))
         .shadow(color: .black.opacity(0.30), radius: 20, y: 8)
         .environment(\.colorScheme, .dark)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("editor.textbar")
     }
 
     private func chip<C: View>(@ViewBuilder _ content: () -> C) -> some View {
@@ -2606,7 +2618,7 @@ private struct InlineEditingCanvas: View {
             .focused($textEditorFocused)
             .submitLabel(.done)
             .onSubmit { commitTextEditing() }
-            .accessibilityIdentifier("canvas.textEditor")
+            .accessibilityIdentifier("canvas.text.editor")
             .frame(maxWidth: max(80, imageRect.maxX - origin.x))
             .fixedSize(horizontal: false, vertical: true)
             .offset(x: origin.x, y: origin.y)

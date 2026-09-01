@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 @main
@@ -15,6 +16,14 @@ struct ImageKidCutoutApp: App {
                     model.openFiles()
                 }
                 .keyboardShortcut("o")
+            }
+            CommandGroup(after: .help) {
+                Button("ImageKid Cutout Support") {
+                    NSWorkspace.shared.open(URL(string: "https://imagekid.hakobs.com/support")!)
+                }
+                Button("Privacy Policy") {
+                    NSWorkspace.shared.open(URL(string: "https://imagekid.hakobs.com/privacy")!)
+                }
             }
         }
     }

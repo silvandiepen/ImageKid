@@ -19,7 +19,9 @@ struct ImageKidApp: App {
                 }
                 .onAppear {
                     UITestSupport.accelerateAnimations()
-                    if UITestSupport.wantsSampleImage, model.items.isEmpty {
+                    if UITestSupport.wantsDemoImage, model.items.isEmpty {
+                        model.setSource(UITestSupport.makeDemoImage())
+                    } else if UITestSupport.wantsSampleImage, model.items.isEmpty {
                         model.setSource(UITestSupport.makeSampleImage())
                     }
                 }
