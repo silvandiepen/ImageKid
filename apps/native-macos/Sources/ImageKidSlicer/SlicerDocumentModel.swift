@@ -112,15 +112,28 @@ final class SlicerDocumentModel: ObservableObject {
     /// tiles on a sheet — not only to guides and other slices.
     @Published var snapsToContentEdges = true
 
+    private struct DropBatch {
+        var urls: [URL?]
+        var remaining: Int
+    }
+
+    private var dropBatches: [UUID: DropBatch] = [:]
+
     let templates: SliceTemplateStore
     let exports: ExportOptionsStore
+    private let discardConfirmation: ((String, [ImageSession]) -> Bool)?
 
     /// The stores are injectable so tests never touch real preferences; a
     /// default argument cannot build them, because it would be evaluated
     /// outside the main actor.
-    init(templates: SliceTemplateStore? = nil, exports: ExportOptionsStore? = nil) {
+    init(
+        templates: SliceTemplateStore? = nil,
+        exports: ExportOptionsStore? = nil,
+        discardConfirmation: ((String, [ImageSession]) -> Bool)? = nil
+    ) {
         self.templates = templates ?? SliceTemplateStore()
         self.exports = exports ?? ExportOptionsStore()
+        self.discardConfirmation = discardConfirmation
     }
 
     // MARK: - The current image
@@ -265,20 +278,34 @@ final class SlicerDocumentModel: ObservableObject {
         let fileProviders = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
         guard !fileProviders.isEmpty else { return false }
 
-        for provider in fileProviders {
+        let batchID = UUID()
+        dropBatches[batchID] = DropBatch(urls: Array(repeating: nil, count: fileProviders.count), remaining: fileProviders.count)
+        for (index, provider) in fileProviders.enumerated() {
             _ = provider.loadObject(ofClass: URL.self) { [weak self] url, _ in
-                guard let url, let self else { return }
                 Task { @MainActor in
-                    guard SliceImageIO.readableTypes.contains(where: { url.pathExtension.lowercased() == $0.preferredFilenameExtension })
-                            || UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true else {
-                        self.alert = AlertContent(title: "Unsupported file", message: "\(url.lastPathComponent) is not an image Slicer can open.")
-                        return
-                    }
-                    self.load(url: url)
+                    self?.recordDropResult(url, at: index, batchID: batchID)
                 }
             }
         }
         return true
+    }
+
+    private func recordDropResult(_ url: URL?, at index: Int, batchID: UUID) {
+        guard var batch = dropBatches[batchID] else { return }
+        if let url,
+           SliceImageIO.readableTypes.contains(where: { url.pathExtension.lowercased() == $0.preferredFilenameExtension })
+            || UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true {
+            batch.urls[index] = url
+        } else if let url {
+            alert = AlertContent(title: "Unsupported file", message: "\(url.lastPathComponent) is not an image Slicer can open.")
+        }
+        batch.remaining -= 1
+        if batch.remaining == 0 {
+            dropBatches[batchID] = nil
+            load(urls: batch.urls.compactMap { $0 })
+        } else {
+            dropBatches[batchID] = batch
+        }
     }
 
     private func loadSource(
@@ -529,13 +556,22 @@ final class SlicerDocumentModel: ObservableObject {
     /// arriving here from the Guides tool otherwise means the next click lays
     /// a guide over the work instead of selecting it.
     func replaceSlices(with rects: [CGRect]) {
-        activeTool = .slice
-        inspectingSliceID = nil
-        let kept = slices.filter(\.isLocked)
-        slices = kept + rects.map { Slice(rect: SliceGeometry.clamped($0)) }
-        selectedGuideID = nil
-        selectedSliceID = slices.first(where: { !$0.isLocked })?.id
-        markEdited()
+        guard let currentImageID else { return }
+        replaceSlices(with: rects, imageID: currentImageID)
+    }
+
+    private func replaceSlices(with rects: [CGRect], imageID: ImageSession.ID) {
+        guard let index = images.firstIndex(where: { $0.id == imageID }) else { return }
+        if currentImageID == imageID {
+            activeTool = .slice
+            inspectingSliceID = nil
+        }
+        let kept = images[index].slices.filter(\.isLocked)
+        images[index].slices = kept + rects.map { Slice(rect: SliceGeometry.clamped($0)) }
+        images[index].selectedGuideID = nil
+        images[index].selectedSliceID = images[index].slices.first(where: { !$0.isLocked })?.id
+        images[index].slicesSavedSinceLastEdit = false
+        lastExport = nil
     }
 
     // MARK: - Sessions
@@ -606,6 +642,7 @@ final class SlicerDocumentModel: ObservableObject {
     /// silently — a session that quietly loses half its sheets is worse than
     /// one that says so.
     func openSession(at url: URL) {
+        guard confirmDiscardingSlices(actionTitle: "Open Session") else { return }
         let document: SlicerSessionDocument
         do {
             document = try SlicerSessionDocument.decoded(from: try Data(contentsOf: url))
@@ -934,14 +971,16 @@ final class SlicerDocumentModel: ObservableObject {
     /// each. The result is ordinary guides — draggable, deletable, ignorable —
     /// so this stays an accelerator rather than a mode.
     func suggestGuides() {
-        guard let source, !isDetectingGuides else { return }
+        guard let current, !isDetectingGuides else { return }
         isDetectingGuides = true
 
-        let image = source.image
+        let imageID = current.id
+        let image = current.source.image
         Task.detached(priority: .userInitiated) {
             let suggestion = SliceDetection.gutters(in: image)
             await MainActor.run {
                 self.isDetectingGuides = false
+                guard self.images.contains(where: { $0.id == imageID }) else { return }
                 guard !suggestion.isEmpty else {
                     self.alert = AlertContent(
                         title: "No gutters found",
@@ -949,12 +988,7 @@ final class SlicerDocumentModel: ObservableObject {
                     )
                     return
                 }
-                self.guides = suggestion.vertical.map { SliceGuide(axis: .vertical, position: $0) }
-                    + suggestion.horizontal.map { SliceGuide(axis: .horizontal, position: $0) }
-                self.selectedGuideID = nil
-                // Suggested guides are the ones most likely to want nudging,
-                // so this leaves the pointer in the tool that moves them.
-                self.activeTool = .guides
+                self.applySuggestedGuides(suggestion, to: imageID)
             }
         }
     }
@@ -966,14 +1000,16 @@ final class SlicerDocumentModel: ObservableObject {
     /// Unlike Auto Slice this does not go through guides and does not produce
     /// a grid: a collage of three boxes becomes three slices, not four cells.
     func detectElements() {
-        guard let source, !isDetectingGuides else { return }
+        guard let current, !isDetectingGuides else { return }
         isDetectingGuides = true
 
-        let image = source.image
+        let imageID = current.id
+        let image = current.source.image
         Task.detached(priority: .userInitiated) {
             let rects = SliceDetection.elements(in: image)
             await MainActor.run {
                 self.isDetectingGuides = false
+                guard self.images.contains(where: { $0.id == imageID }) else { return }
                 guard !rects.isEmpty else {
                     self.alert = AlertContent(
                         title: "No elements found",
@@ -981,10 +1017,26 @@ final class SlicerDocumentModel: ObservableObject {
                     )
                     return
                 }
-                guard self.confirmReplacingSlices(with: rects.count) else { return }
-                self.replaceSlices(with: rects)
+                self.applyDetectedElements(rects, to: imageID)
             }
         }
+    }
+
+    func applySuggestedGuides(_ suggestion: SliceDetection.Suggestion, to imageID: ImageSession.ID) {
+        guard let index = images.firstIndex(where: { $0.id == imageID }) else { return }
+        images[index].guides = suggestion.vertical.map { SliceGuide(axis: .vertical, position: $0) }
+            + suggestion.horizontal.map { SliceGuide(axis: .horizontal, position: $0) }
+        images[index].selectedGuideID = nil
+        // Suggested guides are the ones most likely to want nudging, so this
+        // leaves the pointer in the tool that moves them when still visible.
+        if currentImageID == imageID { activeTool = .guides }
+    }
+
+    func applyDetectedElements(_ rects: [CGRect], to imageID: ImageSession.ID) {
+        guard !rects.isEmpty,
+              confirmReplacingSlices(with: rects.count, imageID: imageID)
+        else { return }
+        replaceSlices(with: rects, imageID: imageID)
     }
 
     /// Turn the cut lines into one slice per cell.
@@ -1014,10 +1066,16 @@ final class SlicerDocumentModel: ObservableObject {
     /// Replacing hand-drawn work has no undo, so ask first — but only when
     /// there is unsaved work to lose.
     private func confirmReplacingSlices(with count: Int) -> Bool {
-        guard hasUnsavedSlices, !UITestMode.enabled else { return true }
+        guard let currentImageID else { return false }
+        return confirmReplacingSlices(with: count, imageID: currentImageID)
+    }
+
+    private func confirmReplacingSlices(with count: Int, imageID: ImageSession.ID) -> Bool {
+        guard let session = images.first(where: { $0.id == imageID }) else { return false }
+        guard session.hasUnsavedSlices, !UITestMode.enabled else { return true }
 
         let alert = NSAlert()
-        let losing = slices.filter { !$0.isLocked }.count
+        let losing = session.slices.filter { !$0.isLocked }.count
         guard losing > 0 else { return true }
         alert.messageText = "Replace \(losing) unsaved \(losing == 1 ? "slice" : "slices")?"
         alert.informativeText = "This lays out \(count) new \(count == 1 ? "slice" : "slices") over the whole image."
@@ -1072,12 +1130,15 @@ final class SlicerDocumentModel: ObservableObject {
     }
 
     private func export(source: Source, to folder: URL) {
+        guard let session = current else { return }
+        let imageID = session.id
+        let exportedSlices = session.slices
         let request = SliceExportRequest(
             sourceName: source.displayName,
             image: source.image,
             sourceType: source.outputType,
             sourceExtension: source.fileExtension,
-            slices: slices,
+            slices: exportedSlices,
             folder: folder,
             options: exports.options
         )
@@ -1093,7 +1154,7 @@ final class SlicerDocumentModel: ObservableObject {
                     failures: outcome.failures
                 )
                 if outcome.failures.isEmpty {
-                    self.slicesSavedSinceLastEdit = true
+                    self.markSlicesSaved(imageID: imageID, matching: exportedSlices)
                 } else if outcome.created.isEmpty {
                     self.alert = AlertContent(
                         title: "No slices were saved",
@@ -1131,8 +1192,8 @@ final class SlicerDocumentModel: ObservableObject {
         }
 
         let options = exports.options
-        let requests: [(name: String, request: SliceExportRequest)] = ready.map { session in
-            let name = SliceExporter.sanitized(session.source.displayName) ?? "image"
+        let folderNames = Self.uniqueExportFolderNames(for: ready.map { $0.source.displayName })
+        let requests: [(name: String, request: SliceExportRequest)] = zip(ready, folderNames).map { session, name in
             return (name, SliceExportRequest(
                 sourceName: session.source.displayName,
                 image: session.source.image,
@@ -1143,7 +1204,7 @@ final class SlicerDocumentModel: ObservableObject {
                 options: options
             ))
         }
-        let exportedIDs = ready.map(\.id)
+        let exportedSessions = ready.map { (id: $0.id, slices: $0.slices) }
 
         isExporting = true
         Task.detached(priority: .userInitiated) {
@@ -1173,9 +1234,8 @@ final class SlicerDocumentModel: ObservableObject {
                     imageCount: requests.count
                 )
                 if finalFailures.isEmpty {
-                    for id in exportedIDs {
-                        guard let index = self.images.firstIndex(where: { $0.id == id }) else { continue }
-                        self.images[index].slicesSavedSinceLastEdit = true
+                    for exported in exportedSessions {
+                        self.markSlicesSaved(imageID: exported.id, matching: exported.slices)
                     }
                 } else if finalCreated.isEmpty {
                     self.alert = AlertContent(
@@ -1185,6 +1245,28 @@ final class SlicerDocumentModel: ObservableObject {
                 }
             }
         }
+    }
+
+    static func uniqueExportFolderNames(for displayNames: [String]) -> [String] {
+        var used: Set<String> = []
+        return displayNames.map { displayName in
+            let base = SliceExporter.sanitized(displayName) ?? "image"
+            var candidate = base
+            var suffix = 2
+            while used.contains(candidate.lowercased()) {
+                candidate = "\(base)-\(suffix)"
+                suffix += 1
+            }
+            used.insert(candidate.lowercased())
+            return candidate
+        }
+    }
+
+    func markSlicesSaved(imageID: ImageSession.ID, matching exportedSlices: [Slice]) {
+        guard let index = images.firstIndex(where: { $0.id == imageID }),
+              images[index].slices == exportedSlices
+        else { return }
+        images[index].slicesSavedSinceLastEdit = true
     }
 
     func revealLastExport() {
@@ -1203,6 +1285,7 @@ final class SlicerDocumentModel: ObservableObject {
     func confirmDiscardingSlices(actionTitle: String) -> Bool {
         let unsaved = imagesWithUnsavedSlices
         guard !unsaved.isEmpty else { return true }
+        if let discardConfirmation { return discardConfirmation(actionTitle, unsaved) }
         // A modal NSAlert would hang the XCUITest runner's own launch/quit.
         guard !UITestMode.enabled else { return true }
 

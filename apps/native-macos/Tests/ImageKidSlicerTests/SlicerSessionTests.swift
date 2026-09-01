@@ -17,7 +17,8 @@ final class SlicerSessionTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         model = SlicerDocumentModel(
             templates: SliceTemplateStore(store: defaults),
-            exports: ExportOptionsStore(store: defaults)
+            exports: ExportOptionsStore(store: defaults),
+            discardConfirmation: { _, _ in true }
         )
         folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("SlicerSessionTests-\(UUID().uuidString)", isDirectory: true)
@@ -165,6 +166,37 @@ final class SlicerSessionTests: XCTestCase {
         await fulfillment(of: [reported], timeout: 10)
 
         XCTAssertEqual(model.alert?.title, "Nothing in that session could be opened")
+    }
+
+    func testCancellingSessionReplacementPreservesUnsavedWork() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let guarded = SlicerDocumentModel(
+            templates: SliceTemplateStore(store: defaults),
+            exports: ExportOptionsStore(store: defaults),
+            discardConfirmation: { action, sessions in
+                XCTAssertEqual(action, "Open Session")
+                XCTAssertEqual(sessions.count, 1)
+                return false
+            }
+        )
+        let sourceURL = try open("replacement-source")
+        let sourceImage = try TestImages.load(sourceURL)
+        guarded.append(SlicerDocumentModel.Source(
+            url: sourceURL,
+            displayName: "keep-me",
+            image: sourceImage,
+            preview: NSImage(cgImage: sourceImage, size: NSSize(width: sourceImage.width, height: sourceImage.height)),
+            outputType: .png,
+            fileExtension: "png"
+        ))
+        guarded.addSlice(CGRect(x: 0, y: 0, width: 0.5, height: 1))
+
+        let sessionURL = folder.appendingPathComponent("replacement.slicer")
+        try model.sessionDocument.encoded().write(to: sessionURL)
+        guarded.openSession(at: sessionURL)
+
+        XCTAssertEqual(guarded.images.map(\.source.displayName), ["keep-me"])
+        XCTAssertEqual(guarded.slices.count, 1)
     }
 
     /// The identifier and extension have to match what project.yml declares
