@@ -319,6 +319,13 @@ targets:
 # defined, so Fekthor keeps a shared scheme of its own — with the UI smoke
 # suite attached to its test action — next to the dedicated test scheme.
 schemes:
+  ImageKidCompanionTests:
+    build:
+      targets:
+        ImageKidCompanionTests: [test]
+    test:
+      targets:
+        - ImageKidCompanionTests
   ImageKidUpscale:
     build:
       targets:
