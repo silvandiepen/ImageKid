@@ -10,7 +10,7 @@ struct ImageKidSlicerApp: App {
         WindowGroup {
             SlicerWindow(model: model)
                 .onAppear {
-                    appDelegate.model = model
+                    appDelegate.attach(model)
                     model.load(urls: UITestMode.openURLs)
                 }
         }
@@ -25,6 +25,7 @@ struct ImageKidSlicerApp: App {
 /// asks for: quitting with unsaved slices has to ask first.
 final class SlicerAppDelegate: NSObject, NSApplicationDelegate {
     weak var model: SlicerDocumentModel?
+    private var pendingOpenURLs: [URL] = []
 
     private var menuObserver: Any?
 
@@ -52,7 +53,22 @@ final class SlicerAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        guard let model else { return }
+        guard let model else {
+            pendingOpenURLs.append(contentsOf: urls)
+            return
+        }
+        open(urls, with: model)
+    }
+
+    func attach(_ model: SlicerDocumentModel) {
+        self.model = model
+        guard !pendingOpenURLs.isEmpty else { return }
+        let urls = pendingOpenURLs
+        pendingOpenURLs.removeAll()
+        open(urls, with: model)
+    }
+
+    private func open(_ urls: [URL], with model: SlicerDocumentModel) {
         let sessions = urls.filter { $0.pathExtension == SlicerSessionDocument.fileExtension }
         let images = urls.filter { $0.pathExtension != SlicerSessionDocument.fileExtension }
         Task { @MainActor in

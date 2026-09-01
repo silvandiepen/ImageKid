@@ -358,6 +358,58 @@ final class SlicerMultipleImagesTests: XCTestCase {
         XCTAssertEqual(model.images.count, 1)
         XCTAssertEqual(model.source?.displayName, "fresh")
     }
+
+    func testDetectionResultsStayWithTheImageThatStartedDetection() throws {
+        let first = try open("one")
+        let second = try open("two")
+
+        model.applySuggestedGuides(
+            SliceDetection.Suggestion(vertical: [0.25], horizontal: [0.75]),
+            to: first
+        )
+        model.applyDetectedElements(
+            [CGRect(x: 0.1, y: 0.2, width: 0.3, height: 0.4)],
+            to: first
+        )
+
+        let origin = try XCTUnwrap(model.images.first { $0.id == first })
+        let current = try XCTUnwrap(model.images.first { $0.id == second })
+        XCTAssertEqual(origin.guides.map(\.position), [0.25, 0.75])
+        XCTAssertEqual(origin.slices.count, 1)
+        XCTAssertTrue(current.guides.isEmpty)
+        XCTAssertTrue(current.slices.isEmpty)
+    }
+
+    func testExportCompletionMarksOnlyTheOriginatingUnchangedImageSaved() throws {
+        let first = try open("one")
+        model.addSlice(CGRect(x: 0, y: 0, width: 0.5, height: 1))
+        let exportedSlices = model.slices
+
+        let second = try open("two")
+        model.addSlice(CGRect(x: 0.5, y: 0, width: 0.5, height: 1))
+        model.markSlicesSaved(imageID: first, matching: exportedSlices)
+
+        XCTAssertFalse(try XCTUnwrap(model.images.first { $0.id == first }).hasUnsavedSlices)
+        XCTAssertTrue(try XCTUnwrap(model.images.first { $0.id == second }).hasUnsavedSlices)
+    }
+
+    func testExportCompletionDoesNotMarkAnEditedOriginSaved() throws {
+        let first = try open("one")
+        model.addSlice(CGRect(x: 0, y: 0, width: 0.5, height: 1))
+        let exportedSlices = model.slices
+        model.addSlice(CGRect(x: 0.5, y: 0, width: 0.5, height: 1))
+
+        model.markSlicesSaved(imageID: first, matching: exportedSlices)
+
+        XCTAssertTrue(try XCTUnwrap(model.images.first { $0.id == first }).hasUnsavedSlices)
+    }
+
+    func testSameNamedSourcesReceiveDistinctExportFolders() {
+        XCTAssertEqual(
+            SlicerDocumentModel.uniqueExportFolderNames(for: ["sheet", "sheet", "Sheet", "other"]),
+            ["sheet", "sheet-2", "Sheet-3", "other"]
+        )
+    }
 }
 
 /// Which tool you are left holding after an action that produces geometry.
