@@ -35,7 +35,7 @@ let package = Package(
                 .product(name: "ImageKidCore", package: "ImageKidCore")
             ],
             path: "Sources/ImageKidSlicer",
-            exclude: ["ImageKidSlicer.entitlements", "Info.plist"]
+            exclude: ["ImageKidSlicer.entitlements", "Info.plist", "PrivacyInfo.xcprivacy"]
         ),
         .testTarget(
             name: "ImageKidTests",
