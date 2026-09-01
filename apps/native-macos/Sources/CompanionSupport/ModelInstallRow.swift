@@ -31,8 +31,14 @@ struct ModelInstallRow: View {
     @ViewBuilder private var action: some View {
         switch installer.state(model) {
         case .ready:
-            Label("Installed", systemImage: "checkmark.circle.fill")
-                .foregroundStyle(.green)
+            HStack(spacing: 8) {
+                Label("Installed", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Button("Replace…") {
+                    installer.choosePackage(for: model)
+                }
+                .buttonStyle(.bordered)
+            }
         case .installing:
             ProgressView()
                 .controlSize(.small)

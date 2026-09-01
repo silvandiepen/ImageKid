@@ -79,8 +79,7 @@ struct ImageKidCutoutView: View {
                     .labelsHidden()
                     .help(engine.explanation)
 
-                    // Only worth showing while there is something to do about it.
-                    if engine == .bestQuality, !CoreMLModel.birefnet.isDownloaded {
+                    if engine == .bestQuality {
                         ModelInstallRow(installer: installer, model: .birefnet)
                     }
 

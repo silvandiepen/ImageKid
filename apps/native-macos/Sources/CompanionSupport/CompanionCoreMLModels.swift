@@ -1,4 +1,5 @@
 import AppKit
+import CoreML
 import Foundation
 import UniformTypeIdentifiers
 
@@ -110,6 +111,7 @@ final class ModelInstaller: ObservableObject {
         guard CoreMLModel.isValidPackage(at: sourceURL) else {
             throw ModelImportError.incompletePackage
         }
+        try validateFeatureContract(of: sourceURL, for: model)
 
         let fileManager = FileManager.default
         let destination = model.localPackageURL
@@ -129,6 +131,33 @@ final class ModelInstaller: ObservableObject {
             _ = try fileManager.replaceItemAt(destination, withItemAt: staging)
         } else {
             try fileManager.moveItem(at: staging, to: destination)
+        }
+    }
+
+    nonisolated private static func validateFeatureContract(
+        of packageURL: URL,
+        for expectedModel: CoreMLModel
+    ) throws {
+        let compiledURL = try MLModel.compileModel(at: packageURL)
+        defer { try? FileManager.default.removeItem(at: compiledURL) }
+
+        let description = try MLModel(contentsOf: compiledURL).modelDescription
+        guard
+            description.inputDescriptionsByName["input"]?.type == .image,
+            let output = description.outputDescriptionsByName["output"]
+        else {
+            throw ModelImportError.incompatibleModel(expectedModel)
+        }
+
+        let outputMatches: Bool
+        switch expectedModel {
+        case .realESRGAN:
+            outputMatches = output.type == .image
+        case .birefnet:
+            outputMatches = output.type == .multiArray
+        }
+        guard outputMatches else {
+            throw ModelImportError.incompatibleModel(expectedModel)
         }
     }
 
@@ -152,11 +181,14 @@ final class ModelInstaller: ObservableObject {
 
 private enum ModelImportError: LocalizedError {
     case incompletePackage
+    case incompatibleModel(CoreMLModel)
 
     var errorDescription: String? {
         switch self {
         case .incompletePackage:
             "That Core ML package is incomplete or is not compatible with this ImageKid tool."
+        case .incompatibleModel(let model):
+            "That package does not provide the input and output features required for \(model.title)."
         }
     }
 }
