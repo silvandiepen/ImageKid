@@ -632,9 +632,10 @@ ImageKid Slicer is ready for its first usable release when:
 
 Guides, snapping, the grid, templates, renaming, locking, arrow-key nudge, copy to clipboard, drag-out to the Finder, gutter-based suggestions, and session files have all shipped. Still open:
 
-- notarisation and release packaging. Slicer signs with a real identity and archives, but a
-  Developer ID Application identity is not installed on the build machine, so a directly
-  distributable notarised build cannot be produced yet.
+- direct-download notarisation. Slicer signs with a Mac App Store distribution identity,
+  archives, and has a valid build attached in App Store Connect. A Developer ID Application
+  identity is not installed on the build machine, so a separately distributed notarised
+  build cannot be produced yet.
 
 These are enhancements, not requirements. The defining product experience remains:
 
