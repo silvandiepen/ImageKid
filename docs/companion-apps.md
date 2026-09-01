@@ -8,7 +8,7 @@ ImageKid currently has implemented macOS targets for three companion apps:
 - `ImageKidCutout` / display name `ImageKid Cutout` / bundle id `com.hakobs.imagekid.cutout` — implemented.
 - `ImageKidSlicer` / display name `ImageKid Slicer` / bundle id `com.hakobs.imagekid.slicer` — first implementation; see [ImageKid Slicer](slicer.md).
 
-Upscale and Cutout share batch UI and file I/O helpers under `apps/native-macos/Sources/CompanionSupport`. They can open or accept dropped image files, show thumbnails and per-file status, process files serially on device, and write outputs to a sibling folder or a user-chosen folder. Upscale supports the always-available Core Image path and a Best Quality Core ML path. Cutout supports automatic engine selection, Apple Vision, a flat-backdrop remover, and Best Quality Core ML. Cutout also includes per-item preview, edit, retry, reveal, and source-file actions, plus a remembered watched-folder workflow. The companion apps include model install controls and reuse ImageKid's shared App Group model cache when signed with `group.com.hakobs.imagekid`.
+Upscale and Cutout share batch UI and file I/O helpers under `apps/native-macos/Sources/CompanionSupport`. They can open or accept dropped image files, show thumbnails and per-file status, process files serially on device, and write outputs to a sibling folder or a user-chosen folder. Upscale supports the always-available Core Image path and a Best Quality Core ML path. Cutout supports automatic engine selection, Apple Vision, a flat-backdrop remover, and Best Quality Core ML. Cutout also includes per-item preview, edit, retry, reveal, and source-file actions, plus a remembered watched-folder workflow. The companion apps include controls for importing compatible local Core ML packages and reuse ImageKid's shared App Group model library when signed with `group.com.hakobs.imagekid`. They have no network entitlement and never download models at runtime.
 
 `cutout` is a companion command-line tool in `apps/cutout-cli`, built from the same
 `ImageKidInference` engines and reading the same shared model cache. It supports one-off
@@ -95,7 +95,7 @@ Batch-specific principles for Upscale and Cutout:
 - Files process serially by default to keep memory and thermal pressure predictable.
 - Users can cancel the active item and stop the remaining queue.
 - Errors are shown per file without aborting the full queue unless the user stops it.
-- Optional Best Quality models are stored under the shared ImageKid App Group when available, so ImageKid, ImageKid Upscale, and ImageKid Cutout do not each download their own copy.
+- Optional Best Quality models are chosen explicitly from local storage, validated, and copied under the shared ImageKid App Group when available. Upscale and Cutout never download a model or request network access.
 
 ## ImageKid Upscale
 

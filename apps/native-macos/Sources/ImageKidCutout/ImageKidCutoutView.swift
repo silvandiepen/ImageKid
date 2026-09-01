@@ -3,7 +3,7 @@ import SwiftUI
 
 struct ImageKidCutoutView: View {
     @ObservedObject var model: CompanionBatchModel
-    @StateObject private var downloader = ModelDownloader()
+    @StateObject private var installer = ModelInstaller()
     /// Remembered across launches: picking Best Quality is a deliberate choice and
     /// re-picking it every session is busywork.
     @AppStorage("cutout.engine") private var engine = CompanionBatchModel.CutoutEngine.builtIn
@@ -81,7 +81,7 @@ struct ImageKidCutoutView: View {
 
                     // Only worth showing while there is something to do about it.
                     if engine == .bestQuality, !CoreMLModel.birefnet.isDownloaded {
-                        ModelInstallRow(downloader: downloader, model: .birefnet)
+                        ModelInstallRow(installer: installer, model: .birefnet)
                     }
 
                     if engine == .flatBackground {
