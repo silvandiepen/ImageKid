@@ -9,7 +9,11 @@ struct SlicerWindow: View {
     var body: some View {
         content
             .frame(minWidth: 760, minHeight: 540)
-            .background(VisualEffectBackground())
+            .background {
+                VisualEffectBackground()
+                    .overlay(Color.black.opacity(0.24))
+                    .ignoresSafeArea()
+            }
             .onDrop(of: [.fileURL], isTargeted: nil) { providers in
                 model.handleDrop(providers: providers)
             }

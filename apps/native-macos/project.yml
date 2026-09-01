@@ -6,7 +6,7 @@ options:
 settings:
   base:
     MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    CURRENT_PROJECT_VERSION: "3"
     SWIFT_VERSION: "5.0"
     # DEVELOPMENT_TEAM is deliberately NOT set here. Automatic signing needs a
     # team to resolve an identity against, and without one a target falls back
@@ -102,6 +102,7 @@ targets:
         # Needed to remember the chosen output folder across launches: a security-scoped
         # bookmark is the only way a sandboxed app keeps write access to it.
         com.apple.security.files.bookmarks.app-scope: true
+        com.apple.security.network.client: true
         com.apple.security.application-groups:
           - group.com.hakobs.imagekid
     settings:
@@ -133,6 +134,7 @@ targets:
         com.apple.security.app-sandbox: true
         com.apple.security.files.user-selected.read-write: true
         com.apple.security.files.bookmarks.app-scope: true
+        com.apple.security.network.client: true
         com.apple.security.application-groups:
           - group.com.hakobs.imagekid
     settings:
@@ -319,6 +321,22 @@ targets:
 # defined, so Fekthor keeps a shared scheme of its own — with the UI smoke
 # suite attached to its test action — next to the dedicated test scheme.
 schemes:
+  ImageKidUpscale:
+    build:
+      targets:
+        ImageKidUpscale: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+  ImageKidCutout:
+    build:
+      targets:
+        ImageKidCutout: all
+    run:
+      config: Debug
+    archive:
+      config: Release
   Fekthor:
     build:
       targets:

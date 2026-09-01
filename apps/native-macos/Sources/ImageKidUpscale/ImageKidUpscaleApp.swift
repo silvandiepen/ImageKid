@@ -9,6 +9,7 @@ struct ImageKidUpscaleApp: App {
         WindowGroup {
             ImageKidUpscaleView(model: model)
         }
+        .defaultSize(width: 1_120, height: 760)
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .newItem) {

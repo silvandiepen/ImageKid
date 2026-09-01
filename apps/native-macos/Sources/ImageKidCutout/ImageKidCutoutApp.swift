@@ -22,6 +22,7 @@ struct ImageKidCutoutApp: App {
             // queue of its own instead of a second view onto the same one.
             ImageKidCutoutWindow()
         }
+        .defaultSize(width: 1_120, height: 760)
         .windowStyle(.hiddenTitleBar)
         .commands {
             CutoutCommands(windowID: Self.windowID)

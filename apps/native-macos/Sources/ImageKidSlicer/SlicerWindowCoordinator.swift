@@ -16,6 +16,11 @@ enum SlicerWindowCoordinator {
     private static weak var primary: NSWindow?
 
     static func adopt(_ window: NSWindow) {
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+
         guard let existing = primary, existing !== window, existing.isVisible else {
             primary = window
             return

@@ -40,7 +40,7 @@ struct CompanionBatchShell<Settings: View>: View {
         .frame(minWidth: 900, minHeight: 620)
         .background {
             VisualEffectBackground()
-                .overlay(Color.black.opacity(0.32))
+                .overlay(Color.black.opacity(0.50))
                 .ignoresSafeArea()
         }
         .preferredColorScheme(.dark)
@@ -95,7 +95,7 @@ struct CompanionBatchShell<Settings: View>: View {
         }
         .frame(width: 320)
         .frame(maxHeight: .infinity)
-        .background(Color.white.opacity(0.03))
+        .background(Color.black.opacity(0.24))
     }
 
     @ViewBuilder private var content: some View {
@@ -111,6 +111,7 @@ struct CompanionBatchShell<Settings: View>: View {
         .padding(.top, 12)
         .padding(.bottom, 22)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black.opacity(0.10))
     }
 
     private var controls: some View {
