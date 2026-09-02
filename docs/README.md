@@ -12,6 +12,12 @@ ImageKid is currently an offline native macOS image utility with basic video vie
 - [Roadmap](roadmap.md) — implementation order for images, then basic video processing.
 - [Upscaling](upscaling.md) — standard and Best Quality upscaling paths.
 - [Companion apps](companion-apps.md) — status, product strategy, and roadmap for ImageKid Upscale, ImageKid Cutout, and ImageKid Slicer.
+- [Focused app family](focused-apps.md) — product boundaries and release direction for focused ImageKid and Fekthor tools.
+- [ImageKid Convert](imagekid-convert.md) — planned local batch image converter, including safe SVG and PDF rendering.
+- [ImageKid AppIcons](imagekid-appicons.md): planned app and CLI for validated app icon and favicon packages.
+- [ImageKid Sheet](imagekid-sheet.md): planned app and CLI for contact sheets, reference sheets, and sprite atlases.
+- [ImageKid Compress](imagekid-compress.md): planned app and CLI for visual, target-size, and batch compression.
+- [Focused app CLIs](focused-cli.md): shared command behaviour, JSON results, exit codes, safety, and packaging.
 - [ImageKid Slicer](slicer.md) — focused macOS tool for opening one composite image, defining rectangular slices directly on the canvas, and saving every slice as a separate local image.
 - [ImageKid Sculptor](sculptor.md) — planned local macOS companion app for turning one single-object image into a complete inspectable 3D model and exporting GLB.
 - [iOS feasibility](ios-feasibility.md) — whether upscaling and background removal can move to iOS, and the Core ML direction.
@@ -20,5 +26,5 @@ ImageKid is currently an offline native macOS image utility with basic video vie
 
 Per-app deep docs:
 
-- [Fekthor](fekthor/EDITOR-PLAN.md) — the vector editor plan; also [Animations](fekthor/ANIMATIONS.md).
+- [Fekthor](fekthor/EDITOR-PLAN.md) — the vector editor plan; also [Animations](fekthor/ANIMATIONS.md) and the planned [focused Fekthor apps](fekthor/FOCUSED-APPS.md).
 - [Inka](inka/README.md) — the drawing & illustration app; the [brush engine](inka/BRUSH-ENGINE.md) and [architecture](inka/ARCHITECTURE.md).

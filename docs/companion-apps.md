@@ -2,11 +2,21 @@
 
 ## Current status
 
-ImageKid currently has implemented macOS targets for three companion apps:
+ImageKid currently has implemented macOS targets for three companion apps and four documented planned companion apps:
 
-- `ImageKidUpscale` / display name `ImageKid Upscale` / bundle id `com.hakobs.imagekid.upscale` — implemented.
-- `ImageKidCutout` / display name `ImageKid Cutout` / bundle id `com.hakobs.imagekid.cutout` — implemented.
-- `ImageKidSlicer` / display name `ImageKid Slicer` / bundle id `com.hakobs.imagekid.slicer` — first implementation; see [ImageKid Slicer](slicer.md).
+- `ImageKidUpscale` / display name `ImageKid Upscale` / bundle id `com.hakobs.imagekid.upscale`: implemented.
+- `ImageKidCutout` / display name `ImageKid Cutout` / bundle id `com.hakobs.imagekid.cutout`: implemented.
+- `ImageKidSlicer` / display name `ImageKid Slicer` / bundle id `com.hakobs.imagekid.slicer`: first implementation; see [ImageKid Slicer](slicer.md).
+- `ImageKidConvert` / display name `ImageKid Convert` / proposed bundle id `com.hakobs.imagekid.convert`: planned; see [ImageKid Convert](imagekid-convert.md).
+- `ImageKidAppIcons` / display name `ImageKid AppIcons` / proposed bundle id `com.hakobs.imagekid.appicons`: planned with `imagekid-appicons`; see [ImageKid AppIcons](imagekid-appicons.md).
+- `ImageKidSheet` / display name `ImageKid Sheet` / proposed bundle id `com.hakobs.imagekid.sheet`: planned with `imagekid-sheet`; see [ImageKid Sheet](imagekid-sheet.md).
+- `ImageKidCompress` / display name `ImageKid Compress` / proposed bundle id `com.hakobs.imagekid.compress`: planned with `imagekid-compress`; see [ImageKid Compress](imagekid-compress.md).
+
+`ImageKid Convert` is also planned as a focused batch conversion product. It is
+documented separately because it adds a format-capability matrix, PDF/SVG input,
+metadata and colour policies, and conversion-specific validation rather than a
+single image-processing operation. See [ImageKid Convert](imagekid-convert.md)
+and the broader [focused app family](focused-apps.md).
 
 All three have editable macOS 0.1.0 records in App Store Connect with valid attached builds. They remain in `PREPARE_FOR_SUBMISSION`: production icons, screenshots, and the final human release pass are still required, and none has been submitted. See [Release boundary](release-boundary.md).
 
@@ -22,6 +32,10 @@ ImageKid remains the full editor and the product where the complete toolset keep
 - **ImageKid Upscale**: batch upscale images.
 - **ImageKid Cutout**: batch remove image backgrounds.
 - **ImageKid Slicer**: open one composite image, manually define rectangular regions, and save every region as a separate image.
+- **ImageKid Convert**: convert local image, PDF, and SVG input into tested image or PDF output formats.
+- **ImageKid AppIcons**: prepare one source as validated app icon, favicon, and generic icon packages.
+- **ImageKid Sheet**: combine multiple images into contact, reference, or sprite sheets.
+- **ImageKid Compress**: reduce image file sizes with visual comparison and target-size control.
 
 They are separate app targets, not feature modes inside the main ImageKid window. Their job is to make one repeated or focused operation fast and obvious for users who do not need the full editor in that moment.
 
@@ -39,6 +53,10 @@ Positioning:
 - **ImageKid Upscale** is a focused batch upscaler: cheaper, simpler, fast to understand, made for repeated local upscaling.
 - **ImageKid Cutout** is a focused batch background remover: cheaper, simpler, made for repeated local transparent cutouts.
 - **ImageKid Slicer** is a focused sheet splitter: open one image, draw the regions to extract, then save all slices in one action.
+- **ImageKid Convert** is a focused batch converter: choose a format and output policy, review consequences, then convert files locally.
+- **ImageKid AppIcons** is a focused icon packager: position one source, preview platform requirements, then generate the complete package.
+- **ImageKid Sheet** is a focused layout tool: order images, choose a deterministic sheet mode, then export one sheet or atlas.
+- **ImageKid Compress** is a focused optimiser: compare visible quality, choose a size or quality target, then compress locally.
 
 The companion apps should be lower-priced one-time purchases. They should not require accounts, subscriptions, credits, hosted processing, telemetry, or lock-in. Exact pricing is a release/business decision, but the UX and copy should make the value clear: local processing without paying a service every time.
 
@@ -266,7 +284,7 @@ Current implemented native macOS companion targets:
   - Bundle id: `com.hakobs.imagekid.cutout`
   - Category: Graphics & Design
 
-Planned native macOS companion target:
+Planned native macOS companion targets:
 
 - `ImageKidSlicer`
   - Display name: `ImageKid Slicer`
@@ -274,7 +292,42 @@ Planned native macOS companion target:
   - Category: Graphics & Design
   - No network entitlement.
 
+- `ImageKidConvert`
+  - Display name: `ImageKid Convert`
+  - Proposed bundle id: `com.hakobs.imagekid.convert`
+  - Category: Graphics & Design
+  - No network entitlement.
+
+- `ImageKidAppIcons`
+  - Display name: `ImageKid AppIcons`
+  - Proposed bundle id: `com.hakobs.imagekid.appicons`
+  - Companion CLI: `imagekid-appicons`
+  - Category: Graphics & Design
+  - No network entitlement.
+
+- `ImageKidSheet`
+  - Display name: `ImageKid Sheet`
+  - Proposed bundle id: `com.hakobs.imagekid.sheet`
+  - Companion CLI: `imagekid-sheet`
+  - Category: Graphics & Design
+  - No network entitlement.
+
+- `ImageKidCompress`
+  - Display name: `ImageKid Compress`
+  - Proposed bundle id: `com.hakobs.imagekid.compress`
+  - Companion CLI: `imagekid-compress`
+  - Category: Graphics & Design
+  - No network entitlement.
+
 Upscale and Cutout should continue using shared batch-processing support rather than importing UI code from the main app. Slicer should reuse clean image I/O and coordinate helpers where appropriate, but should not depend on the batch queue because its core interaction is canvas-based.
+
+Convert should reuse the batch queue and output planning where they fit, while
+keeping format capability, PDF/SVG rendering, metadata, colour, and conversion
+validation in conversion-specific shared code.
+
+AppIcons, Sheet, and Compress each have a CLI target backed by the same shared
+engine as the GUI. See the [focused CLI contract](focused-cli.md). None of the
+CLI targets may automate or launch the GUI to process files.
 
 Suggested batch shared code:
 
@@ -367,6 +420,10 @@ ImageKid remains the place for inspection, editing, manual correction, and creat
 - Use **ImageKid Upscale** when every file needs the same scale/quality treatment.
 - Use **ImageKid Cutout** when every file needs a transparent cutout.
 - Use **ImageKid Slicer** when one image contains several assets or views that need to become separate files.
+- Use **ImageKid Convert** when files need a different format, size, colour/metadata policy, or a rendered SVG/PDF output.
+- Use **ImageKid AppIcons** when one source needs to become a validated icon package.
+- Use **ImageKid Sheet** when several images need to become one contact, reference, or sprite sheet.
+- Use **ImageKid Compress** when file size needs to fall without losing control of visible quality or private metadata.
 - Use **ImageKid** when a file needs review, cropping, text, selection work, mask refinement, export tuning, annotations, or magic edits.
 
 The companion apps should never force users into ImageKid for their core promise. Upscale must complete batch upscaling on its own. Cutout must complete batch background removal on its own. Slicer must complete manual multi-region extraction on its own. Cross-promotion can exist, but it should be quiet and useful.
