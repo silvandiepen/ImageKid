@@ -35,7 +35,7 @@
         :variant="data.id"
       />
       <figure v-else-if="data.heroImage" :class="bemm('hero-media')">
-        <img :class="bemm('hero-image')" :src="data.heroImage" :alt="data.heroImageAlt ?? data.name" />
+        <img :class="bemm('hero-image')" :src="data.heroImage" :alt="data.heroImageAlt ?? data.name" width="1600" height="1600" decoding="async" />
       </figure>
       <div v-else :class="bemm('hero-panel')" aria-hidden="true">
         <img :class="bemm('hero-panel-icon')" :src="data.icon" :alt="`${data.name} app icon`" width="132" height="132" />

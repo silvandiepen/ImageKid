@@ -32,7 +32,7 @@
           :class="bemm('app-card', [app.flagship ? 'flagship' : '', app.id])"
           :to="app.to"
         >
-          <img :class="bemm('app-icon')" :src="app.icon" :alt="`${app.name} app icon`" width="56" height="56" />
+          <img :class="bemm('app-icon')" :src="app.icon" :alt="`${app.name} app icon`" width="56" height="56" loading="lazy" decoding="async" />
           <div :class="bemm('app-copy')">
             <span :class="bemm('app-name')">{{ app.name }}</span>
             <span :class="bemm('app-tagline')">{{ app.tagline }}</span>
@@ -54,11 +54,11 @@
 
     <section :class="bemm('showcase', 'imagekid')">
       <figure :class="bemm('showcase-media')">
-        <img :class="bemm('showcase-image')" src="/media/app/workspace.jpg" alt="The ImageKid editor with an image open" />
+        <img :class="bemm('showcase-image')" src="/media/app/workspace.jpg" alt="The ImageKid editor with an image open" width="2000" height="1256" loading="lazy" decoding="async" />
       </figure>
       <div :class="bemm('showcase-copy')">
         <div :class="bemm('showcase-brand')">
-          <img :src="imagekid.icon" :alt="''" width="40" height="40" />
+          <img :src="imagekid.icon" :alt="''" width="40" height="40" loading="lazy" decoding="async" />
           <p :class="bemm('eyebrow')">Flagship · {{ imagekid.platforms }}</p>
         </div>
         <h2 :class="bemm('heading')">ImageKid — the complete editor.</h2>
@@ -76,7 +76,7 @@
     <section :class="bemm('showcase', 'fekthor')">
       <div :class="bemm('showcase-copy')">
         <div :class="bemm('showcase-brand')">
-          <img :src="fekthor.icon" :alt="''" width="40" height="40" />
+          <img :src="fekthor.icon" :alt="''" width="40" height="40" loading="lazy" decoding="async" />
           <p :class="bemm('eyebrow')">Flagship · {{ fekthor.platforms }}</p>
         </div>
         <h2 :class="bemm('heading')">Fekthor — vectors, built for icon sets.</h2>
@@ -90,7 +90,7 @@
         <Button to="/fekthor" variant="primary">Meet Fekthor</Button>
       </div>
       <div :class="bemm('showcase-panel')" aria-hidden="true">
-        <img :class="bemm('showcase-panel-icon')" :src="fekthor.icon" :alt="''" width="140" height="140" />
+        <img :class="bemm('showcase-panel-icon')" :src="fekthor.icon" :alt="''" width="140" height="140" loading="lazy" decoding="async" />
       </div>
     </section>
 

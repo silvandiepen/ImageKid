@@ -29,7 +29,7 @@
         <p :class="bemm('section-copy')">ImageKid is built around direct local actions: open an image, make the edit, apply the same kind of work in batches, and export without handing the file to a web service.</p>
       </div>
       <figure :class="bemm('wide-shot')">
-        <img :class="bemm('image')" src="/media/app/workspace.jpg" alt="ImageKid workspace with an image open and the tool menu visible." />
+        <img :class="bemm('image')" src="/media/app/workspace.jpg" alt="ImageKid workspace with an image open and the tool menu visible." width="2000" height="1256" decoding="async" />
       </figure>
     </section>
 
@@ -47,7 +47,7 @@
           <p v-if="feature.disclaimer" :class="bemm('disclaimer')">{{ feature.disclaimer }}</p>
         </div>
         <figure :class="bemm('feature-media')">
-          <img :class="bemm('image')" :src="feature.image" :alt="feature.alt" loading="lazy" />
+          <img :class="bemm('image')" :src="feature.image" :alt="feature.alt" loading="lazy" decoding="async" />
         </figure>
       </div>
     </section>

@@ -75,6 +75,13 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
   &__main { min-width: 0; min-height: 70vh; padding-top: var(--spacing); }
 }
 
+// Landscape on a notched phone cuts into both edges, and the home indicator
+// sits over the footer. The insets resolve to zero everywhere else, so these
+// need no breakpoint. Applied to the chrome rather than to `body`, which would
+// shift the full-bleed sections that measure themselves against the viewport.
+.pill-header { padding-inline: env(safe-area-inset-left) env(safe-area-inset-right); }
+.site-footer__inner { padding-bottom: calc(var(--space-xl) + env(safe-area-inset-bottom)); }
+
 .home-page {
   width: min(1280px, 100%);
   margin: 0 auto;
@@ -552,14 +559,29 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
   .home-page__showcase, .product-page__hero, .product-page__band-inner { grid-template-columns: 1fr; }
   .home-page__showcase--imagekid .home-page__showcase-media { order: 2; }
   .product-page__feature-grid, .product-page__family-grid { grid-template-columns: 1fr 1fr; }
+  // The grid is still two-up here, so the non-flagship cards are half-width and
+  // the icon leaves the copy 54–154px — narrow enough that it overflows the
+  // card. Flagship cards span both columns and keep the side-by-side layout.
+  .home-page__app-card:not(.home-page__app-card--flagship) { grid-template-columns: minmax(0, 1fr); grid-template-areas: "icon" "copy" "meta"; gap: var(--space-m); }
+  .home-page__app-card:not(.home-page__app-card--flagship) .home-page__app-icon { width: var(--space-xl); height: var(--space-xl); }
   .home-page__limitation { grid-column: 1; }
   .home-page__cta .button { justify-self: start; }
   .product-preview { max-width: 720px; }
   .home-page__feature-links { grid-template-columns: 1fr 1fr; }
   .features-page__feature-band--image-left .features-page__feature-copy, .features-page__feature-band--image-left .features-page__feature-media { order: 0; }
+  // Same reset for the product bands. Once the band is one column the desktop
+  // side-by-side swap would put the artwork above the heading it belongs to.
+  .product-page__band--image-left .product-page__band-copy,
+  .product-page__band--image-left .product-page__band-media,
+  .product-page__band--image-left .product-page__band-panel,
+  .product-page__band--image-left .product-page__band-visual,
+  .product-page__band--image-left .product-page__band-character { order: 0; }
   .features-page__boundary-grid { grid-template-columns: 1fr 1fr; }
   .docs-shell { grid-template-columns: 1fr; }
-  .docs-shell__sidebar { position: static; }
+  // Stacked, the sidebar would push every docs page a full screen down before
+  // its own title. The nav reads as "other docs" underneath the article.
+  .docs-shell__content { order: 0; }
+  .docs-shell__sidebar { position: static; order: 1; }
   .docs-shell__nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
@@ -567,6 +589,18 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
   h1 { font-size: var(--font-size-xxl); }
   h2 { font-size: var(--font-size-xl); }
   .pill-header__toggle, .pill-header__action--icon-only { min-width: 44px; width: 44px; min-height: 44px; height: 44px; }
+  // Everything else that is tappable gets the same floor. The links keep their
+  // type size and grow through padding, so only the touch area changes.
+  .pill-header__brand, .pill-header__link, .site-footer__brand, .site-footer__link { min-height: 44px; }
+  .pill-header__link, .site-footer__link { align-items: center; padding-block: var(--space-s); }
+  // Row gap goes to zero: the padding above now carries the separation, and
+  // keeping both would leave the footer links floating far apart.
+  .site-footer__links { gap: 0 var(--space-l); }
+  // Nothing below 12px on a phone. These are mono labels sized down for a
+  // dense desktop grid; at arm's length they are unreadable.
+  .icon-gallery__name, .icon-matrix__label, .icon-matrix__corner-label { font-size: var(--font-size-xs); }
+  // The category filters are real buttons, so they need the same 44px floor.
+  .icon-gallery__category { display: inline-flex; align-items: center; min-height: 44px; padding-block: var(--space-s); }
   .home-page, .features-page, .support-page, .privacy-page, .terms-page, .not-found-page, .docs-shell { padding: var(--space-l) var(--space-m); }
   .home-page { gap: var(--space-xl); }
   .home-page__hero { gap: var(--space-l); padding-block: var(--space-m) var(--space-l); }
@@ -574,11 +608,22 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
   .home-page__actions .button { width: 100%; min-height: 44px; }
   .home-page__steps, .home-page__capability-list, .home-page__feature-links, .features-page__boundary-grid, .docs-index-page__index, .docs-index-page__boundary { grid-template-columns: 1fr; }
   .home-page__app-grid, .product-page__feature-grid, .product-page__family-grid { grid-template-columns: 1fr; }
+  // The grid is one column here, so a two-column span would add an implicit
+  // second column and push the whole page wider than the screen.
+  .home-page__app-card--flagship { grid-column: auto; }
+  // Side-by-side, the icon leaves ~134px for three lines of copy at 390px.
+  // Stacked, the copy gets the full card width.
+  .home-page__app-card { grid-template-columns: minmax(0, 1fr); grid-template-areas: "icon" "copy" "meta"; gap: var(--space-m); padding: var(--space-l); }
+  .home-page__app-icon { width: var(--space-xl); height: var(--space-xl); }
   .icon-gallery__panel, .icon-matrix { padding: var(--space-m); }
   .home-page__showcase, .product-page { padding: var(--space-l) var(--space-m); }
   .home-page__showcase { gap: var(--space-l); }
   .product-page__hero { padding-block: var(--space-s) var(--space-l); }
   .product-page__band { padding: var(--space-xl) var(--space-m); }
+  // The character is a desktop side-panel device. Stacked it repeats the same
+  // 420px cut-out on every band — five of them on Inka — so it becomes filler
+  // rather than accent. It is aria-hidden, so nothing is lost by dropping it.
+  .product-page__band-character { display: none; }
   .home-page__actions .button, .product-page__actions .button { width: 100%; min-height: 44px; }
   .home-page__step, .home-page__capability { min-height: 0; }
   .home-page__privacy, .home-page__cta { padding: var(--space-l); }
@@ -594,7 +639,9 @@ kbd { padding: var(--space-xs) var(--space-s); border: var(--border-width) solid
   .product-preview__caption { padding-inline: var(--space-s); }
   .docs-shell__nav { grid-template-columns: 1fr 1fr; }
   .docs-index-page__boundary .button { justify-self: start; width: 100%; }
-  .site-footer__inner { grid-template-columns: 1fr; padding: var(--space-l) var(--space-m); }
+  // Keeps the home-indicator inset from the base rule, which this shorthand
+  // would otherwise reset.
+  .site-footer__inner { grid-template-columns: 1fr; padding: var(--space-l) var(--space-m) calc(var(--space-l) + env(safe-area-inset-bottom)); }
 }
 
 @media (max-width: 400px) {
