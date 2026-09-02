@@ -85,7 +85,13 @@ public struct AboutPanel: View {
                     .padding(.top, 14)
 
                 if !info.links.isEmpty {
-                    HStack(spacing: 18) {
+                    LazyVGrid(
+                        columns: Array(
+                            repeating: GridItem(.flexible(), spacing: 12),
+                            count: min(info.links.count, 3)
+                        ),
+                        spacing: 8
+                    ) {
                         ForEach(info.links) { link in
                             Button(link.title, action: link.action)
                                 .buttonStyle(.plain)

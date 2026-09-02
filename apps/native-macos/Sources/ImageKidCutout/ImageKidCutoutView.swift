@@ -20,8 +20,7 @@ struct ImageKidCutoutView: View {
         }
     }
 
-    /// Label on the left, the folder itself as the control. Reads as one line per
-    /// question instead of a heading and a button for each.
+    /// Compact folder chooser used for the optional watched-folder setting.
     private func folderRow(
         _ title: String,
         name: String?,
@@ -48,7 +47,6 @@ struct ImageKidCutoutView: View {
     var body: some View {
         CompanionBatchShell(
             title: "Cutout",
-            subtitle: "Batch-remove backgrounds locally and save clean transparent PNGs.",
             primaryActionTitle: "Generate Cutouts",
             isProcessing: model.isProcessing,
             items: model.items,
@@ -69,15 +67,27 @@ struct ImageKidCutoutView: View {
                 // Two questions, in the order they are asked: how to cut, and where the
                 // files go. Everything that was only explaining itself has moved into a
                 // tooltip or gone.
-                section("Method") {
-                    Picker("Method", selection: $engine) {
-                        ForEach(CompanionBatchModel.CutoutEngine.allCases) { option in
-                            Text(option.label).tag(option)
-                        }
+                section("Quality") {
+                    LazyVGrid(
+                        columns: [GridItem(.flexible()), GridItem(.flexible())],
+                        spacing: 8
+                    ) {
+                        qualityButton(
+                            .builtIn,
+                            detail: "Fast and built in",
+                            systemImage: "person.crop.circle"
+                        )
+                        qualityButton(
+                            .bestQuality,
+                            detail: "Cleaner subject edges",
+                            systemImage: "wand.and.stars"
+                        )
+                        qualityButton(
+                            .flatBackground,
+                            detail: "Flat-colour backdrops",
+                            systemImage: "square.filled.on.square"
+                        )
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .help(engine.explanation)
 
                     if engine == .bestQuality {
                         ModelInstallRow(installer: installer, model: .birefnet)
@@ -92,16 +102,26 @@ struct ImageKidCutoutView: View {
                     }
                 }
 
-                section("Files") {
-                    folderRow(
-                        "Save to",
-                        name: model.customDestinationURL?.lastPathComponent,
-                        icon: "folder",
-                        help: model.customDestinationURL?.path
-                            ?? "Cutouts are saved here as PNG, so transparency stays real."
-                    ) {
+                section("Save to") {
+                    Button {
                         model.chooseDestinationFolder()
+                    } label: {
+                        HStack {
+                            Image(systemName: "folder.fill")
+                                .foregroundStyle(.tint)
+                            Text(model.customDestinationURL?.lastPathComponent ?? "Next to each original")
+                                .lineLimit(1)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(10)
+                        .background(Color.white.opacity(0.06))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
+                    .buttonStyle(.plain)
+                    .help(model.customDestinationURL?.path ?? "Save beside each original")
 
                     if let warning = model.destinationWarning {
                         Text(warning)
@@ -111,6 +131,7 @@ struct ImageKidCutoutView: View {
                     }
 
                     Toggle("Overwrite PNG originals when possible", isOn: $model.overwriteOriginals)
+                        .controlSize(.small)
 
                     Toggle(
                         "Process new images automatically",
@@ -157,5 +178,34 @@ struct ImageKidCutoutView: View {
             // The destination folder can change behind the app's back.
             model.refreshExistingResults()
         }
+    }
+
+    private func qualityButton(
+        _ option: CompanionBatchModel.CutoutEngine,
+        detail: String,
+        systemImage: String
+    ) -> some View {
+        let isSelected = engine == option
+        return Button {
+            engine = option
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.title3.weight(.semibold))
+                Text(option.label)
+                    .font(.subheadline.weight(.semibold))
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(isSelected ? .white.opacity(0.82) : .secondary)
+            }
+            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+            .padding(10)
+            .background(isSelected ? Color.accentColor : Color.white.opacity(0.07))
+            .foregroundStyle(isSelected ? Color.white : Color.primary)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(option.explanation)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

@@ -32,7 +32,8 @@ let package = Package(
         .executableTarget(
             name: "ImageKidSlicer",
             dependencies: [
-                .product(name: "ImageKidCore", package: "ImageKidCore")
+                .product(name: "ImageKidCore", package: "ImageKidCore"),
+                .product(name: "ImageKidKit", package: "ImageKidKit")
             ],
             path: "Sources/ImageKidSlicer",
             exclude: ["ImageKidSlicer.entitlements", "Info.plist", "PrivacyInfo.xcprivacy"]

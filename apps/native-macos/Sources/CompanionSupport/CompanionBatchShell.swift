@@ -3,7 +3,6 @@ import UniformTypeIdentifiers
 
 struct CompanionBatchShell<Settings: View>: View {
     let title: String
-    let subtitle: String
     let primaryActionTitle: String
     let isProcessing: Bool
     let items: [BatchItem]
@@ -161,12 +160,6 @@ struct CompanionBatchShell<Settings: View>: View {
                 .foregroundStyle(.tint)
             Text("Drop images anywhere in this window")
                 .font(.title3.weight(.semibold))
-            Text(subtitle)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 380)
             Button {
                 openFiles()
             } label: {

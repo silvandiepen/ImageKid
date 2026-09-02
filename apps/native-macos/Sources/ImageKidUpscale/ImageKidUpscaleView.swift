@@ -11,8 +11,7 @@ struct ImageKidUpscaleView: View {
 
     var body: some View {
         CompanionBatchShell(
-            title: "ImageKid Upscale",
-            subtitle: "Throw in a batch, pick a size, and make every image bigger on this Mac.",
+            title: "Upscale",
             primaryActionTitle: "Generate Upscales",
             isProcessing: model.isProcessing,
             items: model.items,
