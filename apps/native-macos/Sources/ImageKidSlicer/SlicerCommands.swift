@@ -1,4 +1,5 @@
 import AppKit
+import ImageKidKit
 import SwiftUI
 
 /// Menu commands. Everything the canvas can do by pointer is also here, so the
@@ -7,6 +8,11 @@ struct SlicerCommands: Commands {
     @ObservedObject var model: SlicerDocumentModel
 
     var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About Slicer") {
+                AboutWindow.show(ImageKidSuiteAbout.info(for: .slicer))
+            }
+        }
         CommandGroup(replacing: .newItem) {
             Button("Open Image…") { model.openImage() }
                 .keyboardShortcut("o")
@@ -154,7 +160,7 @@ struct SlicerCommands: Commands {
         }
 
         CommandGroup(after: .help) {
-            Button("ImageKid Slicer Support") {
+            Button("Slicer Support") {
                 NSWorkspace.shared.open(URL(string: "https://imagekid.hakobs.com/support")!)
             }
             Button("Privacy Policy") {

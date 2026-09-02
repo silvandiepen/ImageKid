@@ -137,7 +137,7 @@ extension AboutPanelInfo {
                 HomeLink(id: "about.notices", title: "Acknowledgements") {
                     NSWorkspace.shared.open(URL(string: "https://imagekid.app/acknowledgements")!)
                 }
-            ]
+            ] + ImageKidSuiteAbout.links(excluding: .imageKid)
         )
     }
 }

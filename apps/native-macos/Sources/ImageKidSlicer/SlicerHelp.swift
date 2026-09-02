@@ -60,7 +60,8 @@ enum SlicerHelp {
         "Hide Slices List": "Hide the slices list.",
 
         // Help
-        "ImageKid Slicer Support": "Open ImageKid support in your web browser.",
+        "About Slicer": "Show the app version and shortcuts to the other ImageKid apps.",
+        "Slicer Support": "Open ImageKid support in your web browser.",
         "Privacy Policy": "Read the ImageKid privacy policy in your web browser.",
 
         // Submenus

@@ -1,4 +1,5 @@
 import AppKit
+import ImageKidKit
 import SwiftUI
 
 /// Lets a menu command reach the queue of whichever window is in front. Each window
@@ -48,6 +49,11 @@ private struct CutoutCommands: Commands {
     @FocusedValue(\.batchModel) private var model
 
     var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About Cutout") {
+                AboutWindow.show(ImageKidSuiteAbout.info(for: .cutout))
+            }
+        }
         CommandGroup(replacing: .newItem) {
             Button("New Window") {
                 openWindow(id: windowID)
@@ -61,7 +67,7 @@ private struct CutoutCommands: Commands {
             .disabled(model == nil)
         }
         CommandGroup(after: .help) {
-            Button("ImageKid Cutout Support") {
+            Button("Cutout Support") {
                 NSWorkspace.shared.open(URL(string: "https://imagekid.hakobs.com/support")!)
             }
             Button("Privacy Policy") {

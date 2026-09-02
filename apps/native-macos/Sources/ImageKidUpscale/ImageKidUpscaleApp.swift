@@ -1,4 +1,5 @@
 import AppKit
+import ImageKidKit
 import SwiftUI
 
 @main
@@ -12,6 +13,11 @@ struct ImageKidUpscaleApp: App {
         .defaultSize(width: 1_120, height: 760)
         .windowStyle(.hiddenTitleBar)
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About Upscale") {
+                    AboutWindow.show(ImageKidSuiteAbout.info(for: .upscale))
+                }
+            }
             CommandGroup(replacing: .newItem) {
                 Button("Open Images...") {
                     model.openFiles()
@@ -19,7 +25,7 @@ struct ImageKidUpscaleApp: App {
                 .keyboardShortcut("o")
             }
             CommandGroup(after: .help) {
-                Button("ImageKid Upscale Support") {
+                Button("Upscale Support") {
                     NSWorkspace.shared.open(URL(string: "https://imagekid.hakobs.com/support")!)
                 }
                 Button("Privacy Policy") {
