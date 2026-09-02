@@ -1,0 +1,15 @@
+# SPAR3D reconstruction backend. Heavy; install only on a machine that will
+# actually run inference. See README "Install the engine".
+#
+# Apple Silicon MPS support in the upstream SPAR3D reference implementation is
+# experimental and expects macOS 15.2 or newer. Benchmark before turning any of
+# this into a stated minimum system requirement.
+-r requirements.txt
+torch>=2.4
+torchvision>=0.19
+transformers>=4.39
+safetensors
+huggingface_hub
+omegaconf
+einops
+jaxtyping

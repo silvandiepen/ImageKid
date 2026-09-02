@@ -1,0 +1,39 @@
+# TripoSR reconstruction backend — the default engine.
+#
+# Heavy; install only on a machine that will actually run inference. The source
+# itself is not on PyPI: run ./scripts/install_triposr.sh to fetch and patch it
+# into vendor/.
+#
+# Verified on Apple M3 / macOS 26.5 with the MPS backend: ~9 s per generation at
+# 256 marching cubes, 3.5 GB peak RSS.
+-r requirements.txt
+
+torch>=2.4
+torchvision>=0.19
+omegaconf>=2.3
+einops>=0.7
+# Upper bound is load-bearing. transformers 5.x renamed the attention
+# projections inside the DINOv2 image tokenizer, so TripoSR's published
+# checkpoint no longer matches and loading dies with "Missing key(s) in
+# state_dict: image_tokenizer.model.layers.0.attention.q_proj.weight".
+# Verified working on 4.57.
+transformers>=4.35,<5
+huggingface-hub
+safetensors
+
+# Marching cubes. Builds from source; no wheel is published. It accepts CPU
+# tensors only, which is why install_triposr.sh patches the isosurface helper to
+# move the density grid off MPS before calling it.
+git+https://github.com/tatsy/torchmcubes.git
+
+# UV atlas and offscreen GL, used only by TripoSR's optional texture baking.
+# Sculptor exports per-vertex colour instead, so these are not required for a
+# normal generation — keep them for experimenting with baked textures.
+xatlas>=0.0.9
+moderngl>=5.10
+imageio>=2.34
+
+# NOT installed on purpose: rembg. TripoSR imports it for background removal
+# that Sculptor never calls — the app supplies a Vision mask, or the worker uses
+# the source alpha. install_triposr.sh makes that import lazy so onnxruntime
+# stays out of the environment.

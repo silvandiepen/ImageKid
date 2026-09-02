@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.hakobs.imagekid</string>
+	</array>
+	<!--
+	  Required for the model download once sandboxed. Outgoing connections are
+	  denied without it, which would leave "Install Model" failing silently.
+	  Note the existing Upscale/Cutout companions are missing this and download
+	  models the same way — worth checking before they are signed.
+	-->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<!--
+	  The bundled Python runtime loads native extensions (torch, torchmcubes)
+	  that are not signed by this team. Under the hardened runtime, library
+	  validation would refuse them.
+	-->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>

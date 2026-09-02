@@ -32,6 +32,8 @@ packages:
     path: ../../packages/BrushRender
   InkaKit:
     path: ../../packages/InkaKit
+  ImageKidSculptorKit:
+    path: ../../packages/ImageKidSculptorKit
 targets:
   ImageKid:
     type: application
@@ -214,6 +216,63 @@ targets:
         # ships in every signed bundle; the certificates and keys it resolves
         # to live in project-assets and are never checked in.
         DEVELOPMENT_TEAM: 38MGF83L2L
+
+  ImageKidSculptor:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/ImageKidSculptor
+      # See ImageKidUpscale: `resources` is not an XcodeGen key.
+      - path: Sources/ImageKid/Resources/Assets.xcassets
+    dependencies:
+      - package: ImageKidSculptorKit
+    # Sandboxed, like the other companions. A sandboxed process may only
+    # execute binaries inside its own bundle, so this depends on the Python
+    # runtime being packaged into Contents/Resources/sculptor-engine by
+    # tools/sculptor-engine/scripts/bundle_runtime.sh. A build without that step
+    # will start and then report that no engine was found.
+    #
+    # Two entitlements beyond the companion set, both load-bearing:
+    # network.client for the model download, and disable-library-validation so
+    # the hardened runtime will load PyTorch's unsigned native extensions.
+    entitlements:
+      path: Sources/ImageKidSculptor/ImageKidSculptor.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-write: true
+        com.apple.security.network.client: true
+        com.apple.security.cs.disable-library-validation: true
+        com.apple.security.application-groups:
+          - group.com.hakobs.imagekid
+    # A hand-written plist, like the main ImageKid target: CFBundleDocumentTypes
+    # is an array, and INFOPLIST_KEY_* build settings only carry scalars.
+    # Without a declared document type, LaunchServices never hands the app a
+    # file, so "Open With" hides Sculptor and dropping onto the Dock icon fails.
+    info:
+      path: Sources/ImageKidSculptor/Info.plist
+      properties:
+        CFBundleDisplayName: ImageKid Sculptor
+        LSApplicationCategoryType: public.app-category.graphics-design
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        NSPrincipalClass: NSApplication
+        NSHighResolutionCapable: true
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Image
+            CFBundleTypeRole: Viewer
+            # Alternate so Sculptor never displaces Preview as the default
+            # image viewer; the app delegate does the opening.
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.image
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hakobs.imagekid.sculptor
+        PRODUCT_NAME: ImageKid Sculptor
+        ASSETCATALOG_COMPILER_APPICON_NAME: SculptorAppIcon
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_STYLE: Automatic
   Fekthor:
     type: application
     platform: macOS
