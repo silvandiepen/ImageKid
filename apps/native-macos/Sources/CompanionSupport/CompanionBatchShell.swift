@@ -42,6 +42,7 @@ struct CompanionBatchShell<Settings: View>: View {
                 .overlay(Color.black.opacity(0.50))
                 .ignoresSafeArea()
         }
+        .background(CompanionWindowAccessor())
         .preferredColorScheme(.dark)
         .overlay { dropHighlight }
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: $isDropTargeted) { providers in
@@ -246,11 +247,20 @@ struct CompanionBatchShell<Settings: View>: View {
             Button("Compare and Edit...") { openEditor(item) }
             Divider()
         }
-        Button(targets.contains(where: \.isDone) ? "Open Result" : "Open Original") {
-            CompanionFileActions.open(targets.map(\.actionableURL))
+        let results = targets.compactMap(\.outputURL)
+        if !results.isEmpty {
+            Button("Open Result") {
+                CompanionFileActions.open(results)
+            }
+            Button("Reveal Result in Finder") {
+                CompanionFileActions.revealInFinder(results)
+            }
         }
-        Button("Show in Finder") {
-            CompanionFileActions.revealInFinder(targets.map(\.actionableURL))
+        Button("Open Original") {
+            CompanionFileActions.open(targets.map(\.sourceURL))
+        }
+        Button("Reveal Original in Finder") {
+            CompanionFileActions.revealInFinder(targets.map(\.sourceURL))
         }
         Divider()
         Button(targets.contains(where: \.isDone) ? "Put Back in Queue" : "Try Again") {
@@ -386,7 +396,9 @@ private struct BatchQueueRow: View {
 
             if item.isDone {
                 Button {
-                    CompanionFileActions.open([item.actionableURL])
+                    if let outputURL = item.outputURL {
+                        CompanionFileActions.open([outputURL])
+                    }
                 } label: {
                     Image(systemName: "arrow.up.forward.app")
                 }
@@ -394,12 +406,14 @@ private struct BatchQueueRow: View {
                 .help("Open the result")
 
                 Button {
-                    CompanionFileActions.revealInFinder([item.actionableURL])
+                    if let outputURL = item.outputURL {
+                        CompanionFileActions.revealInFinder([outputURL])
+                    }
                 } label: {
                     Image(systemName: "folder")
                 }
                 .buttonStyle(.borderless)
-                .help("Show in Finder")
+                .help("Reveal the result in Finder")
             }
 
             Button(action: remove) {

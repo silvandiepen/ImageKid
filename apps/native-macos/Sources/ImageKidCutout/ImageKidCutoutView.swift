@@ -140,6 +140,7 @@ struct ImageKidCutoutView: View {
                             set: { model.setWatchingFolder($0) }
                         )
                     )
+                    .controlSize(.small)
 
                     if model.isWatchingFolder {
                         folderRow(
