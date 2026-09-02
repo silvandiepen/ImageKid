@@ -2,7 +2,28 @@
 
 ## Status
 
-**Planned product. No Sculptor implementation exists yet.**
+**Working and packaged. Not signed, not notarised, not released.**
+
+The reconstruction worker (`tools/sculptor-engine`), the shared Swift types
+(`packages/ImageKidSculptorKit`) and the macOS app
+(`apps/native-macos/Sources/ImageKidSculptor`) run end to end: import an image,
+see it rated, generate locally, rotate the result, export GLB. The app installs
+its own model — falling back from the R2 mirror to upstream Hugging Face, which
+is ungated — and finds its own worker, so nothing needs configuring by hand.
+
+`scripts/bundle_runtime.sh` packages a self-contained Python runtime into
+`Contents/Resources/sculptor-engine` (918 MB), and the target is sandboxed on
+the strength of it. A generation has been run entirely from that bundle.
+
+`apps/native-macos/scripts/sign-sculptor.sh` signs the runtime's ~190 native
+binaries and then the app, inside-out. The interpreter carries its own
+entitlements, because it runs as a separate process and the app's do not reach
+it.
+
+What is *not* done: notarisation, which uploads to Apple and needs a Developer
+ID Application certificate rather than the Apple Distribution one available
+here. Reconstruction quality is good rather than perfect — see "Phase 0
+findings" below and `tools/sculptor-engine/README.md`.
 
 ImageKid Sculptor is a focused macOS companion app that turns one image containing one clear object into a complete, inspectable 3D model on the user's Mac.
 
@@ -199,6 +220,102 @@ Therefore the release implementation must not casually assume that weights can s
 
 This is a distribution concern, not a reason to use a hosted API. Once the engine and model are installed, generation remains local.
 
+## Phase 0 findings
+
+The spike is done. Three things in the plan above changed as a result; the rest
+held.
+
+### The V1 engine is TripoSR, not SPAR3D
+
+SPAR3D's weights are gated on Hugging Face behind an account and an acceptance
+of the Stability AI Community License, whose revenue threshold pulls a
+commercial release into separate enterprise terms. That makes it unverifiable in
+CI and awkward to ship.
+
+TripoSR does the same job — single image to a complete mesh with predicted
+hidden geometry — under **MIT**, ungated. It is now the default. `spar3d.py`
+still exists behind the same engine boundary for anyone who accepts the terms,
+but it has never been executed, because its weights cannot be fetched without
+credentials.
+
+This is exactly the substitution the engine boundary was designed to absorb: no
+change to the worker, the protocol, or the app.
+
+### Orientation has to be corrected, and the user has to say how
+
+Single-image reconstruction happens in the *input camera's* frame. Every
+isometric Tiko Media asset therefore comes out tilted back by roughly the
+camera's elevation. The plan's "orient the object consistently" cannot be
+satisfied by declaring `+Y` up.
+
+Two approaches were tried. Recovering the upright axis from geometry — taking
+the object's largest flat surface as its base — **does not work reliably**: the
+largest planar region on a real reconstruction is often the smooth back face the
+engine invents, not the base. It corrected the Madrid palace and laid
+`peace-palace` and `wat-pho` on their sides. It survives as an opt-in flag,
+default off.
+
+What works is two separate rotations, which were initially conflated:
+
+**The engine's own convention.** TripoSR does not emit a Y-up mesh at all — the
+subject's vertical axis comes out along Z, so an eye-level animal reconstructs
+lying on its back. This was missed while the corpus was only landmarks, because
+a wide diorama slab hides it. It surfaced immediately on animals: the yak, the
+pelican and the gibbon all came out on their sides. A fixed **-90°** correction
+inside the engine fixes every subject at once, and the yak becomes a properly
+recognisable four-legged yak with horns and a shaggy coat.
+
+**The camera's elevation**, on top of that, is a fact about the image: 0 for an
+eye-level photo, about +30 for the isometric landmark renders.
+
+The two compose exactly — -90 + 30 is the -60 first measured on landmarks — and
+that arithmetic is what confirmed the split rather than a coincidence.
+
+Because the camera height cannot be recovered from the image, the app asks: a
+three-way **Seen from** control, remembered between launches and re-applied on
+Regenerate. It defaults to eye level, since of 1,100 catalogue items 405
+landmarks are isometric while 263 animals and 222 people are not, and an
+imported photo is eye level too. That is a fact about the source image rather
+than an engine detail, so it does not conflict with the rule against exposing
+engine internals.
+
+### The preview needs its own file
+
+Apple's Model I/O, which backs SceneKit's asset loading, does not read GLB. As
+the plan anticipated, the worker writes a preview adapter — the same geometry as
+binary PLY with vertex colour — alongside the canonical GLB. The export the user
+receives is unchanged by the viewer's limitations.
+
+### Measured
+
+Apple M3 / 24 GB / macOS 26.5, MPS, 256³ marching cubes. Ten landmarks: 10/10,
+median 9.0 s. Nineteen assets spanning all six catalogue folders: **19/19,
+median 9.8 s, 3.5 GB peak memory**. That is far below the 10.5 GB the SPAR3D
+documentation quotes, so the upstream advice to fall back to CPU below 32 GB
+does not apply here. Raising marching cubes to 384³ triples time and triangles
+for a modest gain, because the triplane — not the isosurface — is the limit.
+
+Quality by subject, with the right viewpoint:
+
+- **Animals** are the strongest case, not the weakest as a landmark-only sample
+  had implied. The yak has horns, a shaggy coat and four legs; the swan a curved
+  neck and feathered wings; the penguin flippers and feet.
+- **People** come out upright and recognisable, with hats, faces and clothing,
+  and thin held props survive — the gondolier keeps his oar.
+- **Landmarks and places** give legible massing and facades.
+- **Geography** — islands, lakes — comes out as low flat lenses, which is
+  roughly what those subjects are.
+- **Flags do not work and cannot.** A flag is a 2D graphic with no object to
+  reconstruct. Preparation already rates them `poor`.
+
+The back face is always the softest side, very intricate subjects blur, and long
+thin limbs soften. Solidly usable for maps, globes, game props and background
+assets, and closer than that for animals and characters; short of a hero asset
+with visible fine detail.
+
+The stage weights in the protocol are still derived from stage ordering rather
+than these timings, so the progress bar is uneven. That remains open.
+
 ## Local-only architecture
 
 The core product requirement is that the image and generated model do not leave the Mac.
@@ -290,6 +407,90 @@ Suggested path:
 SPAR3D currently expects a 512×512 input internally. The app should own source preparation so engine swaps do not change user-visible import behaviour.
 
 If foreground isolation fails, allow generation to continue when reasonable rather than forcing manual masking in V1.
+
+## Several views of one object
+
+A single image cannot describe the far side of an object. The engine infers it, plausibly but not truthfully: a subject photographed in profile comes back with one eye, because nothing in the input says there is a second one. Where more than one view is available, the model should be built from what was seen.
+
+### Getting the views
+
+Two ways in, and they meet at the same place:
+
+- **Separate files.** `--view` on the command line, `viewPaths` in the protocol, in camera order after the source image.
+- **One image holding several views.** A turnaround sheet — front, side and back laid out in a row or a grid — is a natural thing to hand this tool and a very unnatural thing to reconstruct: fed in whole it produces one lumpy object with three faces on it. The splitter works on connected regions of content. It declines rather than guesses: a single subject, a sprite sheet, wildly uneven cells and stray debris all fall back to ordinary single-image behaviour, because a wrong split is worse than no split.
+
+Connected regions, not gaps in an axis projection. A projection has to be told how wide a gap counts as a separator, and on a real six-panel sheet there is no such width: the space between two panels was 32 pixels while the space between the animal's legs was 40. Any threshold either merges two panels or saws one subject in half — and the first version did both, finding four "views", two of which were two animals side by side. Connected regions need no such threshold: two panels are separate because they do not touch.
+
+It also disposes of the captions a sheet prints under each panel. On that sheet the smallest subject covered 77,000 pixels and the largest letter 190 — a four-hundred-fold gap, so telling a view from a label is not a close call.
+
+### Shadows
+
+A drop shadow has to be removed before reconstruction, and leaving it in is not a cosmetic problem: the engine builds it as a solid plate under the subject's feet, and it inflates the panel's bounding box besides.
+
+The test is **relative to each image's own contrast**, never a fixed threshold. Measured on a real sheet, the subject sits a median distance of 204 from the white backdrop while its shadow occupies a thin tail below 100 — about 4% of what a naive mask calls content. On a sheet rendered without shadows nothing at all falls below 158, so the same rule removes nothing there. A fixed threshold high enough to drop that shadow would erase a pale subject entirely; a relative one moves with the subject and keeps it.
+
+A split cell must carry its background mask with it. Most sheets arrive on flat white with no alpha, and a plain crop hands the engine a subject on white — with nothing to say where the object ends, the engine reconstructs the picture as a flat card. The split already knows what is background; the crop keeps it, filling enclosed holes first so a white marking on the subject is not mistaken for the backdrop behind it.
+
+### Which panel is which
+
+A caller who knows can say so: `front`, `right`, `back`, `left`, `top`, `bottom` (`--view-name`, or `viewNames` in the protocol), or raw angles (`viewYaws` and `viewPitches`). Names are the clearest way to describe a six-panel sheet, whose top and bottom are a pitch rather than a turn about the upright axis.
+
+With nothing declared, the reading is **chosen by measurement**. Sheets are laid out in only a handful of orders, so each plausible one is tried and scored, and the reading that best explains the panels' own pictures wins. On a real six-panel sheet with no hints at all:
+
+```
+[front right back left top bottom]  level only  0.803   ← chosen
+[front right back left top bottom]  all         0.778
+[front right back left bottom top]  all         0.795
+[front back left right top bottom]  all         0.599
+[any]                               one view    0.66–0.70
+```
+
+That single mechanism settles several questions that used to be hard-coded rules: which way round the sheet reads, whether the top and bottom panels help, and whether fusing beats not fusing at all. Nothing is assumed; the pictures decide, and the log shows the working.
+
+**The angles cannot be derived from the geometry, and two attempts to do so failed.** Maximising the visual hull's volume is a biased objective — it prefers making a view identical to another one, and on a sheet with known angles of 0/90/180 it estimated 0/0/180. Checking a view against the shape the *other views* agree on does not work either: a wrongly-placed view corrupts the hull its neighbours are judged against, so the damage shows up on them rather than on the culprit. Measured on a real subject, the correct placement scored *worse* than every wrong one (0.665 against 0.704–0.785). Both were deleted rather than shipped. What works is comparing against the input pictures, which are outside that circle.
+
+### Checking the answer
+
+Every candidate model — the plain single view, all panels fused, the level panels fused, under each candidate reading — is projected back into every panel's camera and compared with that panel's own picture. This is the only check available that is not circular, and it is what all the numbers above are.
+
+Two useful properties fall out of it. The single-view model is a candidate like any other, so "fused" never silently means "whatever came out": when fusing does not help, it loses. And a single view's score profile is diagnostic — 0.92 against its own picture and 0.54 from the sides is the signature of a subject reconstructed flat, which is what one photograph can honestly support.
+
+Views from above and below are handled by the same machinery rather than by a rule. A camera looking straight down measures the plan and invents the height, the exact opposite of what a level view does, and on the sheets measured so far the level panels alone win. That is a result, not a policy: on a sheet where the overhead panel helps, it will be used.
+
+### Fusing
+
+Each view is reconstructed on its own and the results are blended on a shared occupancy grid, then re-extracted as one surface. Blending a volume rather than stitching surfaces is what makes the result watertight: joining two meshes leaves seams and holes exactly where they meet, which is the visible middle of the object.
+
+Three rules, each of which was arrived at by measuring against a known object rather than by argument:
+
+1. **Sizes are reconciled by height.** Every reconstruction is normalised to fill its own box, so a long subject seen end-on comes back the same size as the same subject seen side-on. Height is the one dimension every view of an upright object shares. This is the difference between fusion beating the best single view and losing badly to it.
+2. **Every view adds.** A point is solid if any view reconstructed it solid. A view looking down the length of a subject cannot tell how long it is, and must not be able to veto the view that could. Averaging occupancy lets exactly that happen.
+3. **Every outline vetoes.** A point is removed if it falls outside any view's outline. An outline is measured — it is the input image's own silhouette — where depth is inferred. Intersecting the outlines is a visual hull, and it is what cuts an end-on view's blob back to the right length.
+
+Colour is not fused the same way: each part of the surface takes its colour from the view that faced it, because a view's guess at the colour of a side it could not see is not worth averaging in.
+
+Two things were tried and rejected on measurement. **ICP refinement** sounds strictly better and is not: it fits every view onto whichever view happens to be first, and when that one is the least informative it drags the good views down to it — measured, it cost the best view a third of its accuracy. **Weighting each view by whether it faced a point** likewise lets an uninformative view delete geometry a good one measured.
+
+Where the camera stands in the frame the engine reconstructs into is itself a measured fact, not a declared convention: silhouettes of real reconstructions were compared against their prepared inputs from each axis, and +X won every time. Getting it wrong puts every view's outline on the side it invented.
+
+### Measured
+
+Voxel IoU against ground truth, three views at 0/90/180:
+
+Voxel IoU against ground truth, three views at 0/90/180:
+
+| Subject | best single view | fused |
+| --- | --- | --- |
+| Synthetic creature (features on three sides) | 0.660 | **0.698** |
+| Yak reconstruction re-rendered as a turnaround | 0.661 | **0.723** |
+
+The uninformative views in the first case scored 0.284 and 0.263 on their own. Fusion beats not just the average but the best view available, which is the only bar worth clearing — a user cannot know in advance which of their views is the good one.
+
+On a real labelled six-panel sheet there is no ground-truth mesh, so the fused model is scored by projecting it back into each panel's camera and comparing with that panel's own picture. A single reconstruction matches its own input at 0.92–0.96, which is the ceiling; the four level panels fused reach **0.90**.
+
+### Falling back
+
+Fusion that fails falls back to the first view alone rather than to nothing: a single-view model is what the user would have had anyway, and it beats losing a generation they have already waited through. The result reports how many views it was actually built from, so it never claims views it did not use.
 
 ## Mesh and asset normalisation
 
@@ -488,14 +689,6 @@ Only after the one-image workflow is reliable:
 ### Batch mode
 
 Process a folder or catalogue of isolated source images, show a queue, generate missing GLBs, and mark outputs as accepted/review/failed. This is the natural path for converting large media libraries such as Tiko Media.
-
-### Multi-view input
-
-Accept two or more real views of the same object for improved geometry when available.
-
-### View-sheet import
-
-Detect and split a single turnaround/reference sheet containing front/side/back panels, then use those views as multi-view input.
 
 ### Automatic quality review
 
