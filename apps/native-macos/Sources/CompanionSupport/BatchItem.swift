@@ -23,6 +23,9 @@ struct BatchItem: Identifiable, Equatable {
     /// source thumbnail in the queue so a row shows what was actually made.
     var outputThumbnail: NSImage?
     var pixelSize: CGSize?
+    /// Pixel dimensions of the generated file. Kept separate from `pixelSize`, which
+    /// always describes the original and therefore remains the next run's input size.
+    var outputPixelSize: CGSize?
     var state: State = .waiting
     /// Where the next run would write this item, and whether that file is already there.
     /// Recomputed whenever the queue, the destination or the operation changes.
@@ -39,6 +42,11 @@ struct BatchItem: Identifiable, Equatable {
     var sizeLabel: String {
         guard let pixelSize else { return "Unknown size" }
         return "\(Int(pixelSize.width)) x \(Int(pixelSize.height)) px"
+    }
+
+    var outputSizeLabel: String? {
+        guard let outputPixelSize else { return nil }
+        return "\(Int(outputPixelSize.width)) x \(Int(outputPixelSize.height)) px"
     }
 
     var outputURL: URL? {

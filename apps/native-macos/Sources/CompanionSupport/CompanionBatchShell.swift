@@ -328,7 +328,7 @@ private struct BatchQueueRow: View {
                 Text(item.fileName)
                     .font(.headline)
                     .lineLimit(1)
-                Text(item.sizeLabel)
+                Text(item.outputSizeLabel.map { "\(item.sizeLabel) → \($0)" } ?? item.sizeLabel)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 status

@@ -308,6 +308,7 @@ final class CompanionBatchModel: ObservableObject {
         for index in items.indices where ids.contains(items[index].id) {
             items[index].state = .waiting
             items[index].outputThumbnail = nil
+            items[index].outputPixelSize = nil
             items[index].sourceActionNote = nil
             items[index].sourceActionFailed = false
         }
@@ -385,6 +386,12 @@ final class CompanionBatchModel: ObservableObject {
                     update(id: id, state: .done(output))
                     if let index = items.firstIndex(where: { $0.id == id }) {
                         items[index].outputThumbnail = CompanionImageIO.thumbnail(at: output)
+                        if let properties = CompanionImageIO.properties(at: output) {
+                            items[index].outputPixelSize = CGSize(
+                                width: properties.width,
+                                height: properties.height
+                            )
+                        }
                     }
                     applySourceAction(to: id, output: output)
                 } catch is CancellationError {
@@ -767,6 +774,12 @@ final class CompanionBatchModel: ObservableObject {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index].state = .done(url)
         items[index].outputThumbnail = CompanionImageIO.thumbnail(at: url)
+        if let properties = CompanionImageIO.properties(at: url) {
+            items[index].outputPixelSize = CGSize(
+                width: properties.width,
+                height: properties.height
+            )
+        }
         refreshExistingResults()
     }
 
@@ -775,6 +788,7 @@ final class CompanionBatchModel: ObservableObject {
         items[index].state = state
         if case .processing = state {
             items[index].outputThumbnail = nil
+            items[index].outputPixelSize = nil
         }
     }
 }
