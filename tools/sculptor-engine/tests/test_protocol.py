@@ -131,6 +131,7 @@ class TestMessages:
             previewPath="/tmp/preview.ply",
             exports={"obj": "/tmp/model.obj"},
             preparedImagePath="/tmp/prepared.png",
+            viewCount=1,
             triangleCount=12,
             vertexCount=8,
             hasTexture=True,
@@ -155,3 +156,75 @@ class TestMessages:
         ]
         for message in messages:
             assert json.loads(json.dumps(message)) == message
+
+
+class TestSeveralViews:
+    def test_decodes_extra_view_paths(self):
+        request = decode_request(
+            json.dumps(
+                {
+                    "type": "generate",
+                    "jobId": "job-3",
+                    "sourcePath": "/w/front.png",
+                    "workspace": "/w",
+                    "viewPaths": ["/w/side.png", "/w/back.png"],
+                }
+            )
+        )
+        assert request.viewPaths == ("/w/side.png", "/w/back.png")
+
+    def test_a_generate_without_views_is_a_single_image_job(self):
+        request = decode_request(
+            json.dumps(
+                {
+                    "type": "generate",
+                    "jobId": "job-3",
+                    "sourcePath": "/w/a.png",
+                    "workspace": "/w",
+                }
+            )
+        )
+        assert request.viewPaths == ()
+        assert request.options.splitSheet is True
+
+    def test_an_empty_view_path_is_refused(self):
+        with pytest.raises(ProtocolError):
+            decode_request(
+                json.dumps(
+                    {
+                        "type": "generate",
+                        "jobId": "job-3",
+                        "sourcePath": "/w/a.png",
+                        "workspace": "/w",
+                        "viewPaths": [""],
+                    }
+                )
+            )
+
+    def test_decodes_declared_camera_angles(self):
+        options = GenerateOptions.from_dict({"viewYaws": [0, 90, 180]})
+        assert options.viewYaws == (0.0, 90.0, 180.0)
+
+    def test_camera_angles_must_be_numbers(self):
+        with pytest.raises(ProtocolError):
+            GenerateOptions.from_dict({"viewYaws": ["front"]})
+
+    def test_sheet_splitting_can_be_turned_off(self):
+        assert GenerateOptions.from_dict({"splitSheet": False}).splitSheet is False
+
+    def test_decodes_named_views(self):
+        options = GenerateOptions.from_dict(
+            {"viewNames": ["front", "RIGHT", "back", "left", "top", "bottom"]}
+        )
+        assert options.viewNames == (
+            "front", "right", "back", "left", "top", "bottom",
+        )
+
+    def test_an_unknown_view_name_is_refused_before_any_work_is_done(self):
+        # A typo must fail here, not after a reconstruction per view.
+        with pytest.raises(ProtocolError, match="unknown view name"):
+            GenerateOptions.from_dict({"viewNames": ["fromt"]})
+
+    def test_decodes_camera_elevations(self):
+        options = GenerateOptions.from_dict({"viewPitches": [0, 90, -90]})
+        assert options.viewPitches == (0.0, 90.0, -90.0)

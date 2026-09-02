@@ -89,6 +89,7 @@ struct SculptorView: View {
         VStack(spacing: 16) {
             sourcePreview
             suitabilityBadge
+            stylePicker
             viewpointPicker
             if !model.isModelInstalled {
                 modelInstallNotice
@@ -133,6 +134,36 @@ struct SculptorView: View {
         case .good: .green
         case .okay: .orange
         case .poor: .red
+        }
+    }
+
+    /// Which way to build the model. Two different things rather than two
+    /// settings of one, so it is a choice rather than a slider.
+    private var stylePicker: some View {
+        VStack(spacing: 6) {
+            Picker("Build as", selection: Binding(
+                get: { model.style },
+                set: { model.style = $0 }
+            )) {
+                ForEach(SculptorStyle.allCases) { style in
+                    Text(style.title).tag(style)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 420)
+
+            Text(model.style.detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            // Shapes carves against several outlines; one picture gives it
+            // nothing to carve with, so it quietly falls back rather than fail.
+            if model.style == .shapes, (model.session.analysis?.viewCount ?? 1) < 2 {
+                Text("This image holds one view, so Detailed will be used.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
         }
     }
 
@@ -219,6 +250,14 @@ struct SculptorView: View {
                     ) + "s",
                     systemImage: "clock"
                 )
+                // Worth saying: a model built from several views is a different
+                // claim from one inferred out of a single picture.
+                if result.viewCount > 1 {
+                    Label(
+                        "built from \(result.viewCount) views",
+                        systemImage: "square.grid.3x1.below.line.grid.1x2"
+                    )
+                }
                 Spacer()
                 Text("Drag to rotate. Scroll to zoom.")
                     .foregroundStyle(.secondary)

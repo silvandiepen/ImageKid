@@ -29,6 +29,17 @@ public struct SculptorOptions: Codable, Equatable, Sendable {
     public var paletteColours: Int?
     /// Extra formats to write beside the canonical GLB.
     public var exportFormats: [String]?
+    /// Build the model out of blocks on a grid this many cells across.
+    ///
+    /// Deliberately blocky rather than accidentally lumpy. With several views
+    /// the blocks are carved from the panels' outlines and no reconstruction
+    /// runs at all; with one picture they come from whatever the engine
+    /// produced.
+    public var blocks: Int?
+    /// Build the model from the panels' own flat-coloured shapes rather than
+    /// reconstructing a surface. Needs several views of the subject, and never
+    /// runs the reconstruction engine — which is why it takes seconds.
+    public var cartoon: Bool?
     public var seed: Int?
     public var device: String?
     public var lowMemory: Bool?
@@ -44,6 +55,8 @@ public struct SculptorOptions: Codable, Equatable, Sendable {
         targetTriangles: Int? = nil,
         paletteColours: Int? = nil,
         exportFormats: [String]? = nil,
+        blocks: Int? = nil,
+        cartoon: Bool? = nil,
         seed: Int? = nil,
         device: String? = nil,
         lowMemory: Bool? = nil
@@ -58,6 +71,8 @@ public struct SculptorOptions: Codable, Equatable, Sendable {
         self.targetTriangles = targetTriangles
         self.paletteColours = paletteColours
         self.exportFormats = exportFormats
+        self.blocks = blocks
+        self.cartoon = cartoon
         self.seed = seed
         self.device = device
         self.lowMemory = lowMemory
@@ -202,6 +217,9 @@ public struct ResultMessage: Codable, Equatable, Sendable {
     /// Any extra formats that were requested, keyed by format name.
     public let exports: [String: String]
     public let preparedImagePath: String
+    /// How many views went into the model. 1 is the ordinary single-image job;
+    /// more means several views were reconstructed separately and fused.
+    public let viewCount: Int
     public let triangleCount: Int
     public let vertexCount: Int
     public let hasTexture: Bool
@@ -253,6 +271,9 @@ public struct AnalysisMessage: Codable, Equatable, Sendable {
     public let hadMask: Bool
     public let subjectCoverage: Double
     public let touchesEdge: Bool
+    /// Views of one object found laid out inside this image. 1 is an ordinary
+    /// single-subject image; more is a turnaround sheet.
+    public let viewCount: Int
 }
 
 public struct ErrorMessage: Codable, Equatable, Sendable {

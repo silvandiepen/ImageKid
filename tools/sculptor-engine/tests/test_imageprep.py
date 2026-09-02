@@ -265,3 +265,62 @@ class TestPrepare:
         prepared = imageprep.prepare(source, tmp_path / "p.png")
         assert prepared.touches_edge is True
         assert prepared.suitability is not Suitability.GOOD
+
+
+class TestOurOwnFraming:
+    """A view cut out of a turnaround sheet is framed by us, not by the picture.
+
+    It touches all four edges and fills the frame by construction, so reporting
+    those as problems rates every sheet "poor" on the strength of our own crop.
+    """
+
+    def build(self, tmp_path):
+        """A cut-out subject cropped exactly to its own bounds.
+
+        Round, because that is what a tight crop of a real subject looks like:
+        it reaches all four edges while leaving the corners transparent.
+        """
+
+        from PIL import ImageDraw
+
+        source = tmp_path / "cell.png"
+        image = Image.new("RGBA", (300, 300), (0, 0, 0, 0))
+        ImageDraw.Draw(image).ellipse((0, 0, 299, 299), fill=(200, 60, 40, 255))
+        image.save(source, format="PNG")
+
+        loaded = imageprep.load_source(source)
+        mask = imageprep.resolve_mask(loaded, None)
+        return loaded, mask, imageprep.subject_box(loaded, mask)
+
+    def test_a_tight_crop_is_not_called_cropped(self, tmp_path):
+        image, mask, box = self.build(tmp_path)
+
+        verdict, notes, _, touches_edge = imageprep.assess(
+            image, mask, box, framed_by_us=True
+        )
+
+        assert touches_edge is True, "the fact itself is still reported"
+        assert not any("frame edge" in note for note in notes)
+        assert not any("fills the frame" in note for note in notes)
+        assert verdict is not Suitability.POOR
+
+    def test_the_photographers_own_framing_is_still_judged(self, tmp_path):
+        image, mask, box = self.build(tmp_path)
+
+        verdict, notes, _, _ = imageprep.assess(image, mask, box)
+
+        assert any("frame edge" in note for note in notes)
+        assert verdict is Suitability.POOR
+
+    def test_a_real_problem_is_still_reported_in_our_own_frame(self, tmp_path):
+        # Being framed by us excuses the edges, not a subject too small to work
+        # from.
+        source = tmp_path / "cell.png"
+        write_rgba(source, (600, 600), (295, 295, 305, 305))
+        image = imageprep.load_source(source)
+        mask = imageprep.resolve_mask(image, None)
+        box = imageprep.subject_box(image, mask)
+
+        _, notes, _, _ = imageprep.assess(image, mask, box, framed_by_us=True)
+
+        assert any("small in the frame" in note for note in notes)

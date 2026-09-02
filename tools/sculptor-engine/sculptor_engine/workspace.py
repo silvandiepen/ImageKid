@@ -54,6 +54,18 @@ class JobWorkspace:
 
         return self.input_dir / "prepared.png"
 
+    def prepared_view_path(self, index: int) -> Path:
+        """Engine input for one view of a multi-view job.
+
+        View 0 keeps the canonical name, so a single-image job and the first
+        view of a turnaround write the same file and the app has one path to
+        show whichever it was.
+        """
+
+        if index == 0:
+            return self.prepared_image_path
+        return self.input_dir / f"prepared-{index}.png"
+
     @property
     def glb_path(self) -> Path:
         """Canonical generated asset."""

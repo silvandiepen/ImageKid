@@ -27,7 +27,7 @@ import traceback
 from pathlib import Path
 from typing import Callable, TextIO
 
-from . import imageprep, meshnorm, workspace
+from . import elements, imageprep, meshnorm, multiview, views, workspace
 from .engines import (
     DEFAULT_ENGINE,
     Cancelled,
@@ -81,6 +81,15 @@ def log(message: str) -> None:
     print(f"[sculptor-engine] {message}", file=sys.stderr, flush=True)
 
 
+def _describe(yaw: float, pitch: float) -> str:
+    """A camera position in words, for the log."""
+
+    for name, angles in multiview.NAMED_VIEWS.items():
+        if angles == (yaw, pitch):
+            return name
+    return f"{yaw:g}°" if not pitch else f"{yaw:g}°/{pitch:g}°"
+
+
 class Worker:
     """Owns the engine and runs one job at a time."""
 
@@ -129,28 +138,40 @@ class Worker:
             space = workspace.prepare(request.workspace)
             check_cancel()
             image = imageprep.load_source(request.sourcePath)
+            sources, from_sheet = self._gather_views(job_id, image, request)
             progress(Stage.PREPARING_IMAGE, 1.0)
 
             # 2. Isolating object -----------------------------------------------
             progress(Stage.ISOLATING_OBJECT)
-            check_cancel()
-            prepared = imageprep.isolate_subject(
-                image,
-                space.prepared_image_path,
-                mask_path=request.maskPath,
-                padding=options.cropPadding,
-                size=options.inputSize,
-            )
+            prepared_views = []
+            for index, source_image in enumerate(sources):
+                check_cancel()
+                prepared_views.append(
+                    imageprep.isolate_subject(
+                        source_image,
+                        space.prepared_view_path(index),
+                        # A supplied mask describes the source file, so it only
+                        # applies when the source file is the whole subject.
+                        mask_path=request.maskPath if len(sources) == 1 else None,
+                        padding=options.cropPadding,
+                        size=options.inputSize,
+                        # A view cut out of a sheet was framed here, not by
+                        # whoever made the picture.
+                        framed_by_us=from_sheet,
+                    )
+                )
+                progress(Stage.ISOLATING_OBJECT, (index + 1) / len(sources))
+            prepared = prepared_views[0]
             for note in prepared.notes:
                 log(f"{job_id}: {note}")
             log(f"{job_id}: suitability={prepared.suitability.value}")
-            progress(Stage.ISOLATING_OBJECT, 1.0)
 
             # 3-4. Reconstructing / building hidden sides -----------------------
             progress(Stage.RECONSTRUCTING)
             check_cancel()
+            count = len(prepared_views)
 
-            def on_engine_progress(fraction: float) -> None:
+            def report(fraction: float) -> None:
                 if fraction <= HIDDEN_SIDE_SPLIT:
                     progress(Stage.RECONSTRUCTING, fraction / HIDDEN_SIDE_SPLIT)
                 else:
@@ -159,25 +180,89 @@ class Worker:
                         (fraction - HIDDEN_SIDE_SPLIT) / (1 - HIDDEN_SIDE_SPLIT),
                     )
 
-            geometry = self._engine.reconstruct(
-                prepared.path,
-                progress=on_engine_progress,
-                should_cancel=lambda: self._is_cancelled(job_id),
-            )
+            if options.blocks and count > 1:
+                # Carved from the panels' outlines: no reconstruction at all.
+                geometry, view_count = self._carve(
+                    job_id, prepared_views, report, blocks=options.blocks
+                )
+            elif options.cartoon and count > 1:
+                # Carved from the panels' own shapes. The reconstruction engine
+                # is never asked, which is most of why this path is quick.
+                geometry, view_count = self._carve(job_id, prepared_views, report)
+            else:
+                reconstructed = []
+                for index, view in enumerate(prepared_views):
+                    check_cancel()
+                    reconstructed.append(
+                        self._engine.reconstruct(
+                            view.path,
+                            # Each view is one slice of the same progress bar,
+                            # so a three-view job advances a third as fast
+                            # rather than snapping back to zero twice.
+                            progress=lambda fraction, index=index: report(
+                                (index + fraction) / count
+                            ),
+                            should_cancel=lambda: self._is_cancelled(job_id),
+                        )
+                    )
+
+                if count > 1:
+                    # The silhouettes the engine was actually shown: the
+                    # evidence every candidate model is checked against.
+                    import numpy as np
+                    from PIL import Image as _Image
+
+                    pictures = [
+                        np.asarray(_Image.open(view.path).convert("RGBA"))[:, :, 3] > 8
+                        for view in prepared_views
+                    ]
+                    geometry, view_count = self._fuse(
+                        job_id, reconstructed, options, pictures
+                    )
+                else:
+                    geometry, view_count = reconstructed[0], 1
+
+                if options.blocks:
+                    # One picture, so there are no other outlines to carve
+                    # against. Blocks cannot make a wrong shape right, but they
+                    # make it a deliberate object rather than a lumpy one.
+                    from . import shapes
+
+                    geometry = shapes.blockify(
+                        multiview.as_mesh(geometry), size=options.blocks
+                    )
+                    log(
+                        f"{job_id}: rebuilt as blocks on a {options.blocks}-cell "
+                        f"grid, {len(geometry.faces)} triangles"
+                    )
+
             progress(Stage.BUILDING_HIDDEN_SIDES, 1.0)
 
             # 5. Cleaning model -------------------------------------------------
             progress(Stage.CLEANING_MODEL)
             check_cancel()
+            # Blocks are finished the moment they are built, and the usual
+            # finishing pass destroys them. Smoothing assumes one connected
+            # surface; a pile of separate cubes shares no edges, so each cube
+            # collapses toward its own centre and the model renders as a cloud
+            # of specks. Their colours are already flat, so there is nothing to
+            # quantise either, and their triangle count is already low.
+            finishing = (
+                dict(smoothing_iterations=0, target_triangles=0, palette_colours=0)
+                if options.blocks
+                else dict(
+                    smoothing_iterations=options.smoothingIterations,
+                    target_triangles=options.targetTriangles,
+                    palette_colours=options.paletteColours,
+                )
+            )
             scene, asset = meshnorm.normalise(
                 geometry,
-                fragment_threshold=options.fragmentThreshold,
+                fragment_threshold=0.0 if options.blocks else options.fragmentThreshold,
                 normalise_scale=options.normaliseScale,
                 pitch_correction=options.pitchCorrection,
                 align_ground=options.alignGround,
-                smoothing_iterations=options.smoothingIterations,
-                target_triangles=options.targetTriangles,
-                palette_colours=options.paletteColours,
+                **finishing,
             )
             if asset.removed_fragments:
                 log(f"{job_id}: removed {asset.removed_fragments} stray fragment(s)")
@@ -221,6 +306,7 @@ class Worker:
                         previewPath=str(preview),
                         exports=exports,
                         preparedImagePath=str(prepared.path),
+                        viewCount=view_count,
                         triangleCount=asset.triangle_count,
                         vertexCount=asset.vertex_count,
                         hasTexture=asset.has_texture,
@@ -261,6 +347,231 @@ class Worker:
             self._clear_cancel(job_id)
             self._active_job = None
 
+    # -- views --------------------------------------------------------------
+
+    def _gather_views(
+        self, job_id: str, image, request: GenerateRequest
+    ) -> tuple[list, bool]:
+        """Every image this job should reconstruct from, in camera order.
+
+        Three cases, in the order they take precedence: views the caller
+        supplied outright; several views found laid out inside one image; or
+        the ordinary single image.
+
+        Also reports whether the views were cut out of a sheet, because their
+        framing is then ours rather than the picture's.
+        """
+
+        if request.viewPaths:
+            extra = [imageprep.load_source(path) for path in request.viewPaths]
+            log(f"{job_id}: {len(extra) + 1} views supplied")
+            return [image] + extra, False
+
+        if not request.options.splitSheet:
+            return [image], False
+
+        cells = views.find_cells(image)
+        if len(cells) < 2:
+            return [image], False
+
+        log(
+            f"{job_id}: found {len(cells)} views laid out in the source image; "
+            "reconstructing each"
+        )
+        return [cell.image for cell in cells], True
+
+    def _carve(
+        self, job_id: str, prepared_views: list, report, blocks: int = 0
+    ) -> tuple:
+        """Build the model from the panels' own flat-coloured shapes.
+
+        The panels are already cut out and squared up, so all that remains is to
+        read the shapes out of each and carve. Nothing is reconstructed, which
+        is why this takes seconds where the engine takes minutes.
+        """
+
+        import numpy as np
+        from PIL import Image as _Image
+
+        panels = []
+        for index, view in enumerate(prepared_views):
+            picture = _Image.open(view.path).convert("RGBA")
+            subject = np.asarray(picture)[:, :, 3] > 8
+            found = elements.find(picture)
+            log(f"{job_id}: panel {index}: {len(found)} shapes")
+            panels.append(
+                (
+                    elements.Panel(
+                        subject=subject,
+                        direction=multiview.camera_direction(
+                            *multiview.NAMED_VIEWS["front"]
+                        ),
+                    ),
+                    found,
+                )
+            )
+            report((index + 1) / len(prepared_views) * HIDDEN_SIDE_SPLIT)
+
+        # Place each panel's camera. Cartoon mode needs the same reading of the
+        # sheet as everything else does.
+        readings = self._view_angles(len(panels), GenerateOptions())
+        reading = readings[0]
+        panels = [
+            (
+                elements.Panel(
+                    subject=panel.subject,
+                    direction=multiview.camera_direction(*angles),
+                ),
+                found,
+            )
+            for (panel, found), angles in zip(panels, reading)
+        ]
+
+        # Only the level panels: an overhead one cannot yet be placed the right
+        # way round, and a wrongly rolled panel carves the model to a sliver.
+        level = [
+            (panel, found)
+            for (panel, found), angles in zip(panels, reading)
+            if angles[1] == 0.0
+        ]
+        if len(level) < 2:
+            raise ValueError("cartoon mode needs at least two level views")
+
+        if blocks:
+            model, pieces = elements.blocks(level, size=blocks)
+            log(
+                f"{job_id}: built {pieces} materials as blocks on a {blocks}-cell "
+                f"grid from {len(level)} panels, {len(model.faces)} triangles"
+            )
+        else:
+            model, pieces = elements.build(level)
+            log(
+                f"{job_id}: carved {pieces} shapes from {len(level)} panels, "
+                f"{len(model.faces)} triangles"
+            )
+        return model, len(level)
+
+    def _fuse(
+        self,
+        job_id: str,
+        reconstructed: list,
+        options: GenerateOptions,
+        pictures: list,
+    ) -> tuple:
+        """Choose the model that best explains the panels' own pictures.
+
+        By default the candidates are the reconstructions themselves — one per
+        panel, each turned to face where its camera stood. Several views of an
+        object do not have to be blended to be useful: they let the best of them
+        be *identified*, which one picture alone cannot do. A subject
+        photographed end-on comes back flat and says nothing about it; the panel
+        that saw the length disagrees, and the pictures settle it.
+
+        Blending is opt-in, and that is a retreat from where this started.
+        Rebuilding the surface out of an occupancy grid fixes the outline and
+        ruins the model: measured on a real six-panel sheet it flattened the
+        horns, softened the ears and smeared the muzzle across the face, and the
+        outline score went *up* while it did so. A silhouette metric cannot see
+        any of that, which is exactly how it happened.
+
+        Returns the geometry and how many views went into it, so the result
+        never claims views it did not use.
+        """
+
+        count = len(reconstructed)
+        try:
+            readings = self._view_angles(count, options)
+        except multiview.UnknownAngles as exc:
+            # A caller who stated the wrong number of angles gets an error
+            # instead: that is a mistake worth hearing about.
+            log(f"{job_id}: {exc}; using the first view alone")
+            return reconstructed[0], 1
+
+        meshes = [multiview.as_mesh(geometry) for geometry in reconstructed]
+        best: tuple[float, str, object, int] | None = None
+
+        for reading in readings:
+            views = [
+                multiview.View(mesh=mesh, yaw=yaw, pitch=pitch)
+                for mesh, (yaw, pitch) in zip(meshes, reading)
+            ]
+            named = " ".join(_describe(*angles) for angles in reading)
+
+            # Each panel's own reconstruction, turned to face where its camera
+            # stood. Scale and placement do not enter into the scoring, so the
+            # orientation is all that is needed.
+            attempts: list[tuple[str, object, int]] = []
+            for index, view in enumerate(views):
+                placed = view.mesh.copy()
+                placed.apply_transform(view.orientation)
+                attempts.append((f"the {_describe(*reading[index])} view", placed, 1))
+
+            if options.fuseViews:
+                level = [view for view in views if view.pitch == 0.0]
+                subsets = [("all views fused", views)]
+                if 2 <= len(level) < len(views):
+                    subsets.append(("the level views fused", level))
+                for how, subset in subsets:
+                    if len(subset) < 2:
+                        continue
+                    try:
+                        attempts.append((how, multiview.fuse(subset), len(subset)))
+                    except Exception as exc:
+                        log(
+                            f"{job_id}: could not fuse {how} of [{named}] "
+                            f"({type(exc).__name__}: {exc})"
+                        )
+
+            for how, mesh, used in attempts:
+                scores = multiview.agreement(mesh, views, pictures)
+                mean = sum(scores) / len(scores)
+                log(
+                    f"{job_id}: [{named}] {how} scores {mean:.3f} ("
+                    + ", ".join(f"{score:.2f}" for score in scores)
+                    + ")"
+                )
+                if best is None or mean > best[0]:
+                    best = (mean, f"{how} of [{named}]", mesh, used)
+
+        assert best is not None
+        score, label, mesh, used = best
+        log(
+            f"{job_id}: using {label} — {score:.3f} against the "
+            f"{count} pictures"
+        )
+        return mesh, used
+
+    @staticmethod
+    def _view_angles(count: int, options: GenerateOptions) -> list[list[tuple]]:
+        """Readings of the sheet worth trying, each a list of (yaw, pitch).
+
+        A caller who says which panel is which gets exactly that, and one who
+        gives angles gets those. With nothing declared there is more than one
+        plausible reading, so all of them are returned and the pictures decide
+        between them.
+        """
+
+        if options.viewNames:
+            if len(options.viewNames) != count:
+                raise ValueError(
+                    f"{len(options.viewNames)} view names given for {count} views"
+                )
+            return [[multiview.NAMED_VIEWS[name] for name in options.viewNames]]
+
+        if options.viewYaws:
+            if len(options.viewYaws) != count:
+                raise ValueError(
+                    f"{len(options.viewYaws)} view angles given for {count} views"
+                )
+            pitches = options.viewPitches or (0.0,) * count
+            if len(pitches) != count:
+                raise ValueError(
+                    f"{len(pitches)} view elevations given for {count} views"
+                )
+            return [list(zip(options.viewYaws, pitches))]
+
+        return [list(reading) for reading in multiview.candidate_layouts(count)]
+
     def _fail(self, job_id: str, code: ErrorCode, message: str) -> None:
         log(f"{job_id}: {code.value}: {message}")
         self._emit.send(error_message(job_id, code, message))
@@ -277,9 +588,22 @@ class Worker:
 
         try:
             image = imageprep.load_source(request.sourcePath)
-            mask = imageprep.resolve_mask(image, request.maskPath)
-            box = imageprep.subject_box(image, mask)
-            verdict, notes, coverage, touches_edge = imageprep.assess(image, mask, box)
+            # Rate what will actually be reconstructed. A turnaround sheet
+            # judged whole reads as a badly framed subject; judged by its first
+            # view it reads as what it is.
+            cells = views.find_cells(image)
+            view_count = max(len(cells), 1)
+            subject = cells[0].image if cells else image
+            mask = imageprep.resolve_mask(subject, request.maskPath if not cells else None)
+            box = imageprep.subject_box(subject, mask)
+            verdict, notes, coverage, touches_edge = imageprep.assess(
+                subject, mask, box, framed_by_us=bool(cells)
+            )
+            if view_count > 1:
+                notes = (
+                    f"{view_count} views of one object found in this image; "
+                    "all of them will be used.",
+                ) + tuple(notes)
         except imageprep.UnsupportedImage as exc:
             self._emit.send(
                 error_message(None, ErrorCode.UNSUPPORTED_IMAGE, str(exc))
@@ -308,6 +632,7 @@ class Worker:
                 mask is not None,
                 coverage,
                 touches_edge,
+                view_count,
             )
         )
 
@@ -399,6 +724,7 @@ def run_once(
     source: Path,
     output: Path,
     mask: Path | None = None,
+    extra_views: list | None = None,
     work_dir: Path | None = None,
     engine_name: str = DEFAULT_ENGINE,
     options: GenerateOptions | None = None,
@@ -453,6 +779,7 @@ def run_once(
                 sourcePath=str(source),
                 workspace=str(root),
                 maskPath=str(mask) if mask else None,
+                viewPaths=tuple(str(path) for path in (extra_views or ())),
                 options=options or GenerateOptions(),
             )
         )
@@ -498,6 +825,7 @@ def run_once(
                         "ok": True,
                         "output": str(output),
                         "exports": exports,
+                        "views": result.get("viewCount"),
                         "triangles": result.get("triangleCount"),
                         "vertices": result.get("vertexCount"),
                         "hasColour": result.get("hasTexture"),

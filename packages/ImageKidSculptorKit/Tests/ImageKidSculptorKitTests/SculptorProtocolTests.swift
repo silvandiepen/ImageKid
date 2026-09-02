@@ -60,7 +60,7 @@ final class SculptorProtocolTests: XCTestCase {
 
     func testDecodesResult() throws {
         // One line, exactly as the worker writes it.
-        let json = #"{"type":"result","jobId":"j1","glbPath":"/w/output/model.glb","previewPath":"/w/output/preview.ply","exports":{"obj":"/w/output/model.obj"},"preparedImagePath":"/w/input/prepared.png","triangleCount":200864,"vertexCount":100480,"hasTexture":true,"appliedScale":1.0588,"boundingBoxLongestEdge":1.0,"upAxis":"+Y","originConvention":"bottomCentre","durationSeconds":14.913}"#
+        let json = #"{"type":"result","jobId":"j1","glbPath":"/w/output/model.glb","previewPath":"/w/output/preview.ply","exports":{"obj":"/w/output/model.obj"},"preparedImagePath":"/w/input/prepared.png","viewCount":1,"triangleCount":200864,"vertexCount":100480,"hasTexture":true,"appliedScale":1.0588,"boundingBoxLongestEdge":1.0,"upAxis":"+Y","originConvention":"bottomCentre","durationSeconds":14.913}"#
         let message = try decode(json)
         guard case .result(let result) = message else { return XCTFail("expected result") }
         XCTAssertEqual(result.glbPath, "/w/output/model.glb")
@@ -70,6 +70,16 @@ final class SculptorProtocolTests: XCTestCase {
         XCTAssertTrue(result.hasTexture)
         XCTAssertEqual(result.upAxis, "+Y")
         XCTAssertEqual(result.originConvention, "bottomCentre")
+        XCTAssertEqual(result.viewCount, 1)
+    }
+
+    func testDecodesFusedResult() throws {
+        // A turnaround sheet: three views found in one image, fused into one
+        // model. The app reads the count to say so.
+        let json = #"{"type":"result","jobId":"j2","glbPath":"/w/output/model.glb","previewPath":"/w/output/preview.obj","exports":{},"preparedImagePath":"/w/input/prepared.png","viewCount":3,"triangleCount":19998,"vertexCount":10012,"hasTexture":true,"appliedScale":1.0,"boundingBoxLongestEdge":1.0,"upAxis":"+Y","originConvention":"bottomCentre","durationSeconds":41.2}"#
+        let message = try decode(json)
+        guard case .result(let result) = message else { return XCTFail("expected result") }
+        XCTAssertEqual(result.viewCount, 3)
     }
 
     func testDecodesRecoverableError() throws {

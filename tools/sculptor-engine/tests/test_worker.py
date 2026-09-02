@@ -14,6 +14,7 @@ import sys
 import textwrap
 from pathlib import Path
 
+import numpy as np
 import pytest
 import trimesh
 from PIL import Image
@@ -439,3 +440,226 @@ class TestServeProtocolHygiene:
             json.loads(line) for line in completed.stdout.splitlines() if line.strip()
         ]
         assert messages[0]["type"] == "ready"
+
+
+# ---------------------------------------------------------------------------
+# Several views of one object
+# ---------------------------------------------------------------------------
+
+
+class SphereEngine(ReconstructionEngine):
+    """Returns a sphere, and records the image it was handed each time.
+
+    A sphere rather than a box because fusion voxelises and re-extracts, and a
+    box's flat faces make "did the shape survive" a question about marching
+    cubes rather than about the worker.
+    """
+
+    name = "sphere"
+
+    def __init__(self) -> None:
+        self.received: list[Path] = []
+
+    @property
+    def is_available(self) -> bool:
+        return True
+
+    @property
+    def unavailable_reason(self) -> str | None:
+        return None
+
+    def reconstruct(self, prepared_image, progress, should_cancel):
+        self.received.append(prepared_image)
+        progress(0.5)
+        return trimesh.creation.icosphere(subdivisions=3, radius=1.0)
+
+
+class WrongDepthEngine(ReconstructionEngine):
+    """Returns the same shape for every view, however it was photographed.
+
+    Fusing identical views cannot improve on one of them, so the single-view
+    candidate has to be allowed to win.
+    """
+
+    name = "wrong-depth"
+
+    @property
+    def is_available(self) -> bool:
+        return True
+
+    @property
+    def unavailable_reason(self) -> str | None:
+        return None
+
+    def reconstruct(self, prepared_image, progress, should_cancel):
+        progress(0.5)
+        return trimesh.creation.icosphere(subdivisions=3, radius=1.0)
+
+
+@pytest.fixture
+def sheet_image(tmp_path) -> Path:
+    """Three views of one object laid out in a row, as a turnaround render."""
+
+    path = tmp_path / "turnaround.png"
+    image = Image.new("RGBA", (900, 300), (0, 0, 0, 0))
+    for index in range(3):
+        left = index * 300 + 60
+        image.paste(Image.new("RGBA", (150, 180), (200, 80, 40, 255)), (left, 60))
+    image.save(path)
+    return path
+
+
+class TestSeveralViews:
+    def test_a_turnaround_sheet_is_reconstructed_view_by_view(
+        self, sheet_image, tmp_path
+    ):
+        pytest.importorskip("torchmcubes", reason="fusion needs a surface extractor")
+        engine = SphereEngine()
+        emitter = RecordingEmitter()
+
+        Worker(engine, emitter).run(
+            make_request(sheet_image, tmp_path / "job")
+        )
+
+        assert len(engine.received) == 3, "each view should be reconstructed"
+        # Distinct prepared images, not the same file handed over three times.
+        assert len({path.name for path in engine.received}) == 3
+        # One of them is chosen. Several views earn their keep by letting the
+        # best be identified, which one picture cannot do — not by being blended
+        # into a surface that no camera saw.
+        assert emitter.of_type("result")[0]["viewCount"] == 1
+
+    def test_a_sheet_can_be_taken_at_face_value(self, sheet_image, tmp_path):
+        engine = SphereEngine()
+        emitter = RecordingEmitter()
+
+        Worker(engine, emitter).run(
+            make_request(sheet_image, tmp_path / "job", splitSheet=False)
+        )
+
+        assert len(engine.received) == 1
+        assert emitter.of_type("result")[0]["viewCount"] == 1
+
+    def test_an_ordinary_image_is_still_one_view(self, source_image, tmp_path):
+        engine = SphereEngine()
+        emitter = RecordingEmitter()
+
+        Worker(engine, emitter).run(make_request(source_image, tmp_path / "job"))
+
+        assert len(engine.received) == 1
+        assert emitter.of_type("result")[0]["viewCount"] == 1
+
+    def test_views_can_be_supplied_as_separate_files(self, source_image, tmp_path):
+        pytest.importorskip("torchmcubes", reason="fusion needs a surface extractor")
+        engine = SphereEngine()
+        emitter = RecordingEmitter()
+
+        Worker(engine, emitter).run(
+            GenerateRequest(
+                jobId="job-1",
+                sourcePath=str(source_image),
+                workspace=str(tmp_path / "job"),
+                viewPaths=(str(source_image),),
+            )
+        )
+
+        assert len(engine.received) == 2
+        # Every view is reconstructed; which one is used is then decided by the
+        # pictures, and by default that is one of them rather than a blend.
+        assert emitter.of_type("result")[0]["viewCount"] == 1
+
+    def test_supplied_views_win_over_splitting_a_sheet(self, sheet_image, tmp_path):
+        # An explicit list of views is a statement about the input; it must not
+        # then be second-guessed by the sheet detector.
+        pytest.importorskip("torchmcubes", reason="fusion needs a surface extractor")
+        engine = SphereEngine()
+        emitter = RecordingEmitter()
+
+        Worker(engine, emitter).run(
+            GenerateRequest(
+                jobId="job-1",
+                sourcePath=str(sheet_image),
+                workspace=str(tmp_path / "job"),
+                viewPaths=(str(sheet_image),),
+            )
+        )
+
+        assert len(engine.received) == 2
+
+    def test_progress_climbs_once_across_every_view(self, sheet_image, tmp_path):
+        pytest.importorskip("torchmcubes", reason="fusion needs a surface extractor")
+        emitter = RecordingEmitter()
+        Worker(SphereEngine(), emitter).run(
+            make_request(sheet_image, tmp_path / "job")
+        )
+
+        fractions = [m["fraction"] for m in emitter.of_type("progress")]
+        assert fractions == sorted(fractions), "progress must never go backwards"
+
+    def test_a_mismatched_set_of_angles_is_refused(self, sheet_image, tmp_path):
+        emitter = RecordingEmitter()
+        Worker(SphereEngine(), emitter).run(
+            make_request(sheet_image, tmp_path / "job", viewYaws=(0.0, 90.0))
+        )
+
+        errors = emitter.of_type("error")
+        assert errors and "3 views" in errors[0]["message"]
+
+    def test_the_choice_is_reported_honestly(self, sheet_image, tmp_path):
+        """Whatever model wins, the count must describe it.
+
+        Every candidate — including the plain single-view model — is scored
+        against the panels' own pictures, so which one wins depends on the
+        subject. What must never vary is that the result says how many views
+        actually went into what it returned. ``multiview.agreement`` is where
+        the scoring itself is pinned down.
+        """
+
+        pytest.importorskip("torchmcubes", reason="fusion needs a surface extractor")
+        emitter = RecordingEmitter()
+
+        Worker(WrongDepthEngine(), emitter).run(
+            make_request(
+                sheet_image,
+                tmp_path / "job",
+                viewNames=("front", "right", "back"),
+            )
+        )
+
+        result = emitter.of_type("result")[0]
+        assert 1 <= result["viewCount"] <= 3
+        assert emitter.of_type("error") == []
+
+    def test_blending_is_available_but_not_the_default(self, sheet_image, tmp_path):
+        """Fusing rebuilds the surface out of a voxel grid.
+
+        On a real six-panel sheet that fixed the outline and flattened the
+        horns, softened the ears and smeared the muzzle — six views producing a
+        worse model than one. It stays reachable, and it stays off.
+        """
+
+        pytest.importorskip("torchmcubes", reason="fusion needs a surface extractor")
+        emitter = RecordingEmitter()
+
+        Worker(SphereEngine(), emitter).run(
+            make_request(sheet_image, tmp_path / "job", fuseViews=True)
+        )
+
+        assert emitter.of_type("result")[0]["viewCount"] > 1
+
+    def test_analysis_reports_the_views_it_found(self, sheet_image):
+        emitter = RecordingEmitter()
+        Worker(SphereEngine(), emitter).analyse(
+            AnalyseRequest(requestId="a1", sourcePath=str(sheet_image))
+        )
+
+        analysis = emitter.of_type("analysis")[0]
+        assert analysis["viewCount"] == 3
+        assert any("3 views" in note for note in analysis["notes"])
+
+    def test_analysis_of_one_subject_reports_one_view(self, source_image):
+        emitter = RecordingEmitter()
+        Worker(SphereEngine(), emitter).analyse(
+            AnalyseRequest(requestId="a1", sourcePath=str(source_image))
+        )
+        assert emitter.of_type("analysis")[0]["viewCount"] == 1

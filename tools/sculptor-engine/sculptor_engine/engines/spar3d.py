@@ -19,6 +19,7 @@ during the Phase 0 spike; see ``docs/sculptor.md`` and this tool's README.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from ..models import ModelInstallation, spar3d_installation
@@ -31,6 +32,20 @@ from .base import (
     ProgressCallback,
     ReconstructionEngine,
 )
+
+
+def spar3d_source_path() -> Path:
+    """Where the vendored SPAR3D source lives.
+
+    Fetched by ``scripts/install_spar3d.sh`` rather than committed. Upstream
+    ships no ``setup.py`` or ``pyproject.toml``, so it cannot be pip-installed
+    at all — a clone on the path is the only way in.
+    """
+
+    override = os.environ.get("SCULPTOR_SPAR3D_PATH")
+    if override:
+        return Path(override).expanduser()
+    return Path(__file__).resolve().parent.parent.parent / "vendor" / "SPAR3D"
 
 
 class SPAR3DEngine(ReconstructionEngine):
@@ -99,12 +114,23 @@ class SPAR3DEngine(ReconstructionEngine):
         if reason is not None:
             raise EngineUnavailable(reason)
 
+        # The vendored checkout goes on the path only when the package is not
+        # already importable, so a bundled runtime that ships it needs no
+        # checkout at all.
+        import importlib.util
+        import sys
+
+        source = str(spar3d_source_path())
+        if importlib.util.find_spec("spar3d") is None and source not in sys.path:
+            sys.path.insert(0, source)
+
         try:
             import torch
             from spar3d.system import SPAR3D
         except ImportError as exc:
             raise EngineUnavailable(
-                f"SPAR3D runtime is not installed in the worker environment: {exc}"
+                f"SPAR3D runtime is not installed in the worker environment: {exc}. "
+                f"Run scripts/install_spar3d.sh."
             ) from exc
 
         self._device = self._select_device()

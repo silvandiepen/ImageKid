@@ -250,11 +250,18 @@ def assess(
     image: Image.Image,
     mask: Image.Image | None,
     box: tuple[int, int, int, int],
+    framed_by_us: bool = False,
 ) -> tuple[Suitability, tuple[str, ...], float, bool]:
     """Rate how well the source matches the single-clear-object promise.
 
     This drives the optional ``Good``/``Okay``/``Poor`` badge in the ready state.
     It never blocks generation.
+
+    ``framed_by_us`` says the frame is not the photographer's. One view cut out
+    of a turnaround sheet is cropped tight to its own subject, so it touches all
+    four edges and fills the frame by construction — and neither says anything
+    about whether the subject was cropped when the picture was taken. Reporting
+    them anyway rates every sheet "poor" on the strength of our own crop.
     """
 
     notes: list[str] = []
@@ -265,7 +272,7 @@ def assess(
     touches_edge = (
         left <= 0 or top <= 0 or right >= image.width or bottom >= image.height
     )
-    if mask is not None and touches_edge:
+    if mask is not None and touches_edge and not framed_by_us:
         notes.append("The object touches the frame edge and may be cropped.")
 
     if mask is None:
@@ -275,13 +282,14 @@ def assess(
 
     if coverage < 0.05:
         notes.append("The object is small in the frame, so detail may be limited.")
-    elif coverage > 0.98 and mask is not None:
+    elif coverage > 0.98 and mask is not None and not framed_by_us:
         notes.append("The object fills the frame, so its silhouette may be clipped.")
 
     if min(image.width, image.height) < 256:
         notes.append("The source image is small, so the result will be coarse.")
 
-    if mask is None or (touches_edge and coverage > 0.9) or min(image.size) < 256:
+    cropped_short = touches_edge and coverage > 0.9 and not framed_by_us
+    if mask is None or cropped_short or min(image.size) < 256:
         verdict = Suitability.POOR
     elif notes:
         verdict = Suitability.OKAY
@@ -314,16 +322,21 @@ def isolate_subject(
     mask_path: str | Path | None = None,
     padding: float = 0.08,
     size: int = 512,
+    framed_by_us: bool = False,
 ) -> PreparedImage:
     """Isolate the subject in an already-loaded image and write the engine input.
 
     PNG because the prepared image keeps an alpha channel, which the
     reconstruction engine uses to separate subject from background.
+
+    ``framed_by_us`` is passed through to :func:`assess`; see there.
     """
 
     mask = resolve_mask(image, mask_path)
     box = subject_box(image, mask)
-    verdict, notes, coverage, touches_edge = assess(image, mask, box)
+    verdict, notes, coverage, touches_edge = assess(
+        image, mask, box, framed_by_us=framed_by_us
+    )
 
     if mask is not None:
         image.putalpha(mask)

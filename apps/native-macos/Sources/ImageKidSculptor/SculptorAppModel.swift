@@ -26,6 +26,11 @@ final class SculptorAppModel: ObservableObject {
         self.viewpoint = defaults.string(forKey: Self.viewpointKey)
             .flatMap(SourceViewpoint.init(rawValue:)) ?? .eyeLevel
 
+        // Detailed by default: it is the mode that works on one image, and
+        // shapes needs several views of the subject to carve from.
+        self.style = defaults.string(forKey: Self.styleKey)
+            .flatMap(SculptorStyle.init(rawValue:)) ?? .detailed
+
         session = Self.makeSession()
         setupProblem = WorkerLaunchConfiguration.resolve() == nil
             ? WorkerLaunchConfiguration.missingWorkerExplanation
@@ -190,7 +195,14 @@ final class SculptorAppModel: ObservableObject {
         didSet { defaults.set(viewpoint.rawValue, forKey: Self.viewpointKey) }
     }
 
+    /// Which way to build the model. Persisted alongside the viewpoint, and for
+    /// the same reason: it is a standing preference, not a per-image decision.
+    @Published var style: SculptorStyle {
+        didSet { defaults.set(style.rawValue, forKey: Self.styleKey) }
+    }
+
     private static let viewpointKey = "SculptorSourceViewpoint"
+    private static let styleKey = "SculptorStyle"
     private let defaults: UserDefaults
 
     /// Starts a generation.
@@ -201,7 +213,11 @@ final class SculptorAppModel: ObservableObject {
     /// disagree and refuse a generation the worker could have run.
     func generate() {
         session.generate(
-            options: SculptorOptions(pitchCorrection: viewpoint.pitchCorrection)
+            options: SculptorOptions(
+                pitchCorrection: viewpoint.pitchCorrection,
+                blocks: style == .blocks ? style.blockGrid : nil,
+                cartoon: style == .shapes
+            )
         )
     }
 
