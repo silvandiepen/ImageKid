@@ -96,19 +96,40 @@ struct ImageKidUpscaleView: View {
     private var imageTypeSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             settingLabel("Tune for", systemImage: contentModeSymbol)
-            Picker("Image Type", selection: $contentMode) {
+            HStack(spacing: 8) {
                 ForEach(UpscaleContentMode.allCases) { mode in
-                    Text(mode.label).tag(mode)
+                    contentModeButton(mode)
                 }
             }
-            .labelsHidden()
-            .frame(maxWidth: .infinity)
 
             Text(contentModeDetail)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private func contentModeButton(_ mode: UpscaleContentMode) -> some View {
+        let isSelected = contentMode == mode
+        return Button {
+            contentMode = mode
+        } label: {
+            VStack(spacing: 5) {
+                Image(systemName: symbol(for: mode))
+                    .font(.subheadline.weight(.semibold))
+                Text(mode.label)
+                    .font(.caption.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+            }
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .padding(.horizontal, 5)
+            .background(isSelected ? Color.accentColor : Color.white.opacity(0.07))
+            .foregroundStyle(isSelected ? Color.white : Color.primary)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var destinationSection: some View {
@@ -172,7 +193,11 @@ struct ImageKidUpscaleView: View {
     }
 
     private var contentModeSymbol: String {
-        switch contentMode {
+        symbol(for: contentMode)
+    }
+
+    private func symbol(for mode: UpscaleContentMode) -> String {
+        switch mode {
         case .automatic: "wand.and.rays"
         case .photoArtwork: "photo.on.rectangle.angled"
         case .textAndUI: "character.cursor.ibeam"
