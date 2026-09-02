@@ -29,6 +29,18 @@ The colour picker does not yet have a pixel-grid loupe or dominant-palette extra
 
 A third focused macOS companion, **ImageKid Slicer**, has a first implementation: open one composite image, define regions — by hand, by cutting guides, by a grid, or from a template — then Save to a folder to create every slice as a separate local image. It is not packaged, signed, or notarised. See [docs/slicer.md](docs/slicer.md).
 
+The planned focused range also includes **ImageKid Convert**, **ImageKid
+AppIcons**, **ImageKid Sheet**, **ImageKid Compress**, and the Fekthor Effects,
+Trace, Cleanup, View, and Edit tools. These are separate, single-purpose products
+built from shared local engines, not reduced modes of the flagship editors. See
+the [focused app family](docs/focused-apps.md),
+[ImageKid Convert](docs/imagekid-convert.md), and
+[Fekthor focused apps](docs/fekthor/FOCUSED-APPS.md).
+
+ImageKid AppIcons, ImageKid Sheet, and ImageKid Compress also include command-line
+tools backed by the same processing engines as their graphical apps. See the
+[focused CLI contract](docs/focused-cli.md).
+
 ## Development
 
 Install the website workspace from the repository root:
@@ -75,7 +87,7 @@ The repository is a development foundation. A successful Swift package build is 
 
 ## Documentation
 
-Start with the [documentation index](docs/README.md), [product definition](docs/product.md), [implementation status](docs/implementation.md), [requirements](docs/requirements.md), [architecture](docs/architecture.md), [companion app strategy](docs/companion-apps.md), and [ImageKid Slicer](docs/slicer.md), the composite-image slicing tool. [ImageKid Sculptor](docs/sculptor.md), the local single-image-to-3D workflow, is planned and not implemented.
+Start with the [documentation index](docs/README.md), [product definition](docs/product.md), [implementation status](docs/implementation.md), [requirements](docs/requirements.md), [architecture](docs/architecture.md), and [companion app strategy](docs/companion-apps.md). Focused-product documentation includes the [focused app family](docs/focused-apps.md), [ImageKid Convert](docs/imagekid-convert.md), [Fekthor focused apps](docs/fekthor/FOCUSED-APPS.md), and the implemented [ImageKid Slicer](docs/slicer.md). [ImageKid Sculptor](docs/sculptor.md), the local single-image-to-3D workflow, is planned and not implemented.
 
 ## Licence
 
